@@ -10,6 +10,11 @@ Income-tax-Act-2025.pdf
 PLAN.md
 DECISIONS.md
 
+# Derived corpus artifacts — regenerable from the PDF via scripts/ and keyed
+# by corpus_version (ADR-005). Step 1.2 onward writes large span-level JSONL
+# here. reports/ is deliberately NOT ignored: it is the evidence.
+data/
+
 # Python
 __pycache__/
 *.py[cod]
