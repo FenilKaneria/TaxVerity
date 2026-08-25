@@ -15,10 +15,16 @@ def render(result) -> str:
     found = result.all_numbers
     gaps = result.gaps(EXPECTED_SECTIONS)
     duplicates = result.duplicates()
+    first_schedule_page = min((page for _, page in result.schedules), default=None)
     single_cue = sorted(
-        c.number for c in result.candidates if len(c.cues) == 1 and c.cues[0] == "regex"
+        (c.number, c.suffix)
+        for c in result.candidates
+        if len(c.cues) == 1 and c.cues[0] == "regex"
     )
-    untitled = sorted(c.number for c in result.candidates if c.title is None)
+    single_cue = [f"{n}{x}" for n, x in single_cue]
+    untitled = sorted(
+        (c.number, c.suffix) for c in result.candidates if c.title is None
+    )
 
     out = [
         "# Structure probe — Income-tax Act, 2025",
@@ -38,6 +44,7 @@ def render(result) -> str:
         f"| **Detected by either cue** | **{len(found)}** |",
         f"| Missing entirely | **{len(gaps)}** |",
         f"| Numbers seen on more than one page | {len(duplicates)} |",
+        f"| Letter-suffixed sections (e.g. 354A) | {len(result.suffixed)} |",
         f"| Resting on the weaker regex cue alone | {len(single_cue)} |",
         f"| Detected without a title | {len(untitled)} |",
         "",
@@ -62,9 +69,30 @@ def render(result) -> str:
         "most likely false positives. Step 1.5 should confirm each one.",
         "",
     ]
-    out.append(", ".join(str(n) for n in single_cue) if single_cue else "None.")
+    out.append(", ".join(single_cue) if single_cue else "None.")
 
-    first_schedule_page = min((page for _, page in result.schedules), default=None)
+    out += [
+        "",
+        "## Letter-suffixed sections",
+        "",
+        "Only bold-cue hits in the body are real. Regex-only hits at or after the",
+        "first Schedule page are references to the Income-tax Act, **1961**, which",
+        "the Schedules cite heavily — not sections of this Act.",
+        "",
+        "| Label | Page | Cues | Reading |",
+        "|---|---|---|---|",
+    ]
+    for candidate in sorted(result.suffixed, key=lambda c: c.page):
+        real = "bold" in candidate.cues and (
+            first_schedule_page is None or candidate.page < first_schedule_page
+        )
+        out.append(
+            f"| {candidate.label} | {candidate.page} | {'+'.join(candidate.cues)} "
+            f"| {'**real section**' if real else 'likely a 1961-Act reference'} |"
+        )
+    if not result.suffixed:
+        out.append("| — | — | — | none |")
+
     collisions = sum(
         1
         for pages in duplicates.values()
@@ -111,13 +139,15 @@ def render(result) -> str:
         "|---|---|---|---|",
     ]
     seen = set()
-    for candidate in sorted(result.candidates, key=lambda c: (c.number, c.page)):
-        if candidate.number in seen:
+    for candidate in sorted(
+        result.candidates, key=lambda c: (c.number, c.suffix, c.page)
+    ):
+        if candidate.label in seen:
             continue
-        seen.add(candidate.number)
+        seen.add(candidate.label)
         title = (candidate.title or "—").replace("|", "\\|")[:70]
         out.append(
-            f"| {candidate.number} | {candidate.page} | {'+'.join(candidate.cues)} | {title} |"
+            f"| {candidate.label} | {candidate.page} | {'+'.join(candidate.cues)} | {title} |"
         )
 
     return "\n".join(out) + "\n"

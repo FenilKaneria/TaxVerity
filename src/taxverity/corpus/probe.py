@@ -9,8 +9,8 @@ from taxverity.corpus.models import PageArtifact, Span
 
 BODY_FONT_PREFIX = "LiberationSerif"
 
-SECTION_NUMBER_SPAN = re.compile(r"^(\d{1,3})\.$")
-SECTION_LINE_START = re.compile(r"^\s*(\d{1,3})\.\s+\S", re.MULTILINE)
+SECTION_NUMBER_SPAN = re.compile(r"^(\d{1,3})([A-Z]{0,3})\.$")
+SECTION_LINE_START = re.compile(r"^\s*(\d{1,3})([A-Z]{0,3})\.\s+\S", re.MULTILINE)
 CHAPTER_SPAN = re.compile(r"^CHAPTER\s+([IVXLCDM]+)$")
 SCHEDULE_LINE = re.compile(r"^\s*SCHEDULE\s+([IVXLCDM]+)\s*$", re.MULTILINE)
 
@@ -21,9 +21,14 @@ class HeadingCandidate(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     number: int
+    suffix: str = ""
     page: int
     title: str | None
     cues: tuple[str, ...]
+
+    @property
+    def label(self) -> str:
+        return f"{self.number}{self.suffix}"
 
 
 class StructureProbe(BaseModel):
@@ -32,23 +37,28 @@ class StructureProbe(BaseModel):
     candidates: tuple[HeadingCandidate, ...]
     chapters: tuple[tuple[str, int], ...]
     schedules: tuple[tuple[str, int], ...]
-    regex_only: tuple[tuple[int, int], ...]
+    regex_only: tuple[tuple[tuple[int, str], int], ...]
 
-    def numbers_by_cue(self, cue: str) -> set[int]:
-        return {c.number for c in self.candidates if cue in c.cues}
+    def numbers_by_cue(self, cue: str) -> set[str]:
+        return {c.label for c in self.candidates if cue in c.cues}
 
     @property
-    def all_numbers(self) -> set[int]:
-        return {c.number for c in self.candidates}
+    def suffixed(self) -> tuple[HeadingCandidate, ...]:
+        return tuple(c for c in self.candidates if c.suffix)
 
-    def duplicates(self) -> dict[int, list[int]]:
+    @property
+    def all_numbers(self) -> set[str]:
+        return {c.label for c in self.candidates}
+
+    def duplicates(self) -> dict[str, list[int]]:
         pages = defaultdict(list)
         for candidate in self.candidates:
-            pages[candidate.number].append(candidate.page)
+            pages[candidate.label].append(candidate.page)
         return {n: p for n, p in sorted(pages.items()) if len(p) > 1}
 
     def gaps(self, expected_high: int) -> list[int]:
-        return [n for n in range(1, expected_high + 1) if n not in self.all_numbers]
+        plain = {c.number for c in self.candidates if not c.suffix}
+        return [n for n in range(1, expected_high + 1) if n not in plain]
 
 
 def is_body_bold(span: Span) -> bool:
@@ -95,6 +105,7 @@ def probe_page(
             bold_hits.append(
                 HeadingCandidate(
                     number=int(number.group(1)),
+                    suffix=number.group(2),
                     page=artifact.page,
                     title=title_before(spans, index),
                     cues=("bold",),
@@ -102,7 +113,10 @@ def probe_page(
             )
 
     page_text = normalise(artifact.text)
-    regex_numbers = {int(m) for m in SECTION_LINE_START.findall(page_text)}
+    regex_numbers = {
+        (int(number), suffix)
+        for number, suffix in SECTION_LINE_START.findall(page_text)
+    }
     schedules = SCHEDULE_LINE.findall(page_text)
     return bold_hits, chapters, schedules, regex_numbers
 
@@ -111,18 +125,19 @@ def probe(artifacts: Iterable[PageArtifact]) -> StructureProbe:
     candidates: list[HeadingCandidate] = []
     chapters: list[tuple[str, int]] = []
     schedules: list[tuple[str, int]] = []
-    regex_only: list[tuple[int, int]] = []
+    regex_only: list[tuple[tuple[int, str], int]] = []
 
     for artifact in artifacts:
         bold_hits, page_chapters, page_schedules, regex_numbers = probe_page(artifact)
-        bold_numbers = {hit.number for hit in bold_hits}
+        bold_numbers = {(hit.number, hit.suffix) for hit in bold_hits}
 
         for hit in bold_hits:
-            cues = ("bold", "regex") if hit.number in regex_numbers else ("bold",)
+            key = (hit.number, hit.suffix)
+            cues = ("bold", "regex") if key in regex_numbers else ("bold",)
             candidates.append(hit.model_copy(update={"cues": cues}))
 
-        for number in sorted(regex_numbers - bold_numbers):
-            regex_only.append((number, artifact.page))
+        for key in sorted(regex_numbers - bold_numbers):
+            regex_only.append((key, artifact.page))
 
         chapters.extend((numeral, artifact.page) for numeral in page_chapters)
         schedules.extend((numeral, artifact.page) for numeral in page_schedules)
@@ -130,13 +145,15 @@ def probe(artifacts: Iterable[PageArtifact]) -> StructureProbe:
     # A regex-only number is a heading candidate too, but a weaker one: it may
     # equally be a numbered list item or a table row. Kept separate so the
     # report can show which sections rest on the weaker cue alone.
-    known = {c.number for c in candidates}
-    for number, page in regex_only:
-        if number not in known:
+    known = {(c.number, c.suffix) for c in candidates}
+    for (number, suffix), page in regex_only:
+        if (number, suffix) not in known:
             candidates.append(
-                HeadingCandidate(number=number, page=page, title=None, cues=("regex",))
+                HeadingCandidate(
+                    number=number, suffix=suffix, page=page, title=None, cues=("regex",)
+                )
             )
-            known.add(number)
+            known.add((number, suffix))
 
     return StructureProbe(
         candidates=tuple(candidates),

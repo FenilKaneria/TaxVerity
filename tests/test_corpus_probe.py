@@ -63,7 +63,7 @@ def test_non_bold_numbers_are_not_bold_cue_headings():
     artifact = page(1, "5. something", [span("5."), span("something")])
     hits, _, _, regex_numbers = probe_page(artifact)
     assert hits == []
-    assert regex_numbers == {5}
+    assert regex_numbers == {(5, "")}
 
 
 def test_furniture_spans_cannot_be_headings():
@@ -123,10 +123,10 @@ def test_cues_are_recorded_and_combined():
         [span("Title.", bold=True), span("7.", bold=True), span("(1) text")],
     )
     result = probe([artifact])
-    by_number = {c.number: c for c in result.candidates}
-    assert by_number[7].cues == ("bold", "regex")
-    assert by_number[9].cues == ("regex",)
-    assert by_number[9].title is None
+    by_number = {c.label: c for c in result.candidates}
+    assert by_number["7"].cues == ("bold", "regex")
+    assert by_number["9"].cues == ("regex",)
+    assert by_number["9"].title is None
 
 
 def test_gaps_and_duplicates_are_reported():
@@ -137,13 +137,26 @@ def test_gaps_and_duplicates_are_reported():
     ]
     result = probe(pages)
     assert result.gaps(3) == [2]
-    assert result.duplicates() == {1: [0, 9]}
+    assert result.duplicates() == {"1": [0, 9]}
 
 
 def test_probe_of_no_pages_is_empty():
     result = probe([])
     assert result.candidates == ()
     assert result.gaps(3) == [1, 2, 3]
+
+
+def test_letter_suffixed_sections_are_detected_and_labelled():
+    artifact = page(
+        416,
+        "354A. Where any registered non-profit organisation merges",
+        [span("Merger title.", bold=True), span("354A.", bold=True)],
+    )
+    result = probe([artifact])
+    assert [c.label for c in result.candidates] == ["354A"]
+    assert result.suffixed[0].suffix == "A"
+    # A suffixed section must not fill a plain-number slot.
+    assert result.gaps(354) == list(range(1, 355))
 
 
 # --- against the committed golden fixtures ----------------------------------

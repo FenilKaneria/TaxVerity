@@ -10,13 +10,14 @@ them.
 | Measure | Value |
 |---|---|
 | Sections expected | 536 |
-| Detected by the bold-span cue | 521 |
-| Detected by the line-start regex cue | 532 |
-| **Detected by either cue** | **536** |
+| Detected by the bold-span cue | 522 |
+| Detected by the line-start regex cue | 542 |
+| **Detected by either cue** | **546** |
 | Missing entirely | **0** |
 | Numbers seen on more than one page | 14 |
-| Resting on the weaker regex cue alone | 15 |
-| Detected without a title | 18 |
+| Letter-suffixed sections (e.g. 354A) | 10 |
+| Resting on the weaker regex cue alone | 24 |
+| Detected without a title | 27 |
 
 - Chapters detected: **23**
 - Schedules detected: **16**
@@ -30,7 +31,26 @@ None. Every section from 1 to 536 was located by at least one cue.
 These lack a bold `<n>.` span, so they are the weakest detections and the
 most likely false positives. Step 1.5 should confirm each one.
 
-67, 94, 95, 271, 437, 438, 445, 447, 448, 451, 477, 487, 494, 495, 522
+13B, 13C, 13E, 38B, 38C, 38D, 67, 71B, 73A, 74A, 94, 95, 271, 437, 438, 445, 447, 448, 451, 477, 487, 494, 495, 522
+
+## Letter-suffixed sections
+
+Only bold-cue hits in the body are real. Regex-only hits at or after the
+first Schedule page are references to the Income-tax Act, **1961**, which
+the Schedules cite heavily — not sections of this Act.
+
+| Label | Page | Cues | Reading |
+|---|---|---|---|
+| 354A | 416 | bold+regex | **real section** |
+| 71B | 619 | regex | likely a 1961-Act reference |
+| 73A | 619 | regex | likely a 1961-Act reference |
+| 74A | 619 | regex | likely a 1961-Act reference |
+| 38B | 630 | regex | likely a 1961-Act reference |
+| 38C | 630 | regex | likely a 1961-Act reference |
+| 38D | 631 | regex | likely a 1961-Act reference |
+| 13B | 635 | regex | likely a 1961-Act reference |
+| 13C | 635 | regex | likely a 1961-Act reference |
+| 13E | 635 | regex | likely a 1961-Act reference |
 
 ## Numbers appearing on more than one page
 
@@ -45,6 +65,11 @@ before the first Schedule, or otherwise scoped by container. A bare
 | Section | Pages |
 |---|---|
 | 1 | 0, 650, 652, 654, 656, 659, 660, 664 |
+| 10 | 21, 653, 655 |
+| 11 | 22, 654, 655 |
+| 12 | 23, 654, 656 |
+| 13 | 24, 654 |
+| 14 | 25, 654 |
 | 2 | 1, 622, 652, 654, 656, 659, 661, 665 |
 | 3 | 11, 650, 652, 655, 659, 661 |
 | 4 | 12, 651, 652, 655, 659, 661 |
@@ -53,11 +78,6 @@ before the first Schedule, or otherwise scoped by container. A bare
 | 7 | 15, 653 |
 | 8 | 16, 653, 655 |
 | 9 | 17, 653, 655 |
-| 10 | 21, 653, 655 |
-| 11 | 22, 654, 655 |
-| 12 | 23, 654, 656 |
-| 13 | 24, 654 |
-| 14 | 25, 654 |
 
 ## Chapters
 
@@ -127,6 +147,9 @@ First detection of each number, in page order.
 | 11 | 22 | bold+regex | Incomes not included in total income. |
 | 12 | 23 | bold+regex | Incomes not included in total income of political parties and electora |
 | 13 | 24 | bold+regex | Heads of income. |
+| 13B | 635 | regex | — |
+| 13C | 635 | regex | — |
+| 13E | 635 | regex | — |
 | 14 | 25 | bold+regex | Income not forming part of total income and expenditure in relation to |
 | 15 | 26 | bold+regex | Salaries. |
 | 16 | 27 | bold+regex | Income from salary. |
@@ -152,6 +175,9 @@ First detection of each number, in page order.
 | 36 | 52 | bold+regex | Expenses or payments not deductible in certain circumstances. |
 | 37 | 53 | bold+regex | Certain deductions allowed on actual payment basis only. |
 | 38 | 54 | bold+regex | Certain sums deemed as profits and gains of business or profession. |
+| 38B | 630 | regex | — |
+| 38C | 630 | regex | — |
+| 38D | 631 | regex | — |
 | 39 | 55 | bold+regex | Computation of actual cost. |
 | 40 | 57 | bold+regex | Special provision for computation of cost of acquisition of certain as |
 | 41 | 58 | bold+regex | Written down value of depreciable asset. |
@@ -185,9 +211,12 @@ First detection of each number, in page order.
 | 69 | 94 | bold+regex | Capital gains on purchase by company of its own shares or other specif |
 | 70 | 95 | bold+regex | Transactions not regarded as transfer. |
 | 71 | 99 | bold+regex | Withdrawal of exemption in certain cases. |
+| 71B | 619 | regex | — |
 | 72 | 100 | bold+regex | Mode of computation of capital gains. |
 | 73 | 101 | bold+regex | Cost with reference to certain modes of acquisition. |
+| 73A | 619 | regex | — |
 | 74 | 103 | bold+regex | Special provision for computation of capital gains in case of deprecia |
+| 74A | 619 | regex | — |
 | 75 | 104 | bold+regex | Special provision for cost of acquisition in case of depreciable asset |
 | 76 | 105 | bold+regex | Special provision for computation of capital gains in case of Market L |
 | 77 | 106 | bold+regex | Special provision for computation of capital gains in case of slump sa |
@@ -468,6 +497,7 @@ First detection of each number, in page order.
 | 352 | 412 | bold+regex | Tax on accreted income. |
 | 353 | 414 | bold+regex | Other violations. |
 | 354 | 415 | bold+regex | Application for approval for purpose of section 133(1)( b )( ii ). |
+| 354A | 416 | bold+regex | Merger of registered non-profit organisation in certain cases. |
 | 355 | 417 | bold+regex | Interpretation. |
 | 356 | 418 | bold+regex | Appealable orders before Joint Commissioner (Appeals). |
 | 357 | 419 | bold+regex | Appealable orders before Commissioner (Appeals). |
