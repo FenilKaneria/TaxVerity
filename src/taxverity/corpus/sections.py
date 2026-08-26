@@ -109,6 +109,13 @@ class ParsedAct(BaseModel):
     chapter_headings: tuple[Line, ...]
     titles: tuple[Line, ...]
     body_lines: int
+    # Page of each body line, parallel to the lines of ``section.text``. Step 1.6
+    # builds children out of those lines and needs their provenance for ADR-016.
+    section_pages: dict[str, tuple[int, ...]] = {}
+    # Vertical position of each body line, parallel to ``section_pages``. Step
+    # 1.7 needs this to test a line against pdfplumber's table geometry — a
+    # line's marker is real substructure only outside any measured table bbox.
+    section_line_tops: dict[str, tuple[float | None, ...]] = {}
 
     def attributed_lines(self) -> int:
         """Every non-furniture line lands in exactly one of these buckets."""
@@ -313,6 +320,8 @@ def parse(artifacts: Iterable[PageArtifact]) -> ParsedAct:
     sections: list[StatutoryNode] = []
     chapters: list[Chapter] = []
     footnotes: list[Footnote] = []
+    section_pages: dict[str, tuple[int, ...]] = {}
+    section_line_tops: dict[str, tuple[float | None, ...]] = {}
     front_matter: list[Line] = []
     divisions: list[Line] = []
     chapter_headings: list[Line] = []
@@ -324,11 +333,14 @@ def parse(artifacts: Iterable[PageArtifact]) -> ParsedAct:
     open_chapter: str | None = None
     body: list[str] = []
     pages: list[int] = []
+    tops: list[float | None] = []
     continuing = False
 
     def close() -> None:
         if open_marker is None:
             return
+        section_pages[open_marker] = tuple(pages)
+        section_line_tops[open_marker] = tuple(tops)
         sections.append(
             StatutoryNode(
                 type=NodeType.SECTION,
@@ -360,6 +372,7 @@ def parse(artifacts: Iterable[PageArtifact]) -> ParsedAct:
                 open_chapter = chapters[-1].numeral if chapters else None
                 body = []
                 pages = []
+                tops = []
                 role = LineRole.SECTION_BODY
             if role is LineRole.FURNITURE:
                 continue
@@ -381,6 +394,7 @@ def parse(artifacts: Iterable[PageArtifact]) -> ParsedAct:
                 continue
             body.append(line.text)
             pages.append(line.page)
+            tops.append(line.top)
 
     close()
     return ParsedAct(
@@ -392,4 +406,6 @@ def parse(artifacts: Iterable[PageArtifact]) -> ParsedAct:
         chapter_headings=tuple(chapter_headings),
         titles=tuple(titles),
         body_lines=body_lines,
+        section_pages=section_pages,
+        section_line_tops=section_line_tops,
     )

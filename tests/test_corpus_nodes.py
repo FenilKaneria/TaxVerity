@@ -74,9 +74,16 @@ def test_malformed_citations_are_rejected(bad):
         NodePath.parse(bad)
 
 
+def test_a_citation_may_reach_the_five_levels_the_act_actually_uses():
+    """Step 1.6 measured 9(9)(b)(i)(A)(I) in the Act, so five levels are real."""
+    deepest = NodePath.parse("9(9)(b)(i)(A)(I)")
+    assert deepest.depth == 6
+    assert deepest.components[-1].type is NodeType.SUBITEM
+
+
 def test_citation_deeper_than_the_known_hierarchy_is_rejected():
     with pytest.raises(ValueError, match="deeper"):
-        NodePath.parse("5(1)(a)(i)(x)")
+        NodePath.parse("5(1)(a)(i)(x)(y)(z)")
 
 
 # --- path construction ------------------------------------------------------

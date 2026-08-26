@@ -14,6 +14,8 @@ class NodeType(StrEnum):
     SUBSECTION = "subsection"
     CLAUSE = "clause"
     SUBCLAUSE = "subclause"
+    ITEM = "item"
+    SUBITEM = "subitem"
     SCHEDULE = "schedule"
     SCHEDULE_PARAGRAPH = "schedule_paragraph"
 
@@ -25,12 +27,23 @@ class NodeType(StrEnum):
 # Which type sits at each depth below a root, used only when reading a citation
 # string. Document parsing assigns types from sibling sequence instead: the
 # marker alone cannot separate clause (i) from sub-clause roman (i).
+# Step 1.6 measured five levels below a section — 9(8)(b)(i)(A)(I) is real — so
+# ITEM and SUBITEM are not speculative. The Act names level 4 ("item (ii)") but
+# never names level 5; SUBITEM is our label for an unnamed level that exists.
 CITATION_DEPTH_TYPES = {
-    NodeType.SECTION: (NodeType.SUBSECTION, NodeType.CLAUSE, NodeType.SUBCLAUSE),
+    NodeType.SECTION: (
+        NodeType.SUBSECTION,
+        NodeType.CLAUSE,
+        NodeType.SUBCLAUSE,
+        NodeType.ITEM,
+        NodeType.SUBITEM,
+    ),
     NodeType.SCHEDULE: (
         NodeType.SCHEDULE_PARAGRAPH,
         NodeType.CLAUSE,
         NodeType.SUBCLAUSE,
+        NodeType.ITEM,
+        NodeType.SUBITEM,
     ),
 }
 

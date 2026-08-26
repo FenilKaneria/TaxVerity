@@ -578,26 +578,26 @@ wheels = [
 name = "taxverity"
 source = { editable = "." }
 dependencies = [
+    { name = "pdfplumber" },
     { name = "pydantic-settings" },
     { name = "pymupdf" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "pdfplumber" },
     { name = "pytest" },
     { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "pdfplumber", specifier = ">=0.11.10" },
     { name = "pydantic-settings", specifier = ">=2.7" },
     { name = "pymupdf", specifier = ">=1.28.2" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pdfplumber", specifier = ">=0.11.10" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.9" },
 ]
