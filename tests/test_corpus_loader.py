@@ -9,6 +9,7 @@ from taxverity.corpus.loader import (
     BOLD_FLAG,
     ITALIC_FLAG,
     build_manifest,
+    compute_corpus_version,
     extract_pages,
     hash_file,
     is_furniture,
@@ -248,3 +249,37 @@ def test_manifest_pins_the_source_and_the_artifact(tmp_path, extracted_pages):
     assert manifest.source_sha256 == hash_file(pdf_path)
     assert manifest.source_bytes == pdf_path.stat().st_size
     assert len(manifest.source_sha256) == 64
+    assert manifest.corpus_version == compute_corpus_version(
+        manifest.source_sha256, {"extract": 1}, digest
+    )
+
+
+def test_corpus_version_is_stable_across_runs():
+    first = compute_corpus_version("abc", {"extract": 1, "parse": 1}, "def")
+    second = compute_corpus_version("abc", {"extract": 1, "parse": 1}, "def")
+    assert first == second
+    assert len(first) == 64
+
+
+def test_corpus_version_is_insensitive_to_stage_dict_order():
+    ordered = compute_corpus_version("abc", {"extract": 1, "parse": 2}, "def")
+    reordered = compute_corpus_version("abc", {"parse": 2, "extract": 1}, "def")
+    assert ordered == reordered
+
+
+def test_corpus_version_changes_when_the_source_changes():
+    original = compute_corpus_version("abc", {"extract": 1}, "def")
+    changed = compute_corpus_version("xyz", {"extract": 1}, "def")
+    assert original != changed
+
+
+def test_corpus_version_changes_when_any_stage_version_bumps():
+    original = compute_corpus_version("abc", {"extract": 1, "parse": 1}, "def")
+    bumped = compute_corpus_version("abc", {"extract": 1, "parse": 2}, "def")
+    assert original != bumped
+
+
+def test_corpus_version_changes_when_the_artifact_changes():
+    original = compute_corpus_version("abc", {"extract": 1}, "def")
+    changed = compute_corpus_version("abc", {"extract": 1}, "ghi")
+    assert original != changed

@@ -118,21 +118,41 @@ def hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def compute_corpus_version(
+    source_sha256: str, stage_versions: dict[str, int], artifact_sha256: str
+) -> str:
+    """Hash every input a downstream consumer must agree on to trust a chunk id."""
+    payload = json.dumps(
+        {
+            "source_sha256": source_sha256,
+            "stage_versions": stage_versions,
+            "artifact_sha256": artifact_sha256,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def build_manifest(
     pdf_path: Path,
     page_count: int,
     artifact_sha256: str,
     stage_versions: dict[str, int],
 ) -> CorpusManifest:
+    source_sha256 = hash_file(pdf_path)
     return CorpusManifest(
         source_name=pdf_path.name,
-        source_sha256=hash_file(pdf_path),
+        source_sha256=source_sha256,
         source_bytes=pdf_path.stat().st_size,
         page_count=page_count,
         extractor="pymupdf",
         extractor_version=pymupdf.__version__,
         stage_versions=stage_versions,
         artifact_sha256=artifact_sha256,
+        corpus_version=compute_corpus_version(
+            source_sha256, stage_versions, artifact_sha256
+        ),
     )
 
 

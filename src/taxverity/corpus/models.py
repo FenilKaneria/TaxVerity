@@ -44,3 +44,4 @@ class CorpusManifest(BaseModel):
     extractor_version: str
     stage_versions: dict[str, int]
     artifact_sha256: str
+    corpus_version: str

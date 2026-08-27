@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,6 +28,9 @@ class Settings(BaseSettings):
     corpus_pdf: Path = REPO_ROOT / "Income-tax-Act-2025.pdf"
     data_dir: Path = REPO_ROOT / "data"
     reports_dir: Path = REPO_ROOT / "reports"
+
+    log_level: str = "INFO"
+    log_format: Literal["text", "json"] = "text"
 
     groq_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
