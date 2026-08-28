@@ -277,41 +277,45 @@ def _schedule_citations(group_text: str) -> list[str]:
     return [f"Schedule {match.group('num')}" for match in SCHEDULE_TOKEN.finditer(group_text)]
 
 
-def extract_node_references(
-    node: StatutoryNode, index: dict[str, StatutoryNode]
-) -> tuple[list[CrossReference], list[ExternalReference]]:
-    """Regex over one node's own text (never its children's -- each line of the
-    Act belongs to exactly one node's ``text``, so walking every node once
-    covers the whole tree without double-counting).
+_SELF_REF_TYPE_SET = frozenset(SELF_REF_TYPES.values())
+
+
+class ScannedReference(BaseModel):
+    """One reference found in a run of text, before anything decides what it
+    means. Step 1.8 resolves these against the corpus tree; Step 3.5 resolves
+    them against the chunk store, and both must read the same surface forms."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ref_type: RefType
+    surface_text: str
+    citations: tuple[str, ...]
+    act_name: str | None = None
+
+
+def scan_references(text: str) -> list[ScannedReference]:
+    """Every citation surface form this corpus uses, over arbitrary text.
+
+    Order matters: the most specific pattern runs first and claims its span, so
+    a coarser pattern never re-matches part of a reference already read.
     """
-    text = normalise(node.text)
-    references: list[CrossReference] = []
-    external: list[ExternalReference] = []
+    text = normalise(text)
+    found: list[ScannedReference] = []
     consumed: list[tuple[int, int]] = []
 
-    def resolve(ref_type: RefType, surface: str, citation: str) -> None:
-        target = index.get(citation)
-        references.append(
-            CrossReference(
-                from_path=node.citation,
+    def take(
+        ref_type: RefType, match: re.Match[str], citations: list[str]
+    ) -> None:
+        name, tail_end = _act_tail(text, match.end())
+        consumed.append((match.start(), tail_end))
+        found.append(
+            ScannedReference(
                 ref_type=ref_type,
-                surface_text=surface,
-                target_path=citation,
-                resolved=target is not None,
+                surface_text=text[match.start() : match.end()],
+                citations=tuple(citations),
+                act_name=name,
             )
         )
-
-    def dispatch(
-        ref_type: RefType, span: tuple[int, int], citations: list[str], name: str | None
-    ) -> None:
-        surface = text[span[0] : span[1]]
-        if name is not None and name.lower() != "this act":
-            external.append(
-                ExternalReference(from_path=node.citation, surface_text=surface, act_name=name)
-            )
-            return
-        for citation in citations:
-            resolve(ref_type, surface, citation)
 
     for match in PREFIX_CHAIN.finditer(text):
         if _overlaps(match.span(), consumed):
@@ -322,62 +326,100 @@ def extract_node_references(
             + _clean(match.group("brackets"))
             + "".join(f"({marker})" for marker in reversed(markers))
         )
-        name, tail_end = _act_tail(text, match.end())
-        consumed.append((match.start(), tail_end))
-        dispatch(RefType.SECTION, (match.start(), match.end()), [citation], name)
+        take(RefType.SECTION, match, [citation])
 
     for match in PART_PARAGRAPH.finditer(text):
         if _overlaps(match.span(), consumed):
             continue
         marker = f"{match.group('part')}{match.group('num')}"
-        citation = f"Schedule {match.group('sched')}({marker}){_clean(match.group('brackets'))}"
-        name, tail_end = _act_tail(text, match.end())
-        consumed.append((match.start(), tail_end))
-        dispatch(RefType.SCHEDULE_PARAGRAPH, (match.start(), match.end()), [citation], name)
+        take(
+            RefType.SCHEDULE_PARAGRAPH,
+            match,
+            [f"Schedule {match.group('sched')}({marker}){_clean(match.group('brackets'))}"],
+        )
 
     for match in PLAIN_PARAGRAPH.finditer(text):
         if _overlaps(match.span(), consumed):
             continue
-        citation = f"Schedule {match.group('sched')}({match.group('num')}){_clean(match.group('brackets'))}"
-        name, tail_end = _act_tail(text, match.end())
-        consumed.append((match.start(), tail_end))
-        dispatch(RefType.SCHEDULE_PARAGRAPH, (match.start(), match.end()), [citation], name)
+        take(
+            RefType.SCHEDULE_PARAGRAPH,
+            match,
+            [
+                f"Schedule {match.group('sched')}({match.group('num')})"
+                f"{_clean(match.group('brackets'))}"
+            ],
+        )
 
     for match in BARE_PART.finditer(text):
         if _overlaps(match.span(), consumed):
             continue
-        citation = f"Schedule {match.group('sched')}"
-        name, tail_end = _act_tail(text, match.end())
-        consumed.append((match.start(), tail_end))
-        dispatch(RefType.SCHEDULE_PART, (match.start(), match.end()), [citation], name)
+        take(RefType.SCHEDULE_PART, match, [f"Schedule {match.group('sched')}"])
 
     for match in SCHEDULE_GROUP.finditer(text):
         if _overlaps(match.span(), consumed):
             continue
-        name, tail_end = _act_tail(text, match.end())
-        consumed.append((match.start(), tail_end))
-        dispatch(RefType.SCHEDULE, (match.start(), match.end()), _schedule_citations(match.group(0)), name)
+        take(RefType.SCHEDULE, match, _schedule_citations(match.group(0)))
 
     for match in SECTION_GROUP.finditer(text):
         if _overlaps(match.span(), consumed):
             continue
-        name, tail_end = _act_tail(text, match.end())
-        consumed.append((match.start(), tail_end))
-        dispatch(RefType.SECTION, (match.start(), match.end()), _section_citations(match.group(0)), name)
+        take(RefType.SECTION, match, _section_citations(match.group(0)))
 
     for match in SELF_REF.finditer(text):
         if _overlaps(match.span(), consumed):
             continue
-        ref_type = SELF_REF_TYPES[match.group(1).lower()]
-        references.append(
-            CrossReference(
-                from_path=node.citation,
-                ref_type=ref_type,
+        found.append(
+            ScannedReference(
+                ref_type=SELF_REF_TYPES[match.group(1).lower()],
                 surface_text=text[match.start() : match.end()],
-                target_path=None,
-                resolved=True,
+                citations=(),
             )
         )
+
+    return found
+
+
+def extract_node_references(
+    node: StatutoryNode, index: dict[str, StatutoryNode]
+) -> tuple[list[CrossReference], list[ExternalReference]]:
+    """Regex over one node's own text (never its children's -- each line of the
+    Act belongs to exactly one node's ``text``, so walking every node once
+    covers the whole tree without double-counting).
+    """
+    references: list[CrossReference] = []
+    external: list[ExternalReference] = []
+
+    for scanned in scan_references(node.text):
+        if scanned.act_name is not None and scanned.act_name.lower() != "this act":
+            external.append(
+                ExternalReference(
+                    from_path=node.citation,
+                    surface_text=scanned.surface_text,
+                    act_name=scanned.act_name,
+                )
+            )
+            continue
+        if scanned.ref_type in _SELF_REF_TYPE_SET:
+            references.append(
+                CrossReference(
+                    from_path=node.citation,
+                    ref_type=scanned.ref_type,
+                    surface_text=scanned.surface_text,
+                    target_path=None,
+                    resolved=True,
+                )
+            )
+            continue
+        for citation in scanned.citations:
+            references.append(
+                CrossReference(
+                    from_path=node.citation,
+                    ref_type=scanned.ref_type,
+                    surface_text=scanned.surface_text,
+                    target_path=citation,
+                    resolved=citation in index,
+                )
+            )
 
     return references, external
 
