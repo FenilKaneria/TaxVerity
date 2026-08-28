@@ -5,7 +5,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-EXPECTED_ADR_COUNT = 56
+EXPECTED_ADR_COUNT = 58
 EXPECTED_PHASE_COUNT = 18
 
 

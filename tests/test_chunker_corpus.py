@@ -4,26 +4,9 @@ from collections import Counter
 
 import pytest
 
+from conftest import CHUNK_TEST_VERSION
 from taxverity.chunking.chunker import build_chunks
 from taxverity.corpus.nodes import NodeType
-
-VERSION = "c" * 64
-
-
-@pytest.fixture(scope="session")
-def untrusted(sub, parsed_schedules):
-    return set(sub.unreliable) | set(parsed_schedules.unreliable)
-
-
-@pytest.fixture(scope="session")
-def chunks(act, sub, parsed_schedules, crossrefs, untrusted):
-    return build_chunks(
-        VERSION,
-        [*sub.sections, *parsed_schedules.schedules],
-        chapters=act.chapters,
-        crossrefs=crossrefs,
-        untrusted=untrusted,
-    )
 
 
 @pytest.fixture(scope="session")
@@ -126,7 +109,7 @@ def test_every_untrusted_root_still_appears_whole(chunks, untrusted, sub):
 
 def test_ids_are_stable_across_two_runs(act, sub, parsed_schedules, crossrefs, untrusted, chunks):
     again = build_chunks(
-        VERSION,
+        CHUNK_TEST_VERSION,
         [*sub.sections, *parsed_schedules.schedules],
         chapters=act.chapters,
         crossrefs=crossrefs,

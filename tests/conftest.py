@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from taxverity.chunking.chunker import build_chunks
 from taxverity.config import ENV_PREFIX, MissingSettingError, Settings
 from taxverity.corpus.crossrefs import extract_crossrefs
 from taxverity.corpus.loader import read_pages_jsonl
@@ -75,3 +76,24 @@ def parsed_schedules(act_pages, schedule_table_regions):
 @pytest.fixture(scope="session")
 def crossrefs(sub, parsed_schedules):
     return extract_crossrefs(sub.sections, parsed_schedules.schedules)
+
+
+# Step 2.2's chunk set, shared by the chunker and store corpus suites so the
+# whole parse pipeline runs once per session rather than once per module.
+CHUNK_TEST_VERSION = "c" * 64
+
+
+@pytest.fixture(scope="session")
+def untrusted(sub, parsed_schedules):
+    return set(sub.unreliable) | set(parsed_schedules.unreliable)
+
+
+@pytest.fixture(scope="session")
+def chunks(act, sub, parsed_schedules, crossrefs, untrusted):
+    return build_chunks(
+        CHUNK_TEST_VERSION,
+        [*sub.sections, *parsed_schedules.schedules],
+        chapters=act.chapters,
+        crossrefs=crossrefs,
+        untrusted=untrusted,
+    )
