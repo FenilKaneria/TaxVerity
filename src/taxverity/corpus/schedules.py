@@ -22,6 +22,9 @@ from taxverity.corpus.sections import (
 )
 from taxverity.corpus.substructure import Anomaly, build
 from taxverity.corpus.tables import TableRegion, in_any_region
+from taxverity.observability import get_logger
+
+logger = get_logger(__name__)
 
 SCHEDULE_STAGE_VERSION = 1
 
@@ -336,9 +339,23 @@ def parse_schedules(
 
     close_schedule()
 
-    return ParsedSchedules(
+    result = ParsedSchedules(
         schedules=tuple(schedules),
         anomalies=tuple(anomalies),
         footnotes=tuple(footnotes),
         headings=tuple(headings),
     )
+    logger.info(
+        "parsed %d schedules, %d nodes, %d footnote lines separated",
+        len(result.schedules),
+        sum(1 for schedule in result.schedules for _ in schedule.walk()),
+        len(result.footnotes),
+    )
+    if result.anomalies:
+        logger.warning(
+            "%d unplaceable markers in %d paragraphs, whose shape is not trusted: %s",
+            len(result.anomalies),
+            len(result.unreliable),
+            list(result.unreliable),
+        )
+    return result

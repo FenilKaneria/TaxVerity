@@ -58,7 +58,15 @@ class JsonFormatter(logging.Formatter):
 
 
 def get_logger(name: str) -> logging.Logger:
-    return logging.getLogger(name)
+    """A logger under the configured root, even when called from a script.
+
+    A script's ``__name__`` is ``__main__``, which sits outside the taxverity
+    logger tree and would silently emit nothing once configure_logging() has
+    turned propagation off.
+    """
+    if name == ROOT_LOGGER_NAME or name.startswith(f"{ROOT_LOGGER_NAME}."):
+        return logging.getLogger(name)
+    return logging.getLogger(f"{ROOT_LOGGER_NAME}.{name}")
 
 
 def configure_logging(settings: Settings | None = None) -> logging.Logger:

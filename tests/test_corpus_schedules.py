@@ -1,9 +1,7 @@
-from pathlib import Path
 
 import pytest
 
-from taxverity.config import MissingSettingError, Settings
-from taxverity.corpus.loader import is_furniture, read_pages_jsonl
+from taxverity.corpus.loader import is_furniture
 from taxverity.corpus.models import Span
 from taxverity.corpus.schedules import (
     FIRST_SCHEDULE_PAGE,
@@ -16,9 +14,6 @@ from taxverity.corpus.schedules import (
     schedule_preamble,
 )
 from taxverity.corpus.sections import Line, align_lines
-from taxverity.corpus.tables import find_table_regions
-
-INTERIM = Path(__file__).resolve().parents[1] / "data" / "interim" / "pages.jsonl"
 
 
 def span(text, *, size=8.49, bold=False, x0=27.6, furniture=False):
@@ -191,27 +186,6 @@ def test_preamble_with_no_title_at_all():
 # --- integration against the real corpus ---------------------------------
 
 
-@pytest.fixture(scope="session")
-def act_pages():
-    if not INTERIM.exists():
-        pytest.skip("run scripts/extract_corpus.py to build data/interim/pages.jsonl")
-    return list(read_pages_jsonl(INTERIM))
-
-
-@pytest.fixture(scope="session")
-def table_regions(act_pages):
-    try:
-        pdf_path = Settings().resolve_corpus_pdf()
-    except MissingSettingError:
-        pytest.skip("corpus PDF not found — table geometry needs the real PDF")
-    return find_table_regions(pdf_path, range(FIRST_SCHEDULE_PAGE, len(act_pages)))
-
-
-@pytest.fixture(scope="session")
-def parsed(act_pages, table_regions):
-    return parse_schedules(act_pages, table_regions=table_regions)
-
-
 PARAGRAPH_COUNTS = {
     "I": 2, "II": 17, "III": 42, "IV": 17, "V": 8, "VI": 12, "VII": 48,
     "VIII": 2, "IX": 6, "X": 6, "XI": 26, "XII": 50, "XIII": 15, "XIV": 6,
@@ -219,53 +193,53 @@ PARAGRAPH_COUNTS = {
 }
 
 
-def test_all_sixteen_schedules_are_found(parsed):
-    assert [s.marker for s in parsed.schedules] == list(PARAGRAPH_COUNTS)
+def test_all_sixteen_schedules_are_found(parsed_schedules):
+    assert [s.marker for s in parsed_schedules.schedules] == list(PARAGRAPH_COUNTS)
 
 
-def test_each_schedule_has_its_measured_paragraph_count(parsed):
-    actual = {s.marker: len(s.children) for s in parsed.schedules}
+def test_each_schedule_has_its_measured_paragraph_count(parsed_schedules):
+    actual = {s.marker: len(s.children) for s in parsed_schedules.schedules}
     assert actual == PARAGRAPH_COUNTS
 
 
-def test_schedule_iii_carries_its_genuine_letter_suffixed_insertions(parsed):
-    markers = [p.marker for p in parsed.schedule("III").children]
+def test_schedule_iii_carries_its_genuine_letter_suffixed_insertions(parsed_schedules):
+    markers = [p.marker for p in parsed_schedules.schedule("III").children]
     assert markers[-4:] == ["38B", "38C", "38D", "39"]
     assert "38A" not in markers
 
 
-def test_schedule_xii_part_a_omits_28(parsed):
+def test_schedule_xii_part_a_omits_28(parsed_schedules):
     """Confirmed by direct search of the text -- not a parsing artefact."""
-    markers = [p.marker for p in parsed.schedule("XII").children]
+    markers = [p.marker for p in parsed_schedules.schedule("XII").children]
     assert "A27" in markers
     assert "A28" not in markers
     assert "A29" in markers
 
 
-def test_a_part_letter_is_folded_into_the_paragraph_marker(parsed):
+def test_a_part_letter_is_folded_into_the_paragraph_marker(parsed_schedules):
     """Paragraph numbering resets per Part, so the bare number alone is not
     a unique citation within the Schedule -- Schedule XI(1) would otherwise
     exist three times over."""
-    schedule_xi = parsed.schedule("XI")
+    schedule_xi = parsed_schedules.schedule("XI")
     assert schedule_xi.find("Schedule XI(A1)") is not None
     assert schedule_xi.find("Schedule XI(B1)") is not None
     assert schedule_xi.find("Schedule XI(C1)") is not None
 
 
-def test_a_clause_rooted_paragraph_opens_at_clause_not_subclause(parsed):
+def test_a_clause_rooted_paragraph_opens_at_clause_not_subclause(parsed_schedules):
     """A regression test for the build() depth_shift bug this step found:
     is_clause_rooted's shift assumes a SUBSECTION level exists to skip, which
     a Schedule paragraph's ladder never had, so the shift must not apply."""
     from taxverity.corpus.nodes import NodeType
 
-    paragraph_2 = parsed.schedule("I").find("Schedule I(2)")
+    paragraph_2 = parsed_schedules.schedule("I").find("Schedule I(2)")
     assert paragraph_2.children[0].type is NodeType.CLAUSE
 
 
-def test_node_counts_by_type(parsed):
+def test_node_counts_by_type(parsed_schedules):
     from taxverity.corpus.nodes import NodeType
 
-    nodes = [n for s in parsed.schedules for n in s.walk()]
+    nodes = [n for s in parsed_schedules.schedules for n in s.walk()]
     assert len(nodes) == 992
     counts = {t: sum(1 for n in nodes if n.type is t) for t in NodeType}
     assert counts[NodeType.SCHEDULE] == 16
@@ -276,38 +250,50 @@ def test_node_counts_by_type(parsed):
     assert counts[NodeType.SUBITEM] == 26
 
 
-def test_no_citation_nests_deeper_than_the_schedule_ladder(parsed):
+def test_no_citation_nests_deeper_than_the_schedule_ladder(parsed_schedules):
     from taxverity.corpus.nodes import CITATION_DEPTH_TYPES, NodeType
 
-    nodes = [n for s in parsed.schedules for n in s.walk()]
+    nodes = [n for s in parsed_schedules.schedules for n in s.walk()]
     ladder = CITATION_DEPTH_TYPES[NodeType.SCHEDULE]
     assert max(n.path.depth for n in nodes) == len(ladder) + 1
 
 
-def test_the_residue_is_pinned(parsed):
+def test_the_residue_is_pinned(parsed_schedules):
     """Any change to what the parser cannot place should be loud, not
     silent -- the same discipline substructure.py's own residue carries."""
-    assert len(parsed.anomalies) == 30
-    assert parsed.unreliable == ("14", "17", "19", "30", "39", "4", "8")
+    assert len(parsed_schedules.anomalies) == 30
+    # Citations, not bare markers: "17" alone was two different paragraphs,
+    # in Schedules II and III, which is why this list gained an entry
+    # without a single new anomaly.
+    assert parsed_schedules.unreliable == (
+        "Schedule II(17)",
+        "Schedule III(17)",
+        "Schedule III(19)",
+        "Schedule III(30)",
+        "Schedule III(39)",
+        "Schedule III(4)",
+        "Schedule IV(14)",
+        "Schedule V(8)",
+    )
 
 
-def test_footnote_apparatus_is_separated_from_body_text(parsed):
+def test_footnote_apparatus_is_separated_from_body_text(parsed_schedules):
     """The same running amendment-footnote counter (37-52) that spans the
     main Act continues into the Schedule pages. Only the first line of each
     entry carries the amendment vocabulary -- the rest is quoted repealed
     text -- so it is enough that some lines do, not all of them."""
-    assert len(parsed.footnotes) == 48
-    assert any("Act No." in f.text or "w.e.f." in f.text for f in parsed.footnotes)
+    assert len(parsed_schedules.footnotes) == 48
+    assert any("Act No." in f.text or "w.e.f." in f.text for f in parsed_schedules.footnotes)
 
 
-def test_schedule_and_part_headings_are_kept_verbatim(parsed):
+def test_schedule_and_part_headings_are_kept_verbatim(parsed_schedules):
     """16 SCHEDULE headings + 5 PART headings (Schedule XI: A/B/C, XII: A/B)."""
-    assert len(parsed.headings) == 21
-    assert "SCHEDULE I" in parsed.headings
-    assert "PART A" in parsed.headings
+    assert len(parsed_schedules.headings) == 21
+    assert "SCHEDULE I" in parsed_schedules.headings
+    assert "PART A" in parsed_schedules.headings
 
 
-def test_no_schedule_text_is_lost(act_pages, parsed):
+def test_no_schedule_text_is_lost(act_pages, parsed_schedules):
     """Independent reconstruction of every non-furniture line from the raw
     pages, checked against where the parser actually put it -- verbatim text
     must never simply vanish, even when it lands in a different bucket than
@@ -320,7 +306,7 @@ def test_no_schedule_text_is_lost(act_pages, parsed):
         for text_line in align_lines(artifact):
             if is_furniture(text_line.text):
                 continue
-            if text_line.text in parsed.headings and is_caption(text_line):
+            if text_line.text in parsed_schedules.headings and is_caption(text_line):
                 if text_line.content.startswith("SCHEDULE "):
                     current = text_line.content.removeprefix("SCHEDULE ")
                 raw_by_schedule.setdefault(current, []).append(text_line.text)
@@ -328,24 +314,24 @@ def test_no_schedule_text_is_lost(act_pages, parsed):
             if current:
                 raw_by_schedule.setdefault(current, []).append(text_line.text)
 
-    footnote_lines = {f.text for f in parsed.footnotes}
-    for schedule in parsed.schedules:
+    footnote_lines = {f.text for f in parsed_schedules.footnotes}
+    for schedule in parsed_schedules.schedules:
         parsed_lines = {text for text in schedule.full_text().split("\n") if text.strip()}
         for raw_line in raw_by_schedule.get(schedule.marker, []):
             if not raw_line.strip():
                 continue
             if raw_line in parsed_lines or raw_line in footnote_lines:
                 continue
-            if raw_line in parsed.headings:
+            if raw_line in parsed_schedules.headings:
                 continue
             if schedule.title and raw_line.strip() in schedule.title:
                 continue
             pytest.fail(f"Schedule {schedule.marker} lost line: {raw_line!r}")
 
 
-def test_parsing_is_reasonably_fast(act_pages, table_regions):
+def test_parsing_is_reasonably_fast(act_pages, schedule_table_regions):
     import time
 
     started = time.perf_counter()
-    parse_schedules(act_pages, table_regions=table_regions)
+    parse_schedules(act_pages, table_regions=schedule_table_regions)
     assert time.perf_counter() - started < 15

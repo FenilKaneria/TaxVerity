@@ -5,6 +5,9 @@ import sys
 from taxverity.config import Settings
 from taxverity.corpus.loader import read_pages_jsonl
 from taxverity.corpus.probe import probe
+from taxverity.observability import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 EXPECTED_SECTIONS = 536
 
@@ -154,6 +157,7 @@ def render(result) -> str:
 
 
 def main():
+    configure_logging()
     settings = Settings()
     pages_path = settings.interim_dir / "pages.jsonl"
     if not pages_path.is_file():
@@ -166,7 +170,7 @@ def main():
     report_path = settings.reports_dir / "structure_probe.md"
     report_path.write_text(render(result), encoding="utf-8")
 
-    print(f"Wrote {report_path}", file=sys.stderr)
+    logger.info("wrote %s", report_path)
     print(
         f"  sections {len(result.all_numbers)}/{EXPECTED_SECTIONS}, "
         f"gaps {len(result.gaps(EXPECTED_SECTIONS))}, "

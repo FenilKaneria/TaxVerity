@@ -2,13 +2,15 @@
 
 import re
 import statistics
-import sys
 import unicodedata
 from collections import Counter, defaultdict
 
 import pymupdf
 
 from taxverity.config import Settings
+from taxverity.observability import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 BOLD_FLAG = 1 << 4
 ITALIC_FLAG = 1 << 1
@@ -104,7 +106,7 @@ def scan(doc):
         )
 
         if index and index % 200 == 0:
-            print(f"  ...page {index}", file=sys.stderr)
+            logger.info("profiled %d pages", index)
 
     return {
         "pages": pages,
@@ -317,9 +319,10 @@ def render(doc, pdf_path, scanned, coverage, samples, compare):
 
 
 def main():
+    configure_logging()
     settings = Settings()
     pdf_path = settings.resolve_corpus_pdf()
-    print(f"Profiling {pdf_path}", file=sys.stderr)
+    logger.info("profiling %s", pdf_path)
 
     with pymupdf.open(pdf_path) as doc:
         scanned = scan(doc)
@@ -335,8 +338,8 @@ def main():
     report_path = settings.reports_dir / "corpus_profile.md"
     report_path.write_text(report, encoding="utf-8")
 
-    print(f"Wrote {report_path}", file=sys.stderr)
-    print(f"Wrote {len(samples)} sample pages to {sample_dir}", file=sys.stderr)
+    logger.info("wrote %s", report_path)
+    logger.info("wrote %d sample pages to %s", len(samples), sample_dir)
 
 
 if __name__ == "__main__":

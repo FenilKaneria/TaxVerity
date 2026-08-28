@@ -10,6 +10,9 @@ from pathlib import Path
 from taxverity.config import Settings
 from taxverity.corpus.loader import read_pages_jsonl
 from taxverity.corpus.sections import FIRST_SCHEDULE_PAGE, ParsedAct, parse
+from taxverity.observability import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 REPORT = Path("reports") / "section_parse.md"
 
@@ -124,10 +127,11 @@ def render(act: ParsedAct, elapsed: float) -> str:
 
 
 def main() -> int:
+    configure_logging()
     settings = Settings()
     source = settings.interim_dir / "pages.jsonl"
     if not source.exists():
-        print(f"missing {source} — run scripts/extract_corpus.py first")
+        logger.error("missing %s — run scripts/extract_corpus.py first", source)
         return 1
 
     started = time.perf_counter()

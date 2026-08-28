@@ -1,8 +1,15 @@
 import os
+from pathlib import Path
 
 import pytest
 
-from taxverity.config import ENV_PREFIX
+from taxverity.config import ENV_PREFIX, MissingSettingError, Settings
+from taxverity.corpus.crossrefs import extract_crossrefs
+from taxverity.corpus.loader import read_pages_jsonl
+from taxverity.corpus.schedules import FIRST_SCHEDULE_PAGE, parse_schedules
+from taxverity.corpus.sections import parse
+from taxverity.corpus.substructure import candidate_table_pages, parse_substructure
+from taxverity.corpus.tables import find_table_regions
 
 
 # Session-scoped, and autouse so it is ordered ahead of every other fixture in
@@ -14,3 +21,57 @@ def isolated_environment():
         for name in [key for key in os.environ if key.startswith(ENV_PREFIX)]:
             patcher.delenv(name, raising=False)
         yield
+
+
+# --- shared corpus fixtures ---------------------------------------------------
+# Session scope is per-file in pytest only for the *value*, not the definition:
+# a fixture defined in a test module is re-evaluated for every module that
+# defines its own copy. Four modules were each running their own pdfplumber
+# geometry scan of the same pages; defined here, one scan serves all of them.
+
+INTERIM = Path(__file__).resolve().parents[1] / "data" / "interim" / "pages.jsonl"
+
+
+@pytest.fixture(scope="session")
+def act_pages():
+    if not INTERIM.exists():
+        pytest.skip("run scripts/extract_corpus.py to build data/interim/pages.jsonl")
+    return list(read_pages_jsonl(INTERIM))
+
+
+@pytest.fixture(scope="session")
+def act(act_pages):
+    return parse(act_pages)
+
+
+@pytest.fixture(scope="session")
+def pdf_path():
+    try:
+        return Settings().resolve_corpus_pdf()
+    except MissingSettingError:
+        pytest.skip("corpus PDF not found — table geometry needs the real PDF")
+
+
+@pytest.fixture(scope="session")
+def section_table_regions(act, pdf_path):
+    return find_table_regions(pdf_path, candidate_table_pages(act))
+
+
+@pytest.fixture(scope="session")
+def schedule_table_regions(act_pages, pdf_path):
+    return find_table_regions(pdf_path, range(FIRST_SCHEDULE_PAGE, len(act_pages)))
+
+
+@pytest.fixture(scope="session")
+def sub(act, section_table_regions):
+    return parse_substructure(act, table_regions=section_table_regions)
+
+
+@pytest.fixture(scope="session")
+def parsed_schedules(act_pages, schedule_table_regions):
+    return parse_schedules(act_pages, table_regions=schedule_table_regions)
+
+
+@pytest.fixture(scope="session")
+def crossrefs(sub, parsed_schedules):
+    return extract_crossrefs(sub.sections, parsed_schedules.schedules)

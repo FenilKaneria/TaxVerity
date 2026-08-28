@@ -16,6 +16,9 @@ from taxverity.corpus.schedules import FIRST_SCHEDULE_PAGE, parse_schedules
 from taxverity.corpus.sections import parse as parse_sections
 from taxverity.corpus.substructure import candidate_table_pages, parse_substructure
 from taxverity.corpus.tables import find_table_regions
+from taxverity.observability import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 REPORT = Path("reports") / "crossref_parse.md"
 
@@ -128,10 +131,11 @@ def render(result: CrossReferenceIndex, elapsed: float) -> str:
 
 
 def main() -> int:
+    configure_logging()
     settings = Settings()
     source = settings.interim_dir / "pages.jsonl"
     if not source.exists():
-        print(f"missing {source} — run scripts/extract_corpus.py first")
+        logger.error("missing %s — run scripts/extract_corpus.py first", source)
         return 1
 
     started = time.perf_counter()

@@ -16,7 +16,7 @@ section 2 definitions glossary.
 | **Resolution rate** | **99.12%** |
 | External-Act mentions (excluded from the rate) | 388 |
 | Glossary terms (section 2) | 109 |
-| Extraction time | 127.44s |
+| Extraction time | 247.43s |
 
 
 ## By reference type

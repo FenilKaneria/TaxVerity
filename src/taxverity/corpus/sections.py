@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict
 from taxverity.corpus.loader import is_furniture, normalise
 from taxverity.corpus.models import PageArtifact, Span
 from taxverity.corpus.nodes import NodePath, NodeType, StatutoryNode
+from taxverity.observability import get_logger
+
+logger = get_logger(__name__)
 
 PARSE_STAGE_VERSION = 1
 
@@ -397,7 +400,7 @@ def parse(artifacts: Iterable[PageArtifact]) -> ParsedAct:
             tops.append(line.top)
 
     close()
-    return ParsedAct(
+    parsed = ParsedAct(
         sections=tuple(sections),
         chapters=tuple(chapters),
         footnotes=tuple(footnotes),
@@ -409,3 +412,13 @@ def parse(artifacts: Iterable[PageArtifact]) -> ParsedAct:
         section_pages=section_pages,
         section_line_tops=section_line_tops,
     )
+    logger.info(
+        "parsed %d sections, %d chapters, %d footnote lines separated",
+        len(parsed.sections),
+        len(parsed.chapters),
+        len(parsed.footnotes),
+    )
+    gaps = parsed.gaps()
+    if gaps:
+        logger.warning("section numbering has %d gaps: %s", len(gaps), gaps)
+    return parsed

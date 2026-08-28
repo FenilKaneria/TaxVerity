@@ -1,12 +1,5 @@
-from pathlib import Path
 
-import pytest
-
-from taxverity.config import MissingSettingError, Settings
 from taxverity.corpus.tables import TableRegion, find_table_regions, in_any_region
-
-INTERIM = Path(__file__).resolve().parents[1] / "data" / "interim" / "pages.jsonl"
-
 
 # --- TableRegion membership, pure --------------------------------------------
 
@@ -41,16 +34,6 @@ def test_in_any_region_checks_every_region():
 
 
 # --- against the real PDF ----------------------------------------------------
-
-
-@pytest.fixture(scope="session")
-def pdf_path():
-    if not INTERIM.exists():
-        pytest.skip("run scripts/extract_corpus.py to build data/interim/pages.jsonl")
-    try:
-        return Settings().resolve_corpus_pdf()
-    except MissingSettingError:
-        pytest.skip("corpus PDF not found")
 
 
 def test_a_ruled_two_column_table_is_measured(pdf_path):

@@ -12,6 +12,9 @@ from taxverity.corpus.models import (
     PageArtifact,
     Span,
 )
+from taxverity.observability import get_logger
+
+logger = get_logger(__name__)
 
 EXTRACT_STAGE_VERSION = 1
 
@@ -71,6 +74,7 @@ def page_artifact_from_dict(
 
 def extract_pages(pdf_path: Path) -> Iterator[PageArtifact]:
     with pymupdf.open(pdf_path) as doc:
+        logger.info("extracting %d pages from %s", doc.page_count, pdf_path.name)
         for index, page in enumerate(doc):
             yield page_artifact_from_dict(
                 index, page.get_text("text"), page.get_text("dict")["blocks"]
@@ -100,10 +104,18 @@ def write_pages_jsonl(
             handle.write(line)
             digest.update(line.encode("utf-8"))
             count += 1
-    return count, digest.hexdigest()
+    artifact_sha256 = digest.hexdigest()
+    logger.info(
+        "wrote %d pages to %s (sha256 %s)", count, destination, artifact_sha256
+    )
+    return count, artifact_sha256
 
 
 def read_pages_jsonl(source: Path) -> Iterator[PageArtifact]:
+    # Logged on entry, not on exhaustion: every caller that stops at the first
+    # Schedule page abandons this generator, so a completion log would be
+    # missing precisely where the read did happen.
+    logger.info("reading pages from %s", source)
     with source.open(encoding="utf-8", newline="") as handle:
         for line in handle:
             if line.strip():
@@ -157,6 +169,7 @@ def build_manifest(
 
 
 def write_manifest(manifest: CorpusManifest, destination: Path) -> None:
+    logger.info("corpus_version %s", manifest.corpus_version)
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(
         manifest.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, indent=2

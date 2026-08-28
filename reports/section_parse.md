@@ -25,7 +25,7 @@ sub-structure is Step 1.6.
 | Non-furniture lines | 16998 |
 | Lines attributed | 16998 |
 | **Orphan lines** | **0** |
-| Parse time | 0.3s |
+| Parse time | 0.4s |
 
 
 ## Chapters

@@ -1,8 +1,6 @@
-from pathlib import Path
 
 import pytest
 
-from taxverity.config import MissingSettingError, Settings
 from taxverity.corpus.crossrefs import (
     CrossReference,
     CrossReferenceIndex,
@@ -13,14 +11,7 @@ from taxverity.corpus.crossrefs import (
     extract_glossary,
     extract_node_references,
 )
-from taxverity.corpus.loader import read_pages_jsonl
 from taxverity.corpus.nodes import NodePath, NodeType, StatutoryNode
-from taxverity.corpus.schedules import FIRST_SCHEDULE_PAGE, parse_schedules
-from taxverity.corpus.sections import parse
-from taxverity.corpus.substructure import candidate_table_pages, parse_substructure
-from taxverity.corpus.tables import find_table_regions
-
-INTERIM = Path(__file__).resolve().parents[1] / "data" / "interim" / "pages.jsonl"
 
 
 def referrer(text, marker="99"):
@@ -356,39 +347,6 @@ def test_extract_crossrefs_combines_sections_and_schedules():
 
 
 # --- integration against the real corpus ---------------------------------
-
-
-@pytest.fixture(scope="session")
-def act_pages():
-    if not INTERIM.exists():
-        pytest.skip("run scripts/extract_corpus.py to build data/interim/pages.jsonl")
-    return list(read_pages_jsonl(INTERIM))
-
-
-@pytest.fixture(scope="session")
-def pdf_path():
-    try:
-        return Settings().resolve_corpus_pdf()
-    except MissingSettingError:
-        pytest.skip("corpus PDF not found — table geometry needs the real PDF")
-
-
-@pytest.fixture(scope="session")
-def sub(act_pages, pdf_path):
-    act = parse(act_pages)
-    regions = find_table_regions(pdf_path, candidate_table_pages(act))
-    return parse_substructure(act, table_regions=regions)
-
-
-@pytest.fixture(scope="session")
-def parsed_schedules(act_pages, pdf_path):
-    regions = find_table_regions(pdf_path, range(FIRST_SCHEDULE_PAGE, len(act_pages)))
-    return parse_schedules(act_pages, table_regions=regions)
-
-
-@pytest.fixture(scope="session")
-def crossrefs(sub, parsed_schedules):
-    return extract_crossrefs(sub.sections, parsed_schedules.schedules)
 
 
 def test_the_resolution_rate_clears_the_plan_s_98_percent_gate(crossrefs):

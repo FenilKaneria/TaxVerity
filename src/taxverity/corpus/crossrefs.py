@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict
 
 from taxverity.corpus.loader import normalise
 from taxverity.corpus.nodes import StatutoryNode
+from taxverity.observability import get_logger
+
+logger = get_logger(__name__)
 
 CROSSREF_STAGE_VERSION = 1
 
@@ -415,8 +418,19 @@ def extract_crossrefs(
             found_refs, found_external = extract_node_references(node, index)
             references.extend(found_refs)
             external.extend(found_external)
-    return CrossReferenceIndex(
+    result = CrossReferenceIndex(
         references=tuple(references),
         external=tuple(external),
         glossary=extract_glossary(sections),
     )
+    logger.info(
+        "extracted %d references (%.2f%% resolved), %d external-Act mentions, "
+        "%d glossary terms",
+        len(result.references),
+        result.resolution_rate * 100,
+        len(result.external),
+        len(result.glossary),
+    )
+    if result.dangling:
+        logger.warning("%d references did not resolve", len(result.dangling))
+    return result

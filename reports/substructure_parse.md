@@ -26,7 +26,7 @@ geometry, on pages where that geometry is measured to be reliable.
 | Clause-rooted sections | 150 |
 | Sections carrying a Table | 43 |
 | Table regions measured by pdfplumber | 35 |
-| Parse time (incl. pdfplumber scan) | 65.1s |
+| Parse time (incl. pdfplumber scan) | 126.6s |
 
 
 **Round-trip is the success criterion for this step**: for every section,
@@ -155,9 +155,10 @@ The 10 anomalous sections with no Table (124, 165, 242, 26, 298, 353, 376, 38, 3
 a wrapped cross-reference correctly refused, such as section 67's
 `(l) of the Depositories Act, 1996 (22 of 1996).`
 
-**Still deferred.** The Schedules parser (1.7's other half) needs its own
-boundary rule — Schedule paragraph numbers are not bold, so 1.5's cue
-does not carry over — and is not built yet.
+The Schedules parser (1.7's other half) is a separate module —
+`schedules.py` — with its own boundary rule, since Schedule paragraph
+numbers are bold in some Schedules and plain in others (unlike 1.5's
+bold+regex cue for sections). See `reports/schedule_parse.md`.
 
 ## Sample tree — section 9(5)
 

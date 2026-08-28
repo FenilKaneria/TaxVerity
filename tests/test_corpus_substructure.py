@@ -1,28 +1,19 @@
-from pathlib import Path
 
 import pytest
 
-from taxverity.config import MissingSettingError, Settings
-from taxverity.corpus.loader import read_pages_jsonl
 from taxverity.corpus.nodes import NodePath, NodeType, StatutoryNode
-from taxverity.corpus.sections import parse
 from taxverity.corpus.substructure import (
     LEVEL_TYPES,
     AnomalyReason,
     MarkerKind,
     PageProvenanceError,
     build,
-    candidate_table_pages,
     is_clause_rooted,
     kinds_for,
     opens,
-    parse_substructure,
     round_trip_failures,
     successor,
 )
-from taxverity.corpus.tables import find_table_regions
-
-INTERIM = Path(__file__).resolve().parents[1] / "data" / "interim" / "pages.jsonl"
 
 
 def section(marker, *lines, title="A section."):
@@ -318,27 +309,6 @@ def test_page_provenance_that_does_not_match_the_lines_is_refused():
 
 
 # --- against the whole corpus -----------------------------------------------
-
-
-@pytest.fixture(scope="session")
-def act():
-    if not INTERIM.exists():
-        pytest.skip("run scripts/extract_corpus.py to build data/interim/pages.jsonl")
-    return parse(read_pages_jsonl(INTERIM))
-
-
-@pytest.fixture(scope="session")
-def table_regions(act):
-    try:
-        pdf_path = Settings().resolve_corpus_pdf()
-    except MissingSettingError:
-        pytest.skip("corpus PDF not found — table geometry needs the real PDF")
-    return find_table_regions(pdf_path, candidate_table_pages(act))
-
-
-@pytest.fixture(scope="session")
-def sub(act, table_regions):
-    return parse_substructure(act, table_regions=table_regions)
 
 
 def test_every_section_round_trips(sub, act):

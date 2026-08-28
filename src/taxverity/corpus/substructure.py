@@ -14,6 +14,9 @@ from taxverity.corpus.nodes import (
 )
 from taxverity.corpus.sections import ParsedAct
 from taxverity.corpus.tables import TableRegion, in_any_region
+from taxverity.observability import get_logger
+
+logger = get_logger(__name__)
 
 SUBSTRUCTURE_STAGE_VERSION = 1
 
@@ -284,7 +287,10 @@ class _Builder:
     def note(self, line: int, marker: str, reason: AnomalyReason, context: str) -> None:
         self.anomalies.append(
             Anomaly(
-                section=self.section.marker,
+                # The citation, not the bare marker: a Schedule paragraph's
+                # marker repeats across Schedules, so "2" alone names no one
+                # node. For a section the two are identical.
+                section=self.section.citation or self.section.marker,
                 line=line,
                 marker=marker,
                 reason=reason,
@@ -464,12 +470,27 @@ def parse_substructure(
         if any(line.strip() == TABLE_LINE for line in section.text.split("\n")):
             table_sections.append(section.marker)
 
-    return Substructure(
+    result = Substructure(
         sections=tuple(sections),
         anomalies=tuple(anomalies),
         clause_rooted=tuple(clause_rooted),
         table_sections=tuple(table_sections),
     )
+    logger.info(
+        "grew %d nodes under %d sections (%d clause-rooted, %d carrying a table)",
+        sum(1 for section in result.sections for _ in section.walk()),
+        len(result.sections),
+        len(result.clause_rooted),
+        len(result.table_sections),
+    )
+    if result.anomalies:
+        logger.warning(
+            "%d unplaceable markers in %d sections, whose shape is not trusted: %s",
+            len(result.anomalies),
+            len(result.unreliable),
+            list(result.unreliable),
+        )
+    return result
 
 
 def round_trip_failures(

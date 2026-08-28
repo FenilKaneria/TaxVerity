@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable
 from pathlib import Path
 
 import pdfplumber
 from pydantic import BaseModel, ConfigDict
+
+from taxverity.observability import get_logger
+
+logger = get_logger(__name__)
 
 TABLE_STAGE_VERSION = 1
 
@@ -38,8 +43,10 @@ def find_table_regions(pdf_path: Path, pages: Iterable[int]) -> tuple[TableRegio
     first.
     """
     regions: list[TableRegion] = []
+    candidates = list(pages)
+    started = time.perf_counter()
     with pdfplumber.open(pdf_path) as pdf:
-        for page_number in pages:
+        for page_number in candidates:
             page = pdf.pages[page_number]
             for table in page.find_tables():
                 rows = table.extract()
@@ -49,6 +56,12 @@ def find_table_regions(pdf_path: Path, pages: Iterable[int]) -> tuple[TableRegio
                 regions.append(
                     TableRegion(page=page_number, top=table.bbox[1], bottom=table.bbox[3])
                 )
+    logger.info(
+        "pdfplumber measured %d table regions on %d candidate pages in %.1fs",
+        len(regions),
+        len(candidates),
+        time.perf_counter() - started,
+    )
     return tuple(regions)
 
 

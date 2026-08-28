@@ -19,11 +19,11 @@ used for sections.
 | — subitem | 26 |
 | Deepest citation | 6 |
 | Anomalies | 30 |
-| Paragraphs carrying an anomaly | 7 |
+| Paragraphs carrying an anomaly | 8 |
 | Footnote apparatus lines | 48 |
 | Schedule/Part headings kept verbatim | 21 |
 | Table regions measured by pdfplumber | 11 |
-| Parse time (incl. pdfplumber scan) | 28.4s |
+| Parse time (incl. pdfplumber scan) | 27.7s |
 
 
 ## Two typographic families, one boundary rule
@@ -92,20 +92,21 @@ override; `schedules.py` always passes `0`.
 ## Residue — reported, not hidden
 
 30 markers could not be placed or produced a
-citation already used, across 7 paragraphs —
+citation already used, across 8 paragraphs —
 the same residue discipline `substructure.py` already carries for
 sections. No text is lost either way: an unplaceable marker's line
 stays with its enclosing node.
 
 | Paragraph | Anomalies |
 |---|---|
-| 39 | 10 |
-| 8 | 10 |
-| 17 | 3 |
-| 19 | 2 |
-| 30 | 2 |
-| 14 | 2 |
-| 4 | 1 |
+| Schedule III(39) | 10 |
+| Schedule V(8) | 10 |
+| Schedule II(17) | 2 |
+| Schedule III(19) | 2 |
+| Schedule III(30) | 2 |
+| Schedule IV(14) | 2 |
+| Schedule III(4) | 1 |
+| Schedule III(17) | 1 |
 
 ## Sample tree — Schedule I
 
