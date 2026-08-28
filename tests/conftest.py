@@ -11,6 +11,7 @@ from taxverity.corpus.schedules import FIRST_SCHEDULE_PAGE, parse_schedules
 from taxverity.corpus.sections import parse
 from taxverity.corpus.substructure import candidate_table_pages, parse_substructure
 from taxverity.corpus.tables import find_table_regions
+from taxverity.evals.gold import GOLD_V1_FILENAME, load_gold_set
 
 
 # Session-scoped, and autouse so it is ordered ahead of every other fixture in
@@ -97,3 +98,9 @@ def chunks(act, sub, parsed_schedules, crossrefs, untrusted):
         crossrefs=crossrefs,
         untrusted=untrusted,
     )
+
+
+# Step 3.1's gold set, shared by its own suite and the Step 3.2 metrics suite.
+@pytest.fixture(scope="session")
+def gold():
+    return load_gold_set(Settings().evals_dir / "datasets" / GOLD_V1_FILENAME)

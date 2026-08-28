@@ -7,6 +7,9 @@ understand how the system is *meant* to behave, as distinct from:
 - `DECISIONS.md` — why an architectural choice was made
 - `reports/` — findings produced by a step (corpus profile, structure probe,
   failure taxonomy)
+- `evals/` — hand-labelled datasets and the measured results run against them
+  (`evals/datasets/` is authored by hand and tracked in git; `evals/reports/`
+  is generated per `corpus_version` from Step 3.6)
 
 ## Contents
 

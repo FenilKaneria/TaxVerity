@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     corpus_pdf: Path = REPO_ROOT / "Income-tax-Act-2025.pdf"
     data_dir: Path = REPO_ROOT / "data"
     reports_dir: Path = REPO_ROOT / "reports"
+    evals_dir: Path = REPO_ROOT / "evals"
 
     log_level: str = "INFO"
     log_format: Literal["text", "json"] = "text"

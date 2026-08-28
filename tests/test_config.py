@@ -15,6 +15,7 @@ def test_path_defaults_resolve_under_the_repo_root():
     assert settings.corpus_pdf == REPO_ROOT / "Income-tax-Act-2025.pdf"
     assert settings.data_dir == REPO_ROOT / "data"
     assert settings.reports_dir == REPO_ROOT / "reports"
+    assert settings.evals_dir == REPO_ROOT / "evals"
     assert settings.interim_dir == REPO_ROOT / "data" / "interim"
 
 
