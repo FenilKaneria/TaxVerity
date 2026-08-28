@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from taxverity.config import Settings
 from taxverity.evals.gold import (
     GOLD_V1_FILENAME,
+    GOLD_V2_FILENAME,
     GoldQuery,
     QuerySlice,
     by_slice,
@@ -13,7 +14,8 @@ from taxverity.evals.gold import (
     to_json_line,
 )
 
-GOLD_PATH = Settings().evals_dir / "datasets" / GOLD_V1_FILENAME
+DATASETS = Settings().evals_dir / "datasets"
+GOLD_PATH = DATASETS / GOLD_V2_FILENAME
 
 
 def query(**fields) -> GoldQuery:
@@ -115,10 +117,27 @@ def test_blank_lines_are_skipped(tmp_path):
 # --- the shipped gold set ----------------------------------------------------
 
 
-def test_the_gold_set_has_thirty_queries_across_four_slices(gold):
+EXPECTED_SLICE_SIZES = {
+    QuerySlice.CITATION: 20,
+    QuerySlice.PARAPHRASE: 28,
+    QuerySlice.CROSSREF: 16,
+    QuerySlice.NEGATIVE: 16,
+}
+
+
+def test_the_gold_set_has_eighty_queries_across_four_slices(gold):
     counts = {member: len(queries) for member, queries in by_slice(gold).items()}
-    assert sum(counts.values()) == 30
-    assert all(count >= 6 for count in counts.values())
+    assert counts == EXPECTED_SLICE_SIZES
+    assert sum(counts.values()) == 80
+
+
+def test_v1_is_frozen(gold):
+    """Step 3.6's baseline artifact was measured against exactly those 30
+    queries. Mutating the file in place would leave that record labelled with a
+    gold set it never saw, so v1 stays on disk and v2 is a separate file."""
+    v1 = load_gold_set(DATASETS / GOLD_V1_FILENAME)
+    assert len(v1) == 30
+    assert [q.query_id for q in v1] == [q.query_id for q in gold[:30]]
 
 
 def test_query_ids_are_contiguous_from_one(gold):
@@ -154,9 +173,25 @@ def test_every_labelled_citation_exists_in_the_corpus(gold, chunks):
 
 
 def test_the_labels_are_spread_across_the_act(gold):
-    """A gold set concentrated in one chapter measures one chapter."""
+    """A gold set concentrated in one chapter measures one chapter. v1 reached
+    20 distinct roots, heavily weighted to house property and salary."""
     roots = {citation.split("(")[0] for q in gold for citation in q.required}
-    assert len(roots) >= 15
+    assert len(roots) >= 45
+
+
+def test_no_label_contains_another_label_of_the_same_query(gold):
+    """The labelling rule: `required` names the smallest node holding the whole
+    answer. A chunk carries its subtree (ADR-055), so labelling both an ancestor
+    and its descendant states one fact twice and makes lenient recall credit the
+    pair for retrieving the ancestor alone."""
+    redundant = [
+        (q.query_id, outer, inner)
+        for q in gold
+        for outer in q.required
+        for inner in q.required
+        if outer != inner and inner.startswith(f"{outer}(")
+    ]
+    assert redundant == []
 
 
 def test_the_file_on_disk_is_byte_identical_to_what_the_model_serialises(gold):

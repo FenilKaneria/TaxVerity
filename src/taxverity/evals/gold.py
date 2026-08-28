@@ -15,7 +15,11 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
+# v1 is frozen: the Step 3.6 baseline artifact was measured against exactly
+# those 30 queries, and mutating the file in place would silently invalidate
+# that record. v2 is the working set from Step 3.7 onwards (ADR-064).
 GOLD_V1_FILENAME = "retrieval_gold_v1.jsonl"
+GOLD_V2_FILENAME = "retrieval_gold_v2.jsonl"
 QUERY_ID = re.compile(r"^q\d{3}$")
 
 
