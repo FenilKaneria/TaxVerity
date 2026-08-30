@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     def interim_dir(self) -> Path:
         return self.data_dir / "interim"
 
+    @property
+    def vectors_dir(self) -> Path:
+        return self.data_dir / "vectors"
+
     def require(self, name: str) -> str:
         value = getattr(self, name)
         if value is None:

@@ -16,7 +16,13 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from taxverity.embedding.backends import MAX_BATCH, Embedder, ModelInfo, StubEmbedder
+from taxverity.embedding.backends import (
+    MAX_BATCH,
+    Embedder,
+    EmbedKind,
+    ModelInfo,
+    StubEmbedder,
+)
 from taxverity.observability import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -34,6 +40,10 @@ class EmbedRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     texts: list[str] = Field(min_length=1, max_length=MAX_BATCH)
+    # Required, with no default: a caller who forgets gets a 422 rather than a
+    # plausible, well-formed, wrongly-encoded vector (ADR-069). One kind per
+    # request, so a batch cannot be half-mislabelled.
+    kind: EmbedKind
 
 
 class EmbedResponse(BaseModel):
@@ -44,6 +54,9 @@ class EmbedResponse(BaseModel):
     # identity once at startup cannot see the service being replaced under it
     # by a rolling deploy, which is exactly when skew appears.
     model: ModelInfo
+    # Echoed for the same reason, one level down: the client asserts the
+    # service applied the encoding it asked for (ADR-069).
+    kind: EmbedKind
 
 
 class HealthResponse(BaseModel):
@@ -80,16 +93,21 @@ async def _warm_up(app: FastAPI) -> None:
     info = embedder.info()
     started = time.perf_counter()
     try:
-        vectors = await asyncio.to_thread(embedder.embed, [WARMUP_TEXT])
-        # The warm-up doubles as the one place the backend is made to prove it
-        # does what it declares. A width that disagrees with `dim` is the same
-        # skew family as ADR-026's, caught at boot rather than at query time.
-        if len(vectors) != 1 or len(vectors[0]) != info.dim:
-            raise ValueError(
-                f"backend declares dim={info.dim} but returned "
-                f"{len(vectors)} vector(s) of width "
-                f"{[len(v) for v in vectors]}"
-            )
+        # Both kinds, because asymmetric encoding means two code paths and
+        # warming only one leaves a query-side recipe bug to surface at the
+        # first user query instead of at /ready (ADR-069).
+        for kind in EmbedKind:
+            vectors = await asyncio.to_thread(embedder.embed, [WARMUP_TEXT], kind)
+            # The warm-up doubles as the one place the backend is made to prove
+            # it does what it declares. A width that disagrees with `dim` is the
+            # same skew family as ADR-026's, caught at boot rather than at query
+            # time.
+            if len(vectors) != 1 or len(vectors[0]) != info.dim:
+                raise ValueError(
+                    f"backend declares dim={info.dim} but returned "
+                    f"{len(vectors)} vector(s) of width "
+                    f"{[len(v) for v in vectors]} for kind={kind.value}"
+                )
     except Exception:
         # Fail closed and stay up: a task that answers /ready with 503 forever
         # is drained and replaced exactly like one that exited, and it can
@@ -99,12 +117,14 @@ async def _warm_up(app: FastAPI) -> None:
         return
     app.state.readiness = Readiness.READY
     logger.info(
-        "embed warm-up complete in %.3fs: model=%s revision=%s dim=%d runtime=%s",
+        "embed warm-up complete in %.3fs: model=%s revision=%s dim=%d "
+        "runtime=%s encoding=%s",
         time.perf_counter() - started,
         info.model_id,
         info.revision,
         info.dim,
         info.runtime,
+        info.encoding,
     )
 
 
@@ -116,11 +136,13 @@ def create_app(embedder: Embedder | None = None) -> FastAPI:
         configure_logging()
         info = app.state.embedder.info()
         logger.info(
-            "embed service starting: model=%s revision=%s dim=%d runtime=%s",
+            "embed service starting: model=%s revision=%s dim=%d "
+            "runtime=%s encoding=%s",
             info.model_id,
             info.revision,
             info.dim,
             info.runtime,
+            info.encoding,
         )
         # Started rather than awaited: blocking startup would leave the port
         # unbound, so a probe would see a refused connection instead of the
@@ -153,7 +175,9 @@ def create_app(embedder: Embedder | None = None) -> FastAPI:
                 status_code=503, detail="embedding backend failed warm-up"
             )
         return EmbedResponse(
-            embeddings=backend.embed(payload.texts), model=backend.info()
+            embeddings=backend.embed(payload.texts, payload.kind),
+            model=backend.info(),
+            kind=payload.kind,
         )
 
     @app.get("/model-info", response_model=ModelInfo)

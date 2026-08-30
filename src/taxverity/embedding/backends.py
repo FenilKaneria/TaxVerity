@@ -7,6 +7,7 @@ import hashlib
 import math
 import struct
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,13 +20,26 @@ from taxverity.corpus.loader import normalise
 MAX_BATCH = 256
 
 
-class ModelInfo(BaseModel):
-    """The four fields ADR-026 requires to detect version skew.
+class EmbedKind(StrEnum):
+    """Which side of a retrieval pair a text is being encoded as (ADR-069).
 
-    The offline job (Step 4.4) stores all four alongside the vectors and the
-    query path refuses to serve on a mismatch. A vector carries no evidence of
-    which weights produced it, so an index built with model A and queried with
-    model B degrades recall silently and reports nothing.
+    Both Step 4.7 finalists encode the two sides differently, so a query
+    embedded as a document is silently wrong rather than merely imprecise.
+    Deliberately has no default at any layer it travels through: a default is
+    exactly how that mistake happens quietly.
+    """
+
+    QUERY = "query"
+    DOCUMENT = "document"
+
+
+class ModelInfo(BaseModel):
+    """The identity ADR-026 requires to detect version skew.
+
+    The offline job (Step 4.4) stores it alongside the vectors and the query
+    path refuses to serve on a mismatch. A vector carries no evidence of which
+    weights produced it, so an index built with model A and queried with model
+    B degrades recall silently and reports nothing.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -40,14 +54,22 @@ class ModelInfo(BaseModel):
     # for identical weights, which is the condition on the quantisation
     # experiment in plan §2.7.
     runtime: str = Field(min_length=1)
+    # The prompt/pooling recipe, versioned. Without it the four fields above
+    # would report a match after a query-prompt edit that moved every vector,
+    # because the weights really are unchanged — the skew hole ADR-069 opens
+    # and this field closes.
+    encoding: str = Field(min_length=1)
 
 
 @runtime_checkable
 class Embedder(Protocol):
     def info(self) -> ModelInfo: ...
 
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """One unit-length vector per input text, in input order."""
+    def embed(self, texts: Sequence[str], kind: EmbedKind) -> list[list[float]]:
+        """One unit-length vector per input text, in input order.
+
+        `kind` is required, never defaulted: see ADR-069.
+        """
         ...
 
 
@@ -55,6 +77,9 @@ STUB_MODEL_ID = "stub-hash-embedder"
 STUB_DIM = 32
 STUB_REVISION = "1"
 STUB_RUNTIME = "stub"
+# Not a claim to a real prompt recipe — the stub applies none. It only folds
+# `kind` into its hash so the contract is testable end to end.
+STUB_ENCODING = "stub"
 
 
 class StubEmbedder:
@@ -71,17 +96,20 @@ class StubEmbedder:
             dim=STUB_DIM,
             revision=STUB_REVISION,
             runtime=STUB_RUNTIME,
+            encoding=STUB_ENCODING,
         )
 
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        return [_hash_vector(text) for text in texts]
+    def embed(self, texts: Sequence[str], kind: EmbedKind) -> list[list[float]]:
+        return [_hash_vector(text, kind) for text in texts]
 
 
-def _hash_vector(text: str) -> list[float]:
+def _hash_vector(text: str, kind: EmbedKind) -> list[float]:
     # normalise() so the stub agrees with the rest of the pipeline about what
     # two texts being "the same" means — the corpus carries soft hyphens and
     # NBSPs that differ byte-wise while reading identically (Step 1.1).
-    seed = normalise(text).encode("utf-8")
+    # `kind` is in the seed so a test can prove it travelled the whole path;
+    # a stub that ignored it would make the contract unobservable.
+    seed = f"{kind.value}\x00{normalise(text)}".encode()
     raw = b""
     counter = 0
     while len(raw) < STUB_DIM * 4:

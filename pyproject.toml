@@ -16,6 +16,19 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+# Model runtime for the taxverity-embed service and the offline corpus
+# embedding job (Step 4.4). Deliberately not a base dependency: the Phase 15.1
+# API image installs `taxverity` and must not carry torch. Only the Phase 15.2
+# embed image installs `taxverity[embed]`. See ADR-065.
+embed = [
+    "torch>=2.8",
+    "transformers>=5.1",
+    "sentence-transformers>=5.0",
+    "peft>=0.15.2",
+    "einops>=0.8",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -30,6 +43,28 @@ packages = ["src/taxverity"]
 dev = [
     "pytest>=8.3",
     "ruff>=0.9",
+]
+
+# PyTorch does not publish CUDA wheels for Windows on PyPI (only the CPU wheel),
+# so torch is drawn from its own indexes by platform: the dev machine (Windows,
+# RTX 3050, CUDA 13.x) gets the cu130 wheel for the Step 4.4 batch job; every
+# other platform, production included, gets the CPU wheel. This encodes the
+# prod/dev split in the lockfile rather than in an image-build step. See ADR-070.
+# `explicit = true` keeps all other packages on PyPI.
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cpu", marker = "sys_platform != 'win32'" },
 ]
 
 [tool.ruff]

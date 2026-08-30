@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx2
 
-from taxverity.embedding.backends import MAX_BATCH, ModelInfo
+from taxverity.embedding.backends import MAX_BATCH, EmbedKind, ModelInfo
 from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
@@ -43,12 +43,24 @@ class ModelIdentityError(EmbeddingClientError):
     """
 
 
+class EmbedKindError(EmbeddingClientError):
+    """The service encoded the text as the other side of the retrieval pair.
+
+    Outside the retry path for the same reason as ModelIdentityError: the same
+    service applies the same recipe on a repeat call, and a query encoded as a
+    document is silently comparable-looking against the index (ADR-069).
+    """
+
+
 class EmbeddingServiceError(EmbeddingClientError):
     pass
 
 
 def describe(info: ModelInfo) -> str:
-    return f"{info.model_id}@{info.revision} dim={info.dim} runtime={info.runtime}"
+    return (
+        f"{info.model_id}@{info.revision} dim={info.dim} "
+        f"runtime={info.runtime} encoding={info.encoding}"
+    )
 
 
 class EmbeddingClient:
@@ -95,17 +107,29 @@ class EmbeddingClient:
         )
         return served
 
-    def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """One unit-length vector per input text, in input order."""
+    def embed(self, texts: Sequence[str], kind: EmbedKind) -> list[list[float]]:
+        """One unit-length vector per input text, in input order.
+
+        `kind` is required and never defaulted (ADR-069): ingestion passes
+        DOCUMENT, the query path passes QUERY, and there is no third caller.
+        """
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self._batch_size):
             vectors.extend(
-                self._embed_batch(list(texts[start : start + self._batch_size]))
+                self._embed_batch(list(texts[start : start + self._batch_size]), kind)
             )
         return vectors
 
-    def _embed_batch(self, batch: list[str]) -> list[list[float]]:
-        payload = self._request("POST", "/embed", json={"texts": batch})
+    def _embed_batch(self, batch: list[str], kind: EmbedKind) -> list[list[float]]:
+        payload = self._request(
+            "POST", "/embed", json={"texts": batch, "kind": kind.value}
+        )
+        served_kind = payload["kind"]
+        if served_kind != kind.value:
+            raise EmbedKindError(
+                f"asked the embedding service for kind={kind.value}, "
+                f"it applied kind={served_kind}"
+            )
         served = ModelInfo.model_validate(payload["model"])
         # Checked per response, not only at construction: a rolling deploy can
         # replace the service under a long-lived client, which is precisely
@@ -145,7 +169,9 @@ class EmbeddingClient:
                 response.raise_for_status()
                 return response.json()
             except httpx2.HTTPStatusError as error:
-                raise EmbeddingServiceError(f"{method} {path} failed: {error}") from error
+                raise EmbeddingServiceError(
+                    f"{method} {path} failed: {error}"
+                ) from error
             except (httpx2.RequestError, EmbeddingServiceError) as error:
                 last = error
             if attempt < self._max_attempts:

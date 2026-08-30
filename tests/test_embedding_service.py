@@ -9,10 +9,12 @@ from pydantic import ValidationError
 
 from taxverity.embedding.backends import (
     STUB_DIM,
+    STUB_ENCODING,
     STUB_MODEL_ID,
     STUB_REVISION,
     STUB_RUNTIME,
     Embedder,
+    EmbedKind,
     ModelInfo,
     StubEmbedder,
 )
@@ -87,15 +89,19 @@ def client():
 class FakeEmbedder:
     def __init__(self, dim: int = 3, model_id: str = "fake") -> None:
         self._info = ModelInfo(
-            model_id=model_id, dim=dim, revision="abc123", runtime="fake-runtime"
+            model_id=model_id,
+            dim=dim,
+            revision="abc123",
+            runtime="fake-runtime",
+            encoding="fake-v1",
         )
-        self.calls: list[list[str]] = []
+        self.calls: list[tuple[list[str], EmbedKind]] = []
 
     def info(self) -> ModelInfo:
         return self._info
 
-    def embed(self, texts):
-        self.calls.append(list(texts))
+    def embed(self, texts, kind):
+        self.calls.append((list(texts), kind))
         return [[1.0] + [0.0] * (self._info.dim - 1) for _ in texts]
 
 
@@ -110,7 +116,14 @@ def test_model_info_is_frozen():
 
 @pytest.mark.parametrize(
     "field, value",
-    [("model_id", ""), ("dim", 0), ("dim", -1), ("revision", ""), ("runtime", "")],
+    [
+        ("model_id", ""),
+        ("dim", 0),
+        ("dim", -1),
+        ("revision", ""),
+        ("runtime", ""),
+        ("encoding", ""),
+    ],
 )
 def test_model_info_rejects_empty_identity(field, value):
     fields = {
@@ -118,6 +131,7 @@ def test_model_info_rejects_empty_identity(field, value):
         "dim": 4,
         "revision": "r",
         "runtime": "t",
+        "encoding": "e",
         field: value,
     }
     with pytest.raises(ValueError):
@@ -137,10 +151,11 @@ def test_stub_info_matches_its_constants():
     assert info.dim == STUB_DIM
     assert info.revision == STUB_REVISION
     assert info.runtime == STUB_RUNTIME
+    assert info.encoding == STUB_ENCODING
 
 
 def test_stub_returns_one_vector_per_text_in_order():
-    vectors = StubEmbedder().embed(["alpha", "beta", "alpha"])
+    vectors = StubEmbedder().embed(["alpha", "beta", "alpha"], EmbedKind.DOCUMENT)
     assert len(vectors) == 3
     assert all(len(v) == STUB_DIM for v in vectors)
     assert vectors[0] == vectors[2]
@@ -148,25 +163,26 @@ def test_stub_returns_one_vector_per_text_in_order():
 
 
 def test_stub_vectors_are_unit_length():
-    for vector in StubEmbedder().embed(["alpha", "", "section 80C"]):
+    texts = ["alpha", "", "section 80C"]
+    for vector in StubEmbedder().embed(texts, EmbedKind.QUERY):
         assert math.isclose(math.sqrt(sum(v * v for v in vector)), 1.0, rel_tol=1e-12)
 
 
 def test_stub_is_deterministic_across_instances():
-    assert StubEmbedder().embed(["section 22(2)"]) == StubEmbedder().embed(
-        ["section 22(2)"]
+    assert StubEmbedder().embed(["section 22(2)"], EmbedKind.QUERY) == (
+        StubEmbedder().embed(["section 22(2)"], EmbedKind.QUERY)
     )
 
 
 def test_stub_normalises_before_hashing():
     # Step 1.1: the corpus carries soft hyphens and NBSPs that read identically.
-    assert StubEmbedder().embed(["sub­section"]) == StubEmbedder().embed(
-        ["subsection"]
+    assert StubEmbedder().embed(["sub­section"], EmbedKind.DOCUMENT) == (
+        StubEmbedder().embed(["subsection"], EmbedKind.DOCUMENT)
     )
 
 
 def test_stub_embeds_an_empty_batch_to_an_empty_list():
-    assert StubEmbedder().embed([]) == []
+    assert StubEmbedder().embed([], EmbedKind.DOCUMENT) == []
 
 
 # --- Contract: /embed --------------------------------------------------------
@@ -176,40 +192,53 @@ def test_embed_returns_a_vector_per_text():
     embedder = FakeEmbedder(dim=3)
     with TestClient(create_app(embedder)) as client:
         wait_until(client, lambda r: r.status_code == 200)
-        response = client.post("/embed", json={"texts": ["a", "b"]})
+        response = client.post("/embed", json={"texts": ["a", "b"], "kind": "document"})
     assert response.status_code == 200
     body = response.json()
     assert body["embeddings"] == [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
-    assert embedder.calls == [[WARMUP_TEXT], ["a", "b"]]
+    assert embedder.calls == [
+        ([WARMUP_TEXT], EmbedKind.QUERY),
+        ([WARMUP_TEXT], EmbedKind.DOCUMENT),
+        (["a", "b"], EmbedKind.DOCUMENT),
+    ]
 
 
 def test_embed_response_carries_model_identity(client):
-    body = client.post("/embed", json={"texts": ["a"]}).json()
+    body = client.post("/embed", json={"texts": ["a"], "kind": "document"}).json()
     assert body["model"] == {
         "model_id": STUB_MODEL_ID,
         "dim": STUB_DIM,
         "revision": STUB_REVISION,
         "runtime": STUB_RUNTIME,
+        "encoding": STUB_ENCODING,
     }
 
 
 def test_embed_vector_width_matches_the_declared_dim(client):
-    body = client.post("/embed", json={"texts": ["a", "bb"]}).json()
+    body = client.post("/embed", json={"texts": ["a", "bb"], "kind": "document"}).json()
     assert all(len(vector) == body["model"]["dim"] for vector in body["embeddings"])
 
 
 def test_embed_rejects_an_empty_batch(client):
-    assert client.post("/embed", json={"texts": []}).status_code == 422
+    assert (
+        client.post("/embed", json={"texts": [], "kind": "document"}).status_code == 422
+    )
 
 
 def test_embed_rejects_a_batch_over_the_limit(client):
     texts = [str(i) for i in range(MAX_BATCH + 1)]
-    assert client.post("/embed", json={"texts": texts}).status_code == 422
+    assert (
+        client.post("/embed", json={"texts": texts, "kind": "document"}).status_code
+        == 422
+    )
 
 
 def test_embed_accepts_a_batch_at_the_limit(client):
     texts = [str(i) for i in range(MAX_BATCH)]
-    assert client.post("/embed", json={"texts": texts}).status_code == 200
+    assert (
+        client.post("/embed", json={"texts": texts, "kind": "document"}).status_code
+        == 200
+    )
 
 
 def test_embed_rejects_a_missing_body(client):
@@ -217,18 +246,89 @@ def test_embed_rejects_a_missing_body(client):
 
 
 def test_embed_rejects_unknown_fields(client):
-    response = client.post("/embed", json={"texts": ["a"], "normalize": True})
+    response = client.post(
+        "/embed", json={"texts": ["a"], "kind": "document", "normalize": True}
+    )
     assert response.status_code == 422
 
 
 def test_embed_rejects_a_non_string_text(client):
-    assert client.post("/embed", json={"texts": [1]}).status_code == 422
+    assert (
+        client.post("/embed", json={"texts": [1], "kind": "document"}).status_code
+        == 422
+    )
 
 
 def test_embed_is_deterministic_across_requests(client):
-    first = client.post("/embed", json={"texts": ["section 22"]}).json()
-    second = client.post("/embed", json={"texts": ["section 22"]}).json()
+    first = client.post(
+        "/embed", json={"texts": ["section 22"], "kind": "document"}
+    ).json()
+    second = client.post(
+        "/embed", json={"texts": ["section 22"], "kind": "document"}
+    ).json()
     assert first["embeddings"] == second["embeddings"]
+
+
+# --- Step 4.3/ADR-069: asymmetric query vs document encoding -----------------
+
+
+def test_embed_kinds_are_exactly_two():
+    assert [kind.value for kind in EmbedKind] == ["query", "document"]
+
+
+def test_embed_requires_a_kind(client):
+    # No default anywhere: a caller who forgets is refused rather than handed a
+    # plausible, well-formed, wrongly-encoded vector (ADR-069).
+    assert client.post("/embed", json={"texts": ["a"]}).status_code == 422
+
+
+def test_embed_rejects_an_unknown_kind(client):
+    response = client.post("/embed", json={"texts": ["a"], "kind": "passage"})
+    assert response.status_code == 422
+
+
+def test_embed_echoes_the_kind_it_applied(client):
+    for kind in EmbedKind:
+        body = client.post("/embed", json={"texts": ["a"], "kind": kind.value}).json()
+        assert body["kind"] == kind.value
+
+
+def test_the_kind_reaches_the_backend():
+    embedder = FakeEmbedder(dim=3)
+    with TestClient(create_app(embedder)) as client:
+        wait_until(client, lambda r: r.status_code == 200)
+        client.post("/embed", json={"texts": ["a"], "kind": "query"})
+    assert embedder.calls[-1] == (["a"], EmbedKind.QUERY)
+
+
+def test_the_two_kinds_produce_different_vectors(client):
+    # The stub has no semantics, but it does fold `kind` into its hash — which
+    # is what makes the contract observable end to end at all.
+    as_query = client.post("/embed", json={"texts": ["rent"], "kind": "query"}).json()
+    as_document = client.post(
+        "/embed", json={"texts": ["rent"], "kind": "document"}
+    ).json()
+    assert as_query["embeddings"] != as_document["embeddings"]
+
+
+def test_each_kind_is_deterministic(client):
+    payload = {"texts": ["section 22"], "kind": "query"}
+    first = client.post("/embed", json=payload).json()
+    second = client.post("/embed", json=payload).json()
+    assert first["embeddings"] == second["embeddings"]
+
+
+def test_the_warm_up_exercises_both_kinds():
+    # Asymmetry means two code paths; warming one would leave a query-side
+    # recipe bug to surface at the first user query instead of at /ready.
+    embedder = GatedEmbedder()
+    try:
+        with TestClient(create_app(embedder)) as client:
+            embedder.gate.set()
+            wait_until(client, lambda r: r.status_code == 200)
+    finally:
+        embedder.gate.set()
+    assert {kind for _, kind in embedder.calls} == set(EmbedKind)
 
 
 # --- Contract: /model-info, /health, /ready ----------------------------------
@@ -236,7 +336,7 @@ def test_embed_is_deterministic_across_requests(client):
 
 def test_model_info_returns_all_four_identity_fields(client):
     body = client.get("/model-info").json()
-    assert set(body) == {"model_id", "dim", "revision", "runtime"}
+    assert set(body) == {"model_id", "dim", "revision", "runtime", "encoding"}
 
 
 def test_model_info_reflects_the_injected_backend():
@@ -247,13 +347,13 @@ def test_model_info_reflects_the_injected_backend():
         "dim": 7,
         "revision": "abc123",
         "runtime": "fake-runtime",
+        "encoding": "fake-v1",
     }
 
 
 def test_model_info_agrees_with_what_embed_reports(client):
-    assert client.get("/model-info").json() == (
-        client.post("/embed", json={"texts": ["a"]}).json()["model"]
-    )
+    body = client.post("/embed", json={"texts": ["a"], "kind": "document"}).json()
+    assert client.get("/model-info").json() == body["model"]
 
 
 def test_health_is_ok(client):
@@ -284,7 +384,7 @@ def test_embed_does_not_log_request_text(service_logs):
     secret = "my salary is 1400000 and my PAN is ABCDE1234F"
     with TestClient(create_app()) as client:
         wait_until(client, lambda r: r.status_code == 200)
-        client.post("/embed", json={"texts": [secret]})
+        client.post("/embed", json={"texts": [secret], "kind": "query"})
     # Proves the capture is live, so the two absence assertions below cannot
     # pass by capturing nothing at all.
     assert "embed service starting" in service_logs.text
@@ -304,16 +404,20 @@ class GatedEmbedder:
 
     def __init__(self, dim: int = 3) -> None:
         self._info = ModelInfo(
-            model_id="gated", dim=dim, revision="r1", runtime="fake-runtime"
+            model_id="gated",
+            dim=dim,
+            revision="r1",
+            runtime="fake-runtime",
+            encoding="fake-v1",
         )
         self.gate = threading.Event()
-        self.calls: list[list[str]] = []
+        self.calls: list[tuple[list[str], EmbedKind]] = []
 
     def info(self) -> ModelInfo:
         return self._info
 
-    def embed(self, texts):
-        self.calls.append(list(texts))
+    def embed(self, texts, kind):
+        self.calls.append((list(texts), kind))
         if list(texts) == [WARMUP_TEXT]:
             assert self.gate.wait(timeout=READY_TIMEOUT), "warm-up gate never released"
         return [[1.0] + [0.0] * (self._info.dim - 1) for _ in texts]
@@ -322,13 +426,17 @@ class GatedEmbedder:
 class FailingEmbedder:
     def __init__(self) -> None:
         self._info = ModelInfo(
-            model_id="failing", dim=3, revision="r1", runtime="fake-runtime"
+            model_id="failing",
+            dim=3,
+            revision="r1",
+            runtime="fake-runtime",
+            encoding="fake-v1",
         )
 
     def info(self) -> ModelInfo:
         return self._info
 
-    def embed(self, texts):
+    def embed(self, texts, kind):
         raise RuntimeError("weights are not loadable")
 
 
@@ -337,13 +445,17 @@ class LyingEmbedder:
 
     def __init__(self) -> None:
         self._info = ModelInfo(
-            model_id="lying", dim=3, revision="r1", runtime="fake-runtime"
+            model_id="lying",
+            dim=3,
+            revision="r1",
+            runtime="fake-runtime",
+            encoding="fake-v1",
         )
 
     def info(self) -> ModelInfo:
         return self._info
 
-    def embed(self, texts):
+    def embed(self, texts, kind):
         return [[0.0, 1.0, 0.0, 0.0] for _ in texts]
 
 
@@ -372,7 +484,10 @@ def test_warm_up_embeds_the_warm_up_text_exactly_once():
             client.get("/ready")
     finally:
         embedder.gate.set()
-    assert embedder.calls == [[WARMUP_TEXT]]
+    assert embedder.calls == [
+        ([WARMUP_TEXT], EmbedKind.QUERY),
+        ([WARMUP_TEXT], EmbedKind.DOCUMENT),
+    ]
 
 
 def test_startup_does_not_block_on_the_warm_up():
@@ -399,7 +514,7 @@ def test_embed_is_served_while_the_warm_up_is_pending():
     try:
         with TestClient(create_app(embedder)) as client:
             assert client.get("/ready").status_code == 503
-            response = client.post("/embed", json={"texts": ["a"]})
+            response = client.post("/embed", json={"texts": ["a"], "kind": "document"})
             assert response.status_code == 200
             assert response.json()["embeddings"] == [[1.0, 0.0, 0.0]]
             embedder.gate.set()
@@ -424,7 +539,7 @@ def test_ready_is_failed_when_the_backend_width_contradicts_its_declared_dim():
 def test_embed_is_503_after_a_failed_warm_up():
     with TestClient(create_app(FailingEmbedder())) as client:
         wait_until(client, lambda r: r.json()["state"] == "failed")
-        response = client.post("/embed", json={"texts": ["a"]})
+        response = client.post("/embed", json={"texts": ["a"], "kind": "document"})
     assert response.status_code == 503
     assert response.json()["detail"] == "embedding backend failed warm-up"
 
