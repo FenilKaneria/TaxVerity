@@ -155,15 +155,27 @@ def test_diagnostics_do_not_escape_to_the_root_logger(root_logger):
 
 
 def test_every_source_module_logs_through_get_logger():
+    import re
     from pathlib import Path
 
+    # A bare `print(` call, not any identifier that merely ends in "print" —
+    # `verify_fingerprint(` is not a print.
+    bare_print = re.compile(r"(?<![\w.])print\(")
     src = Path(__file__).resolve().parents[1] / "src"
     offenders = [
         path.relative_to(src).as_posix()
         for path in src.rglob("*.py")
-        if "print(" in path.read_text(encoding="utf-8")
+        if bare_print.search(path.read_text(encoding="utf-8"))
     ]
     assert offenders == []
+
+
+def test_the_print_scan_still_catches_a_real_print():
+    import re
+
+    bare_print = re.compile(r"(?<![\w.])print\(")
+    assert bare_print.search('    print("x")')
+    assert not bare_print.search("verify_fingerprint(embedder, manifest)")
 
 
 def test_the_json_formatter_needs_no_configuration_to_be_used_directly():

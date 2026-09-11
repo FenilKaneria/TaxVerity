@@ -1,9 +1,10 @@
-"""Step 4.4 — candidate specs and the real sentence-transformers backend.
+"""Step 4.4 — the local reference spec and the sentence-transformers backend.
 
-The integration tests load ~1.2 GB of weights and are skipped unless the
-snapshot is already in the Hugging Face cache (scripts/download_models.py puts
-it there). CI, which has neither the `embed` extra nor the cache, runs only the
-pure tests below.
+Since R15 this backend is the offline fidelity reference for the Jina hosted
+API, not a serving path (ADR-075). The integration tests load ~1.2 GB of
+weights and are skipped unless the snapshot is already in the Hugging Face
+cache (scripts/download_models.py puts it there). CI, which has neither the
+`embed` extra nor the cache, runs only the pure tests below.
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ from taxverity.embedding.backends import Embedder, EmbedKind
 from taxverity.embedding.candidates import (
     CANDIDATES,
     JINA_V5,
-    QWEN3,
     ST_ENCODING,
     EmbedderSpec,
 )
@@ -37,16 +37,14 @@ def _cached(spec: EmbedderSpec) -> bool:
 needs_jina = pytest.mark.skipif(
     not _cached(JINA_V5), reason="jina-v5 snapshot not in the HF cache"
 )
-needs_qwen = pytest.mark.skipif(
-    not _cached(QWEN3), reason="qwen3 snapshot not in the HF cache"
-)
 
 
 # --- pure: specs -----------------------------------------------------------
 
 
-def test_both_finalists_are_registered():
-    assert {s.key for s in CANDIDATES} == {"jina-v5", "qwen3-0.6b"}
+def test_only_the_reference_model_is_registered():
+    """Qwen3 was dropped with the Step 4.7 bake-off at R15 (ADR-075)."""
+    assert CANDIDATES == (JINA_V5,)
 
 
 def test_specs_are_frozen():
@@ -54,20 +52,19 @@ def test_specs_are_frozen():
         JINA_V5.dim = 512  # type: ignore[misc]
 
 
-def test_specs_declare_1024_dim():
-    assert JINA_V5.dim == 1024
-    assert QWEN3.dim == 1024
+def test_the_reference_matches_the_served_width():
+    from taxverity.embedding.jina_api import DIM
+
+    assert JINA_V5.dim == DIM == 1024
 
 
-def test_specs_carry_distinct_models_at_pinned_shas():
-    assert JINA_V5.model_id != QWEN3.model_id
-    for spec in CANDIDATES:
-        assert len(spec.revision) == 40
-        assert set(spec.revision) <= set("0123456789abcdef")
+def test_the_reference_is_pinned_to_a_commit_sha():
+    assert len(JINA_V5.revision) == 40
+    assert set(JINA_V5.revision) <= set("0123456789abcdef")
 
 
-def test_specs_share_the_versioned_encoding_recipe():
-    assert JINA_V5.encoding == ST_ENCODING == QWEN3.encoding
+def test_the_reference_carries_the_versioned_encoding_recipe():
+    assert JINA_V5.encoding == ST_ENCODING
 
 
 def test_a_bad_revision_is_refused():
@@ -138,12 +135,3 @@ def test_a_dim_disagreement_is_refused():
     wrong = dataclasses.replace(JINA_V5, dim=512)
     with pytest.raises(ValueError, match="embeds at dim=1024"):
         SentenceTransformerEmbedder(wrong, device="cpu")
-
-
-@needs_qwen
-def test_qwen_loads_and_reports_1024():
-    from taxverity.embedding.sentence_transformer import SentenceTransformerEmbedder
-
-    embedder = SentenceTransformerEmbedder(QWEN3, device="cpu")
-    assert embedder.info().dim == 1024
-    assert len(embedder.embed(["advance tax"], EmbedKind.DOCUMENT)[0]) == 1024

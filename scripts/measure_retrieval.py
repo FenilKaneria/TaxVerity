@@ -24,7 +24,7 @@ from taxverity.evals.baseline import (
 from taxverity.evals.gold import GOLD_V2_FILENAME, QuerySlice, load_gold_set
 from taxverity.evals.metrics import CitationIndex, CreditMode, RunReport
 from taxverity.observability import configure_logging, get_logger
-from taxverity.retrieval.bm25 import BM25Retriever
+from taxverity.retrieval.bm25 import K1, B, BM25Retriever
 from taxverity.retrieval.citations import CitationRetriever, ShortcutRetriever
 
 logger = get_logger(__name__)
@@ -75,6 +75,11 @@ def render(report: BaselineReport, elapsed: float) -> str:
         "labelled unit; **lenient** also credits an ancestor, because ADR-055",
         "gives a chunk its whole subtree — a retriever returning `22` for a",
         "`22(2)` question is imprecise, not wrong.",
+        "",
+        f"**BM25 runs at k1={K1}, b={B}, tuned at Step 4.4b (ADR-077).** The",
+        "untuned 0.75 ladder, its cross-validation and the rejected rungs",
+        "(digit grouping, RM3) are in `reports/lexical_comparison.md`. The",
+        "Step 1.10 numbers quoted next were measured at the untuned b=0.75.",
         "",
         "**Known consequence of Step 1.10, not a regression.** Narrowing the",
         "trust rule to `duplicate_path` split 19 roots into their real",

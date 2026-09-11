@@ -9,7 +9,7 @@ from taxverity.corpus.nodes import NodeType
 from taxverity.evals.gold import QuerySlice
 from taxverity.evals.metrics import CitationIndex, score_run
 from taxverity.retrieval.base import Retriever, as_ranked_citations
-from taxverity.retrieval.bm25 import BM25Retriever, tokenize
+from taxverity.retrieval.bm25 import K1, B, BM25Retriever, tokenize
 
 CORPUS_VERSION = "v" * 64
 
@@ -135,6 +135,65 @@ def test_the_ranking_is_reproducible(retriever):
     assert [(r.chunk.chunk_id, r.score) for r in retriever.search(query, 5)] == [
         (r.chunk.chunk_id, r.score) for r in rebuilt.search(query, 5)
     ]
+
+
+def test_the_tokenizer_is_injectable():
+    """Step 4.4b's ladder swaps tokenizers without forking the retriever. The
+    default splits "2,00,000" into three tokens, none of them in this chunk."""
+    corpus = [chunk("1", "A limit of 200000 rupees.")]
+
+    def ungrouped(text):
+        return tokenize(text.replace(",", ""))
+
+    assert paths(BM25Retriever(corpus, tokenizer=ungrouped).search("2,00,000", 1)) == [
+        "1"
+    ]
+    assert BM25Retriever(corpus).search("2,00,000", 1) == []
+
+
+def test_the_defaults_are_the_step_4_4b_tuning():
+    """ADR-077. A silent revert to Okapi's 0.75 would undo a measured gain."""
+    assert (K1, B) == (1.5, 0.3)
+
+
+def test_b_decides_between_term_frequency_and_length():
+    """With b=0 length is ignored and the chunk saying "tax" twice wins; with
+    b=1 its length counts against it and the short chunk wins."""
+    corpus = [
+        chunk("1", "tax"),
+        chunk("2", "tax tax " + " ".join(f"filler{n}" for n in range(30))),
+    ]
+    assert paths(BM25Retriever(corpus, b=0.0).search("tax", 1)) == ["2"]
+    assert paths(BM25Retriever(corpus, b=1.0).search("tax", 1)) == ["1"]
+
+
+@pytest.mark.parametrize("kwargs", [{"k1": -1.0}, {"b": 1.5}, {"b": -0.1}])
+def test_k1_and_b_are_validated(kwargs):
+    with pytest.raises(ValueError):
+        BM25Retriever(CORPUS, **kwargs)
+
+
+def test_weighted_search_at_unit_weight_is_search(retriever):
+    query = "annual value of the property deduction"
+    weights = dict.fromkeys(tokenize(query), 1.0)
+    assert [(r.chunk.chunk_id, r.score) for r in retriever.search(query, 5)] == [
+        (r.chunk.chunk_id, r.score) for r in retriever.search_weighted(weights, 5)
+    ]
+
+
+def test_a_zero_weight_term_adds_nothing(retriever):
+    plain = retriever.search("annual", 5)
+    weighted = retriever.search_weighted({"annual": 1.0, "deduction": 0.0}, 5)
+    assert [(r.chunk.chunk_id, r.score) for r in plain] == [
+        (r.chunk.chunk_id, r.score) for r in weighted
+    ]
+
+
+def test_term_frequencies_cover_the_indexed_surface(retriever):
+    """The breadcrumb is indexed, so its words count too."""
+    assert retriever.term_frequencies(CORPUS[0])["house"] >= 1
+    assert retriever.idf("house") > 0
+    assert retriever.idf("never-indexed") == 0.0
 
 
 def test_an_empty_corpus_does_not_divide_by_zero():

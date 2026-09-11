@@ -9,6 +9,7 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",
     "httpx2>=2.12.0",
+    "numpy>=2.2",
     "pdfplumber>=0.11.10",
     "pydantic-settings>=2.7",
     "pymupdf>=1.28.2",
@@ -17,10 +18,10 @@ dependencies = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
-# Model runtime for the taxverity-embed service and the offline corpus
-# embedding job (Step 4.4). Deliberately not a base dependency: the Phase 15.1
-# API image installs `taxverity` and must not carry torch. Only the Phase 15.2
-# embed image installs `taxverity[embed]`. See ADR-065.
+# Model runtime for the local reference embedder only — the offline fidelity
+# check against the Jina hosted API that actually serves embeddings (ADR-075).
+# Deliberately not a base dependency, and no deploy image installs it: the
+# Lambda image (ADR-076) must not carry torch.
 embed = [
     "torch>=2.8",
     "transformers>=5.1",

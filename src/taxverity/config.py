@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     groq_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
+    jina_api_key: SecretStr | None = None
     database_url: SecretStr | None = None
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None

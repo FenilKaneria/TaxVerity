@@ -1,9 +1,9 @@
-"""Step 4.4 — the real Embedder: a sentence-transformers model on torch.
+"""Step 4.4 — a local Embedder: a sentence-transformers model on torch.
 
-Imports torch and sentence_transformers only inside `__init__`, so the module
-itself stays cheap to import and free of the `embed` extra at load time
-(ADR-065). Constructed by the offline job and, from Phase 15.2, the deployed
-service — never on the API request path.
+Since R15 this is the offline fidelity *reference* for the served model, not a
+serving path — embeddings are served by the Jina hosted API (ADR-075). Imports
+torch and sentence_transformers only inside `__init__`, so the module stays
+cheap to import and free of the `embed` extra at load time.
 """
 
 from __future__ import annotations

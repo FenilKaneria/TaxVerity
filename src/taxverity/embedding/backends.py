@@ -1,5 +1,7 @@
-"""Step 4.1 — what an embedding backend is, and the stub the contract is
-tested against while the model is still unchosen (Step 4.7)."""
+"""Step 4.1 — what an embedding backend is, the identity that guards against
+skew, and a stub for testing the contract without a network or weights.
+
+The served backend is `jina_api.JinaAPIEmbedder` (ADR-075)."""
 
 from __future__ import annotations
 
@@ -13,11 +15,6 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 
 from taxverity.corpus.loader import normalise
-
-# The batch ceiling is part of the contract both halves must agree on, so it
-# lives in the module neither of them can avoid importing. The service refuses
-# a larger request; the client refuses to build one.
-MAX_BATCH = 256
 
 
 class EmbedKind(StrEnum):
@@ -59,6 +56,22 @@ class ModelInfo(BaseModel):
     # because the weights really are unchanged — the skew hole ADR-069 opens
     # and this field closes.
     encoding: str = Field(min_length=1)
+
+
+class ModelIdentityError(RuntimeError):
+    """The embedder is not the one the index was built with.
+
+    Never retried: the same embedder gives the same wrong answer, and its
+    vectors are silently incomparable with the index they would be searched
+    against.
+    """
+
+
+def describe(info: ModelInfo) -> str:
+    return (
+        f"{info.model_id}@{info.revision} dim={info.dim} "
+        f"runtime={info.runtime} encoding={info.encoding}"
+    )
 
 
 @runtime_checkable

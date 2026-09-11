@@ -1352,6 +1352,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx2" },
+    { name = "numpy" },
     { name = "pdfplumber" },
     { name = "pydantic-settings" },
     { name = "pymupdf" },
@@ -1380,6 +1381,7 @@ requires-dist = [
     { name = "einops", marker = "extra == 'embed'", specifier = ">=0.8" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx2", specifier = ">=2.12.0" },
+    { name = "numpy", specifier = ">=2.2" },
     { name = "pdfplumber", specifier = ">=0.11.10" },
     { name = "peft", marker = "extra == 'embed'", specifier = ">=0.15.2" },
     { name = "pydantic-settings", specifier = ">=2.7" },

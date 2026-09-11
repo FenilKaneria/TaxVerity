@@ -189,9 +189,12 @@ def corpus_baselines(gold, chunks):
 
 def test_the_recorded_baseline_does_not_regress(corpus_baselines):
     """A floor, not a target: the numbers in reports/retrieval_baseline.md are
-    0.438 strict and 0.461 lenient over the 64 answerable queries of the Step
+    0.453 strict and 0.602 lenient over the 64 answerable queries of the Step
     3.7 gold set. A retrieval change that drops below these should have to say
     so out loud.
+
+    Raised at Step 4.4b (ADR-077), when b was tuned 0.75 -> 0.3 under two-fold
+    cross-validation: bm25 alone went 0.438 / 0.461 -> 0.453 / 0.602.
 
     Re-derived at Step 1.10, not defended, exactly as they were at Step 3.7
     (where the v1 floors of 0.55 / 0.58 were dropped rather than argued with).
@@ -208,8 +211,8 @@ def test_the_recorded_baseline_does_not_regress(corpus_baselines):
     one. Re-labelling is deliberately its own later pass: editing the gold set
     here would move the ruler and the measured thing in the same change."""
     lexical = corpus_baselines[0].primary.overall
-    assert lexical[CreditMode.STRICT].recall >= 0.41
-    assert lexical[CreditMode.LENIENT].recall >= 0.43
+    assert lexical[CreditMode.STRICT].recall >= 0.43
+    assert lexical[CreditMode.LENIENT].recall >= 0.58
 
 
 def test_the_shortcut_never_makes_the_baseline_worse(corpus_baselines):

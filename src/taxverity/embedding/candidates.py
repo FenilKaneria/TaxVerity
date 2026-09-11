@@ -1,9 +1,9 @@
-"""Step 4.4 — the two Step 4.7 finalists, each pinned to an exact upstream
-revision.
+"""Step 4.4 — the local reference build of the served embedding model, pinned
+to an exact upstream revision.
 
-Not a runtime path. The offline job embeds the corpus with one of these and the
-Step 4.7 bake-off picks between them on measured recall. Both are fetched by
-`scripts/download_models.py`.
+Not a serving path: embeddings are served by the Jina hosted API (ADR-075).
+These weights exist to check the API's fidelity offline, and as a fallback if
+the API budget runs out. Fetched by `scripts/download_models.py`.
 """
 
 from __future__ import annotations
@@ -47,18 +47,11 @@ JINA_V5 = EmbedderSpec(
     dim=1024,
 )
 
-QWEN3 = EmbedderSpec(
-    key="qwen3-0.6b",
-    model_id="Qwen/Qwen3-Embedding-0.6B",
-    revision="97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
-    dim=1024,
-)
+# Qwen3-Embedding-0.6B was dropped with the Step 4.7 bake-off at R15 (ADR-075).
+CANDIDATES: tuple[EmbedderSpec, ...] = (JINA_V5,)
 
-CANDIDATES: tuple[EmbedderSpec, ...] = (JINA_V5, QWEN3)
-
-# The base jina repo carries a 2.4 GB ONNX export we never load; the batch job
-# and the CPU service both use the torch safetensors. allow_patterns keeps the
-# download to what is actually read.
+# The base jina repo carries a 2.4 GB ONNX export we never load. allow_patterns
+# keeps the download to what is actually read.
 DOWNLOAD_ALLOW_PATTERNS: tuple[str, ...] = (
     "*.json",
     "*.txt",

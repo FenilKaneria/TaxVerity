@@ -1,7 +1,8 @@
-"""Step 4.4 — fetch both Step 4.7 embedding finalists at their pinned revisions.
+"""Step 4.4 — fetch the local reference weights at their pinned revision.
 
-One-time setup. Writes into the Hugging Face hub cache, not the repo. Re-running
-is a no-op once the snapshots are present. Requires `taxverity[embed]`.
+Optional since R15: the served embedder is the Jina hosted API (ADR-075), and
+these weights only back the offline fidelity check. Writes into the Hugging
+Face hub cache, not the repo. Requires `taxverity[embed]`.
 """
 
 from __future__ import annotations
