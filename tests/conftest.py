@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 
 from taxverity.chunking.chunker import build_chunks
+from taxverity.chunking.pipeline import read_corpus_version
+from taxverity.chunking.store import load_chunks
 from taxverity.config import ENV_PREFIX, MissingSettingError, Settings
 from taxverity.corpus.crossrefs import extract_crossrefs
 from taxverity.corpus.loader import read_pages_jsonl
@@ -11,7 +13,17 @@ from taxverity.corpus.schedules import FIRST_SCHEDULE_PAGE, parse_schedules
 from taxverity.corpus.sections import parse
 from taxverity.corpus.substructure import candidate_table_pages, parse_substructure
 from taxverity.corpus.tables import find_table_regions
+from taxverity.embedding.store import load_vector_store
 from taxverity.evals.gold import GOLD_V2_FILENAME, load_gold_set
+from taxverity.evals.metrics import CitationIndex
+from taxverity.evals.query_vectors import (
+    QUERY_VECTORS_FILENAME,
+    CachedQueryRetriever,
+    load_query_vectors,
+)
+from taxverity.retrieval.bm25 import BM25Retriever
+from taxverity.retrieval.citations import CitationRetriever
+from taxverity.retrieval.dense import DenseRetriever
 
 
 # Session-scoped, and autouse so it is ordered ahead of every other fixture in
@@ -104,3 +116,56 @@ def chunks(act, sub, parsed_schedules, crossrefs, untrusted):
 @pytest.fixture(scope="session")
 def gold():
     return load_gold_set(Settings().evals_dir / "datasets" / GOLD_V2_FILENAME)
+
+
+# --- the real retrieval legs, no network ------------------------------------------
+# Built from the stored chunk set, the Step 4.4 vector store and the Step 5.2
+# cached question vectors. Shared by the hybrid and evidence-delivery suites so
+# BM25 is indexed once.
+
+VECTOR_STORE = Settings().vectors_dir / "jina-api"
+
+
+class Offline:
+    """The served identity with no way to embed: the corpus tests search by
+    stored vector and must never reach the network."""
+
+    def __init__(self, info) -> None:
+        self._info = info
+
+    def info(self):
+        return self._info
+
+    def embed(self, texts, kind):
+        raise AssertionError("the corpus tests must not embed")
+
+
+@pytest.fixture(scope="session")
+def stored_chunks():
+    """The Step 2.4 store as built, not the test-versioned `chunks` parse: the
+    vector store's ids were derived from the real corpus_version."""
+    interim = Settings().interim_dir
+    if not (interim / "chunks.jsonl").exists():
+        pytest.skip("run scripts/build_chunks.py to build the chunk store")
+    corpus_version = read_corpus_version(interim / "corpus_manifest.json")
+    stored, _ = load_chunks(interim, corpus_version=corpus_version)
+    return corpus_version, stored
+
+
+@pytest.fixture(scope="session")
+def retrieval_legs(gold, stored_chunks):
+    cache_path = VECTOR_STORE / QUERY_VECTORS_FILENAME
+    if not (VECTOR_STORE / "vector_manifest.json").exists() or not cache_path.exists():
+        pytest.skip("run scripts/embed_corpus.py, then scripts/measure_hybrid.py")
+    corpus_version, stored = stored_chunks
+    vectors, ids, manifest = load_vector_store(VECTOR_STORE, corpus_version=corpus_version)
+    cached = load_query_vectors(
+        cache_path, model=manifest.model, questions=[q.question for q in gold]
+    )
+    dense = DenseRetriever(stored, vectors, ids, manifest, Offline(manifest.model))
+    return (
+        CitationIndex(stored),
+        CachedQueryRetriever(dense, cached.vectors),
+        BM25Retriever(stored),
+        CitationRetriever(stored),
+    )

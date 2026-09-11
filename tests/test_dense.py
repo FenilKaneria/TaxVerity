@@ -12,6 +12,7 @@ import math
 import numpy as np
 import pytest
 
+from conftest import Offline
 from taxverity.chunking.models import Chunk
 from taxverity.chunking.pipeline import read_corpus_version
 from taxverity.chunking.store import load_chunks
@@ -191,6 +192,16 @@ def test_search_is_search_vector_of_the_query_encoding():
     assert dense.search(query, 4) == dense.search_vector(vector, 4)
 
 
+def test_embed_query_is_the_query_encoding_from_one_call():
+    embedder = Counting()
+    dense = retriever(embedder)
+    dense.search("warm", 1)
+    before = len(embedder.calls)
+    vector = dense.embed_query("rent paid to my mother")
+    assert vector == StubEmbedder().embed(["rent paid to my mother"], EmbedKind.QUERY)[0]
+    assert embedder.calls[before:] == [(EmbedKind.QUERY, 1)]
+
+
 # --- construction refusals: our own misconfiguration, loud ---------------------
 
 
@@ -300,20 +311,6 @@ def test_an_outage_during_the_fingerprint_check_is_not_sticky():
 
 SETTINGS = Settings()
 STORE = SETTINGS.vectors_dir / "jina-api"
-
-
-class Offline:
-    """The served identity with no way to embed: the corpus tests search by
-    stored vector and must never reach the network."""
-
-    def __init__(self, info) -> None:
-        self._info = info
-
-    def info(self):
-        return self._info
-
-    def embed(self, texts, kind):
-        raise AssertionError("the corpus tests must not embed")
 
 
 @pytest.fixture(scope="module")

@@ -146,6 +146,11 @@ class DenseRetriever:
     def search(self, query: str, k: int) -> Sequence[ScoredChunk]:
         if k < 1:
             raise ValueError(f"k must be at least 1, not {k}")
+        return self.search_vector(self.embed_query(query), k)
+
+    def embed_query(self, query: str) -> list[float]:
+        """Public so a measurement can embed each question once and search it
+        against several indexes, without a second query-side call site."""
         self._ensure_verified()
         try:
             # QUERY is a literal here and the only query-side call site in the
@@ -153,7 +158,7 @@ class DenseRetriever:
             (vector,) = self._embedder.embed([query], EmbedKind.QUERY)
         except EmbeddingAPIError as error:
             raise DenseRetrievalError(f"query embedding failed: {error}") from error
-        return self.search_vector(vector, k)
+        return vector
 
     def search_vector(self, vector: Sequence[float], k: int) -> Sequence[ScoredChunk]:
         if k < 1:
