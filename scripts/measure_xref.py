@@ -1,13 +1,14 @@
-"""Step 5.3 — evidence delivery measured against the ranking it delivers from,
-judged by the rule registered in `taxverity.evals.delivery` before this script
-first ran (ADR-082).
+"""Steps 5.4/5.5 — cross-reference expansion measured against the Step 5.3 pack
+it extends, judged by the rule registered in `taxverity.evals.delivery` before
+this script first ran (ADR-083).
 
-Reads the cached gold-question vectors Step 5.2 wrote, so it bills no tokens.
-Requires `TAXVERITY_JINA_API_KEY` all the same: the embedder's identity is
-checked against the vector store.
+Both packs are built from the same hybrid + shortcut ranking at the same budget,
+so the only difference is the referenced units. Reads the cached gold-question
+vectors Step 5.2 wrote, so it bills no tokens. Requires `TAXVERITY_JINA_API_KEY`
+all the same: the embedder's identity is checked against the vector store.
 
-Writes `evals/reports/<corpus_version>/evidence_delivery.json` and
-`reports/evidence_delivery.md`.
+Writes `evals/reports/<corpus_version>/xref_expansion.json` and
+`reports/xref_expansion.md`.
 """
 
 from __future__ import annotations
@@ -22,13 +23,11 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from taxverity.chunking.pipeline import read_corpus_version
-from taxverity.chunking.stats import estimate_tokens
 from taxverity.chunking.store import load_chunks
 from taxverity.config import MissingSettingError, Settings
 from taxverity.embedding.jina_api import JinaAPIEmbedder
 from taxverity.embedding.store import StaleVectorStoreError
-from taxverity.evals.baseline import PRIMARY_K, measure
-from taxverity.evals.delivery import judge_delivery
+from taxverity.evals.delivery import judge_expansion
 from taxverity.evals.gold import GOLD_V2_FILENAME, QuerySlice, load_gold_set
 from taxverity.evals.ladder import Verdict
 from taxverity.evals.metrics import CitationIndex, CreditMode, RunReport, score_run
@@ -44,31 +43,36 @@ from taxverity.retrieval.dense import DenseRetrievalError, DenseRetriever
 from taxverity.retrieval.evidence import (
     EVIDENCE_BUDGET,
     EVIDENCE_POOL,
+    EXPANSION_HEAD,
     EvidencePack,
     EvidencePacker,
+    EvidenceRole,
 )
 from taxverity.retrieval.fusion import FusionRetriever
 
 logger = get_logger(__name__)
 
-REPORT = Path("reports") / "evidence_delivery.md"
-ARTIFACT = "evidence_delivery.json"
+REPORT = Path("reports") / "xref_expansion.md"
+ARTIFACT = "xref_expansion.json"
 VECTORS_KEY = "jina-api"
 
 
-class QueryDelivery(BaseModel):
+class QueryExpansion(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     query_id: str
     slice: QuerySlice
     question: str
-    units: tuple[str, ...]
-    tokens: int
-    context_tokens: int
-    skipped: tuple[str, ...]
+    packed: tuple[str, ...]
+    expanded: tuple[str, ...]
+    # "target <- citer" for every referenced unit, in pack order.
+    referenced: tuple[str, ...]
+    packed_tokens: int
+    expanded_tokens: int
+    referenced_tokens: int
 
 
-class EvidenceReport(BaseModel):
+class XrefReport(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     corpus_version: str
@@ -76,11 +80,11 @@ class EvidenceReport(BaseModel):
     gold_count: int
     budget: int
     pool: int
-    ranked_k: int
-    ranked: RunReport
-    delivered: RunReport
+    head: int
+    packed: RunReport
+    expanded: RunReport
     verdict: Verdict
-    queries: tuple[QueryDelivery, ...]
+    queries: tuple[QueryExpansion, ...]
     pack_ms: tuple[float, float]
 
 
@@ -89,46 +93,47 @@ def percentiles(samples: Sequence[float]) -> tuple[float, float]:
     return ordered[len(ordered) // 2], ordered[math.ceil(0.95 * len(ordered)) - 1]
 
 
-def context_tokens(pack: EvidencePack) -> int:
-    return sum(estimate_tokens(line.text) for unit in pack.units for line in unit.context)
+def referenced_units(pack: EvidencePack):
+    return [unit for unit in pack.units if unit.role is EvidenceRole.REFERENCED]
 
 
 def lenient(report: RunReport) -> dict[str, float]:
     return {s.query_id: s.lenient.recall for s in report.scored}
 
 
-def render(report: EvidenceReport, elapsed: float) -> str:
+def render(report: XrefReport, elapsed: float) -> str:
     answerable = [q for q in report.queries if q.slice is not QuerySlice.NEGATIVE]
     negatives = [q for q in report.queries if q.slice is QuerySlice.NEGATIVE]
-    tokens = sorted(q.tokens for q in answerable)
-    total = sum(q.tokens for q in report.queries)
-    context = sum(q.context_tokens for q in report.queries)
-    before, after = lenient(report.ranked), lenient(report.delivered)
+    before, after = lenient(report.packed), lenient(report.expanded)
     gains = [q for q in answerable if after[q.query_id] > before[q.query_id]]
     losses = [q for q in answerable if after[q.query_id] < before[q.query_id]]
+    total = sum(q.expanded_tokens for q in report.queries)
+    referenced = sum(q.referenced_tokens for q in report.queries)
+    tokens = sorted(q.expanded_tokens for q in answerable)
     verdict = report.verdict
     lines = [
-        "# Evidence delivery — Income-tax Act, 2025",
+        "# Cross-reference expansion — Income-tax Act, 2025",
         "",
-        "Auto-generated by `scripts/measure_evidence.py` (Step 5.3). The hybrid +",
-        "shortcut ranking (ADR-081) read to the pool depth, deduplicated by ancestry,",
-        "each hit prefixed by its ancestors' lead-in lines, packed within the budget",
-        "(ADR-082). Token counts are the Step 2.3 proxy, about 1.145x short of real.",
+        "Auto-generated by `scripts/measure_xref.py` (Steps 5.4/5.5). The Step 5.3",
+        "pack against the same pack with one-hop references added (ADR-083): hits",
+        f"ranked 1-{report.head} first, then what those units refer to, then the rest",
+        "of the pool, in one budget. Token counts are the Step 2.3 proxy.",
         "",
         "| Measure | Value |",
         "|---|---|",
         f"| corpus_version | `{report.corpus_version[:16]}…` |",
         f"| Chunks | {report.chunk_count} |",
         f"| Gold queries | {report.gold_count} |",
-        f"| Budget / pool | {report.budget} tokens / top {report.pool} |",
-        f"| Pack time p50 / p95 | {report.pack_ms[0]:.2f} / {report.pack_ms[1]:.2f} ms |",
+        f"| Budget / pool / head | {report.budget} tokens / top {report.pool} "
+        f"/ top {report.head} |",
+        f"| Expanded pack time p50 / p95 | {report.pack_ms[0]:.2f} "
+        f"/ {report.pack_ms[1]:.2f} ms |",
         f"| Run time | {elapsed:.1f}s |",
         "",
-        "## The rule (registered before the run, ADR-082)",
+        "## The rule (registered before the run, ADR-083)",
         "",
-        f"The delivered evidence must credit every label the ranking's top {report.ranked_k}",
-        "credited: lenient recall must not fall, overall or on any slice. No rise is",
-        "required.",
+        "Against the Step 5.3 pack: the crossref slice's lenient recall must rise,",
+        "and neither the overall figure nor any slice may fall.",
         "",
         f"**Verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'}.**",
         "",
@@ -138,15 +143,15 @@ def render(report: EvidenceReport, elapsed: float) -> str:
         "",
         "Lenient recall: the share of labels whose text the evidence carries.",
         "",
-        f"| slice | ranking top {report.ranked_k} | delivered pack |",
+        "| slice | Step 5.3 pack | expanded pack |",
         "|---|---|---|",
-        f"| overall | {report.ranked.overall[CreditMode.LENIENT].recall:.3f} "
-        f"| {report.delivered.overall[CreditMode.LENIENT].recall:.3f} |",
+        f"| overall | {report.packed.overall[CreditMode.LENIENT].recall:.3f} "
+        f"| {report.expanded.overall[CreditMode.LENIENT].recall:.3f} |",
     ]
-    for member, scores in report.ranked.per_slice.items():
+    for member, scores in report.packed.per_slice.items():
         lines.append(
             f"| {member.value} | {scores[CreditMode.LENIENT].recall:.3f} "
-            f"| {report.delivered.per_slice[member][CreditMode.LENIENT].recall:.3f} |"
+            f"| {report.expanded.per_slice[member][CreditMode.LENIENT].recall:.3f} |"
         )
     lines += [
         "",
@@ -154,37 +159,36 @@ def render(report: EvidenceReport, elapsed: float) -> str:
         "",
         "| Measure | Value |",
         "|---|---|",
-        f"| Tokens per answerable pack, p50 / p95 / max | {tokens[len(tokens) // 2]} "
+        f"| Tokens per answerable expanded pack, p50 / p95 / max | {tokens[len(tokens) // 2]} "
         f"/ {tokens[math.ceil(0.95 * len(tokens)) - 1]} / {tokens[-1]} |",
-        f"| Units per answerable pack, mean | "
-        f"{sum(len(q.units) for q in answerable) / len(answerable):.2f} |",
-        f"| Share of delivered tokens that are lead-in context | {context / total:.1%} |",
-        f"| Queries with a skipped hit | {sum(1 for q in report.queries if q.skipped)} "
-        f"of {len(report.queries)} |",
-        f"| Tokens handed over for the {len(negatives)} negatives, mean | "
-        f"{sum(q.tokens for q in negatives) / max(len(negatives), 1):.0f} |",
+        f"| Referenced units per answerable pack, mean | "
+        f"{sum(len(q.referenced) for q in answerable) / len(answerable):.2f} |",
+        f"| Share of delivered tokens that are referenced units | {referenced / total:.1%} |",
+        f"| Queries with at least one referenced unit | "
+        f"{sum(1 for q in report.queries if q.referenced)} of {len(report.queries)} |",
+        f"| Referenced tokens handed to the {len(negatives)} negatives, mean | "
+        f"{sum(q.referenced_tokens for q in negatives) / max(len(negatives), 1):.0f} |",
         "",
         "## Queries whose coverage changed",
         "",
-        "| query | slice | ranking | pack | delivered units | question |",
+        "| query | slice | 5.3 pack | expanded | referenced (target ← citer) | question |",
         "|---|---|---|---|---|---|",
         *[
             f"| {q.query_id} | {q.slice.value} | {before[q.query_id]:.2f} "
-            f"| {after[q.query_id]:.2f} | {', '.join(q.units)} | {q.question} |"
+            f"| {after[q.query_id]:.2f} | {', '.join(q.referenced) or '—'} | {q.question} |"
             for q in (*gains, *losses)
         ],
         *([] if gains or losses else ["| — | | | | | |"]),
         "",
-        "## Skipped hits",
+        "## Crossref queries still not fully covered",
         "",
-        "Hits in the pool whose full text did not fit.",
-        "",
-        "| query | skipped | question |",
-        "|---|---|---|",
+        "| query | expanded | expanded pack | question |",
+        "|---|---|---|---|",
         *[
-            f"| {q.query_id} | {', '.join(q.skipped)} | {q.question} |"
-            for q in report.queries
-            if q.skipped
+            f"| {q.query_id} | {after[q.query_id]:.2f} | {', '.join(q.expanded)} "
+            f"| {q.question} |"
+            for q in answerable
+            if q.slice is QuerySlice.CROSSREF and after[q.query_id] < 1
         ],
     ]
     return "\n".join(lines) + "\n"
@@ -226,37 +230,42 @@ def main() -> int:
     )
     packer = EvidencePacker(chunks)
 
-    ranked = measure("hybrid+citation_shortcut", hybrid, gold, index, ordinal_scores=True)
-    queries, runs, samples = [], {}, []
+    queries, packed_runs, expanded_runs, samples = [], {}, {}, []
     for query in gold:
         results = hybrid.search(query.question, EVIDENCE_POOL)
+        packed = packer.pack(results, expand=False)
         began = time.perf_counter()
-        pack = packer.pack(results, expand=False)
+        expanded = packer.pack(results, expand=True)
         samples.append((time.perf_counter() - began) * 1000)
-        runs[query.query_id] = [unit.citation for unit in pack.units]
+        packed_runs[query.query_id] = [unit.citation for unit in packed.units]
+        expanded_runs[query.query_id] = [unit.citation for unit in expanded.units]
+        extra = referenced_units(expanded)
         queries.append(
-            QueryDelivery(
+            QueryExpansion(
                 query_id=query.query_id,
                 slice=query.slice,
                 question=query.question,
-                units=tuple(runs[query.query_id]),
-                tokens=pack.tokens,
-                context_tokens=context_tokens(pack),
-                skipped=pack.skipped,
+                packed=tuple(packed_runs[query.query_id]),
+                expanded=tuple(expanded_runs[query.query_id]),
+                referenced=tuple(f"{unit.citation} ← {unit.cited_by}" for unit in extra),
+                packed_tokens=packed.tokens,
+                expanded_tokens=expanded.tokens,
+                referenced_tokens=sum(unit.tokens for unit in extra),
             )
         )
-    delivered = score_run(gold, runs, EVIDENCE_POOL, index)
+    packed_report = score_run(gold, packed_runs, EVIDENCE_POOL, index)
+    expanded_report = score_run(gold, expanded_runs, EVIDENCE_POOL, index)
 
-    report = EvidenceReport(
+    report = XrefReport(
         corpus_version=corpus_version,
         chunk_count=len(chunks),
         gold_count=len(gold),
         budget=EVIDENCE_BUDGET,
         pool=EVIDENCE_POOL,
-        ranked_k=PRIMARY_K,
-        ranked=ranked.primary,
-        delivered=delivered,
-        verdict=judge_delivery(delivered, ranked.primary),
+        head=EXPANSION_HEAD,
+        packed=packed_report,
+        expanded=expanded_report,
+        verdict=judge_expansion(expanded_report, packed_report),
         queries=tuple(queries),
         pack_ms=percentiles(samples),
     )
@@ -279,9 +288,10 @@ def main() -> int:
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(render(report, elapsed), encoding="utf-8", newline="")
 
-    for label, run in (("ranking top 10", ranked.primary), ("delivered pack", delivered)):
-        overall = run.overall[CreditMode.LENIENT]
-        print(f"{label}: lenient recall {overall.recall:.3f}")
+    for label, run in (("step 5.3 pack", packed_report), ("expanded pack", expanded_report)):
+        overall = run.overall[CreditMode.LENIENT].recall
+        crossref = run.per_slice[QuerySlice.CROSSREF][CreditMode.LENIENT].recall
+        print(f"{label}: lenient recall {overall:.3f}, crossref {crossref:.3f}")
     verdict = report.verdict
     print(f"verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}")
     print(f"wrote {artifact}")

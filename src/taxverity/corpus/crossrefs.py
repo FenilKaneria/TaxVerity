@@ -437,13 +437,23 @@ def extract_glossary(sections: Sequence[StatutoryNode]) -> tuple[GlossaryTerm, .
         return ()
     terms: list[GlossaryTerm] = []
     for clause in section2.children:
-        first_line = next((line for line in clause.text.split("\n") if line.strip()), "")
-        content = normalise(first_line).strip()
-        content = re.sub(r"^\(\d{1,3}[A-Za-z]{0,3}\)\s*", "", content)
-        match = GLOSSARY_TERM.match(content)
-        if match and clause.path is not None:
-            terms.append(GlossaryTerm(term=match.group(1), node_path=clause.citation))
+        term = defined_term(clause.text)
+        if term is not None and clause.path is not None:
+            terms.append(GlossaryTerm(term=term, node_path=clause.citation))
     return tuple(terms)
+
+
+def defined_term(clause_text: str) -> str | None:
+    """The term a section 2 clause defines, from its first non-empty line.
+
+    Text-level, so the Step 5.8 bridge reads the glossary off the chunk store
+    with this same rule rather than a second copy of it.
+    """
+    first_line = next((line for line in clause_text.split("\n") if line.strip()), "")
+    content = normalise(first_line).strip()
+    content = re.sub(r"^\(\d{1,3}[A-Za-z]{0,3}\)\s*", "", content)
+    match = GLOSSARY_TERM.match(content)
+    return match.group(1) if match else None
 
 
 def extract_crossrefs(

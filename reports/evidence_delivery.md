@@ -11,7 +11,7 @@ each hit prefixed by its ancestors' lead-in lines, packed within the budget
 | Chunks | 8351 |
 | Gold queries | 80 |
 | Budget / pool | 4000 tokens / top 20 |
-| Pack time p50 / p95 | 1.09 / 3.44 ms |
+| Pack time p50 / p95 | 1.25 / 3.46 ms |
 | Run time | 3.9s |
 
 ## The rule (registered before the run, ADR-082)
