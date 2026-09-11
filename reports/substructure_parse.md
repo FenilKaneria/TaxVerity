@@ -22,11 +22,11 @@ geometry, on pages where that geometry is measured to be reliable.
 | Nodes without page provenance | 0 |
 | **Round-trip failures** | **0** |
 | Anomalies | 40 |
-| Sections carrying an anomaly | 17 |
+| Sections with untrusted structure | 3 |
 | Clause-rooted sections | 150 |
 | Sections carrying a Table | 43 |
 | Table regions measured by pdfplumber | 35 |
-| Parse time (incl. pdfplumber scan) | 126.6s |
+| Parse time (incl. pdfplumber scan) | 31.9s |
 
 
 **Round-trip is the success criterion for this step**: for every section,
@@ -95,10 +95,16 @@ in item (ii)”.
 ## Residue — reported, not hidden
 
 40 markers could not be placed or produced a citation
-already used, across 17 sections. No text is lost by
-either: an unplaceable marker's line stays with its enclosing node, which
-is why round-trip still holds. `Substructure.unreliable` names these
-sections so a consumer can decline to trust their shape.
+already used. No text is lost by any of them: the line stays with its
+enclosing node, which is why round-trip still holds.
+
+Only a `duplicate_path` anomaly invalidates a section's structure, and
+3 sections carry one. The invariant is that a
+citation names exactly one chunk; a duplicate path breaks it directly.
+A `too_deep` marker creates no node, so it mints no citation and cannot
+collide, and `not_a_marker` is the parser correctly declining a marker
+that is not one. `Substructure.unreliable` names only the sections whose
+shape a consumer must decline to trust.
 
 | Section | Anomalies | Carries a Table |
 |---|---|---|

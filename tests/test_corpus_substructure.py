@@ -129,7 +129,7 @@ def test_a_marker_may_not_open_a_level_deeper_than_a_citation_can_name():
     lines = ["1. (1) x"] + [f"({m}) deeper—" for m in ("a", "i", "A", "I")]
     grown, anomalies = tree("1", *lines, "(a) too deep—")
     assert max(n.path.depth for n in grown.walk()) == len(LEVEL_TYPES) + 1
-    assert [a.reason for a in anomalies] == [AnomalyReason.UNPLACEABLE]
+    assert [a.reason for a in anomalies] == [AnomalyReason.TOO_DEEP]
 
 
 # --- markers that are not nodes ---------------------------------------------
@@ -389,9 +389,35 @@ def test_the_residue_is_pinned(sub):
     so the 1.6 heuristic is unchanged for them.
     """
     assert len(sub.anomalies) == 40
-    assert sub.unreliable == (
-        "124", "165", "194", "2", "242", "26", "298",
-        "353", "376", "38", "393", "394", "397", "46", "52", "536", "67",
+    # Only a duplicate citation invalidates a section's shape (Step 1.10).
+    # The other 31 anomalies are still recorded and still reported; they
+    # simply no longer cost a section its sub-structure.
+    assert sub.unreliable == ("194", "376", "393")
+
+
+def test_each_reason_names_the_refusal_it_describes():
+    """The two refusals inside place() are unrelated and must stay distinct."""
+    deep = ["1. (1) x"] + [f"({m}) deeper—" for m in ("a", "i", "A", "I")]
+    _, too_deep = tree("1", *deep, "(a) below the ladder—")
+    assert [a.reason for a in too_deep] == [AnomalyReason.TOO_DEEP]
+
+    _, not_a_marker = tree("1", "1. (1) x", "(zz) fits no alphabet;")
+    assert [a.reason for a in not_a_marker] == [AnomalyReason.NOT_A_MARKER]
+
+
+def test_only_a_duplicate_path_invalidates_a_structure(sub):
+    """The invariant is that a citation names exactly one chunk. A duplicate
+    path breaks it directly; the other two refusals mint no citation at all."""
+    duplicated = {
+        anomaly.section
+        for anomaly in sub.anomalies
+        if anomaly.reason is AnomalyReason.DUPLICATE_PATH
+    }
+    assert set(sub.unreliable) == duplicated
+    assert all(
+        anomaly.invalidates_structure
+        is (anomaly.reason is AnomalyReason.DUPLICATE_PATH)
+        for anomaly in sub.anomalies
     )
 
 

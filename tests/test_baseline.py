@@ -189,17 +189,27 @@ def corpus_baselines(gold, chunks):
 
 def test_the_recorded_baseline_does_not_regress(corpus_baselines):
     """A floor, not a target: the numbers in reports/retrieval_baseline.md are
-    0.445 strict and 0.469 lenient over the 64 answerable queries of the Step
+    0.438 strict and 0.461 lenient over the 64 answerable queries of the Step
     3.7 gold set. A retrieval change that drops below these should have to say
     so out loud.
 
-    Re-derived at Step 3.7, not defended: the v1 floors (0.55 / 0.58) were
-    measured over 24 answerable queries weighted toward house property and
-    salary. The v2 set is broader and harder, so the same retriever scores
-    lower on it. Comparing the two numbers would be comparing two rulers."""
+    Re-derived at Step 1.10, not defended, exactly as they were at Step 3.7
+    (where the v1 floors of 0.55 / 0.58 were dropped rather than argued with).
+    Narrowing the trust rule split 19 roots into their real sub-structure, so
+    the chunk set went 7,561 -> 8,351 and the ruler moved under the retriever:
+    bm25 alone went 0.445 / 0.469 -> 0.438 / 0.461.
+
+    The whole of that fall is one query, q064, losing half credit (0.5 / 64 is
+    the entire delta). Its labels are `102(1)` / `195(1)`; the newly reachable
+    definition `2(70)` "maximum marginal rate" -- the rate an unexplained cash
+    credit is actually charged at -- now takes rank 1 and pushes `102(1)` to
+    rank 11. The retriever surfaced an on-point unlabelled provision and was
+    scored down for it, which is a gold-set limitation rather than a retrieval
+    one. Re-labelling is deliberately its own later pass: editing the gold set
+    here would move the ruler and the measured thing in the same change."""
     lexical = corpus_baselines[0].primary.overall
-    assert lexical[CreditMode.STRICT].recall >= 0.42
-    assert lexical[CreditMode.LENIENT].recall >= 0.44
+    assert lexical[CreditMode.STRICT].recall >= 0.41
+    assert lexical[CreditMode.LENIENT].recall >= 0.43
 
 
 def test_the_shortcut_never_makes_the_baseline_worse(corpus_baselines):

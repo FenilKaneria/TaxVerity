@@ -15,22 +15,35 @@ def by_id(chunks):
 
 
 def test_the_corpus_chunk_count_is_pinned(chunks):
-    """537 sections + 16 Schedules as roots, everything trusted below them."""
-    assert len(chunks) == 7561
+    """537 sections + 16 Schedules as roots, everything trusted below them.
+
+    7,561 before Step 1.10 narrowed the trust rule to DUPLICATE_PATH alone;
+    19 roots recovered their sub-structure, section 2 alone gaining 350.
+    """
+    assert len(chunks) == 8351
     assert sum(1 for chunk in chunks if chunk.is_root) == 553
 
 
 def test_the_type_distribution_is_pinned(chunks):
     assert Counter(chunk.node_type for chunk in chunks) == {
-        NodeType.CLAUSE: 3036,
-        NodeType.SUBSECTION: 1942,
-        NodeType.SUBCLAUSE: 1442,
+        NodeType.CLAUSE: 3349,
+        NodeType.SUBSECTION: 2041,
+        NodeType.SUBCLAUSE: 1672,
         NodeType.SECTION: 537,
-        NodeType.ITEM: 268,
+        NodeType.ITEM: 348,
         NodeType.SCHEDULE_PARAGRAPH: 265,
-        NodeType.SUBITEM: 55,
+        NodeType.SUBITEM: 123,
         NodeType.SCHEDULE: 16,
     }
+
+
+def test_the_definitions_section_is_reachable_clause_by_clause(chunks):
+    """The concrete win of Step 1.10. Section 2 was one 59,364-char chunk;
+    its only anomalies were markers the parser correctly declined to place."""
+    section_2 = [chunk for chunk in chunks if chunk.section_number == "2"]
+    top_level = [chunk for chunk in section_2 if chunk.node_path.count("(") == 1]
+    assert len(top_level) > 100
+    assert any(chunk.node_path == "2(1)" for chunk in chunks)
 
 
 def test_every_chunk_id_is_unique(chunks):

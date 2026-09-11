@@ -18,7 +18,7 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-SUBSTRUCTURE_STAGE_VERSION = 1
+SUBSTRUCTURE_STAGE_VERSION = 2
 
 LEVEL_TYPES = CITATION_DEPTH_TYPES[NodeType.SECTION]
 
@@ -77,8 +77,20 @@ SEQUENCES: dict[MarkerKind, tuple[str, ...]] = {
 
 
 class AnomalyReason(StrEnum):
-    UNPLACEABLE = "unplaceable"
+    NOT_A_MARKER = "not_a_marker"
+    TOO_DEEP = "too_deep"
     DUPLICATE_PATH = "duplicate_path"
+
+
+# Only a duplicate path invalidates a root's structure. The invariant at stake
+# is that citation -> chunk is injective: the verifier resolves a claim's
+# citation to exactly one text before checking quote fidelity, so two nodes
+# rendering one citation give it two texts for one claim. DUPLICATE_PATH is
+# literally that check. TOO_DEEP creates no node, so it mints no citation and
+# cannot collide — what it loses is addressability at a depth NodePath cannot
+# render, and the line still sits in its nearest valid ancestor, whose text
+# carries it. NOT_A_MARKER is the parser working correctly.
+INVALIDATING_REASONS = frozenset({AnomalyReason.DUPLICATE_PATH})
 
 
 class PageProvenanceError(ValueError):
@@ -93,6 +105,10 @@ class Anomaly(BaseModel):
     marker: str
     reason: AnomalyReason
     context: str
+
+    @property
+    def invalidates_structure(self) -> bool:
+        return self.reason in INVALIDATING_REASONS
 
 
 class Substructure(BaseModel):
@@ -112,8 +128,16 @@ class Substructure(BaseModel):
 
     @property
     def unreliable(self) -> tuple[str, ...]:
-        """Sections whose tree carries an anomaly, so its shape is not trusted."""
-        return tuple(sorted({anomaly.section for anomaly in self.anomalies}))
+        """Sections whose tree carries a structure-invalidating anomaly."""
+        return tuple(
+            sorted(
+                {
+                    anomaly.section
+                    for anomaly in self.anomalies
+                    if anomaly.invalidates_structure
+                }
+            )
+        )
 
     def count(self, type: NodeType) -> int:
         return sum(
@@ -245,13 +269,19 @@ class _Builder:
             successor(level.kind, level.marker) == marker for level in self.stack
         )
 
-    def place(self, marker: str, ahead: str | None, announced: bool) -> bool:
+    def place(self, marker: str, ahead: str | None, announced: bool) -> AnomalyReason | None:
+        """Place the marker, or name the refusal made.
+
+        Returns ``None`` on success. The two refusals are unrelated and their
+        consequences differ, so the caller is told which one happened rather
+        than re-deriving a cause it cannot see from here.
+        """
         for depth in range(len(self.stack) - 1, -1, -1):
             if successor(self.stack[depth].kind, self.stack[depth].marker) == marker:
                 if self.nests_instead(depth, marker, ahead):
                     break
                 self.push(depth, self.stack[depth].kind, marker)
-                return True
+                return None
         open_kinds = [level.kind for level in self.stack]
         for kind in kinds_for(marker):
             if not opens(kind, marker):
@@ -263,10 +293,10 @@ class _Builder:
             # than a node. Refusing it here keeps the runaway visible as an
             # anomaly instead of burying it in a 14-deep path.
             if depth >= len(self.level_types):
-                return False
+                return AnomalyReason.TOO_DEEP
             self.push(depth, kind, marker)
-            return True
-        return False
+            return None
+        return AnomalyReason.NOT_A_MARKER
 
     def nests_instead(self, depth: int, marker: str, ahead: str | None) -> bool:
         """Whether ``(h)`` -> ``(i)`` opens a roman list rather than continuing a-z.
@@ -381,9 +411,10 @@ def build(
                     if not builder.resumes_open_sequence(marker):
                         break
                     guessing_table = False
-                if not builder.place(marker, ahead, announced and not opened):
+                refusal = builder.place(marker, ahead, announced and not opened)
+                if refusal is not None:
                     if not opened:
-                        builder.note(index, marker, AnomalyReason.UNPLACEABLE, scan.strip())
+                        builder.note(index, marker, refusal, scan.strip())
                     break
                 citation = builder.stack[-1].path.render()
                 if citation in builder.seen:
@@ -485,8 +516,10 @@ def parse_substructure(
     )
     if result.anomalies:
         logger.warning(
-            "%d unplaceable markers in %d sections, whose shape is not trusted: %s",
+            "%d anomalies, %d of them invalidating %d sections whose shape is not "
+            "trusted: %s",
             len(result.anomalies),
+            sum(1 for anomaly in result.anomalies if anomaly.invalidates_structure),
             len(result.unreliable),
             list(result.unreliable),
         )

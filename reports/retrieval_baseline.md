@@ -6,16 +6,38 @@ component is judged against these numbers.
 
 | Measure | Value |
 |---|---|
-| corpus_version | `86f7a17f32163d3a…` |
-| Chunks | 7561 |
+| corpus_version | `3bc9b522e13d4b93…` |
+| Chunks | 8351 |
 | Gold queries | 80 |
 | Primary k | 10 |
-| Run time | 2.3s |
+| Run time | 2.5s |
 
 Every score is reported twice (ADR-060). **strict** credits only the
 labelled unit; **lenient** also credits an ancestor, because ADR-055
 gives a chunk its whole subtree — a retriever returning `22` for a
 `22(2)` question is imprecise, not wrong.
+
+**Known consequence of Step 1.10, not a regression.** Narrowing the
+trust rule to `duplicate_path` split 19 roots into their real
+sub-structure (7,561 -> 8,351 chunks), and bm25 alone went
+0.445 / 0.469 to 0.438 / 0.461. The whole of that fall is **one query**,
+q064, losing half credit — 0.5 / 64 = 0.008, which is the entire delta.
+
+What happened there is worth reading before treating it as a loss.
+q064 asks whether an unexplained cash credit is taxed at the normal slab
+rate, and is labelled `102(1)` / `195(1)`. The newly reachable definition
+`2(70)` — *"maximum marginal rate"*, which is precisely the rate such a
+credit is charged at — now takes rank 1 and pushes `102(1)` to rank 11.
+The retriever surfaced a provision that is on point and unlabelled, and
+was scored down for it. That is a gold-set limitation, not a retrieval
+one.
+
+Gold q052 (`2`) and q067 (`393`) score 0 in both modes — but they did so
+**before this change too**, so they are unaffected by it. They remain
+exposed to ADR-060 crediting no descendant, and are the clearest
+candidates for the re-labelling pass. Re-labelling is deliberately kept
+separate: editing the gold set here would move the ruler and the
+measured thing in the same change.
 
 ## bm25
 
@@ -25,23 +47,23 @@ Overall, over 64 answerable queries:
 |---|---|---|---|---|
 | 1 | strict | 0.164 | 0.188 | 0.169 |
 | 1 | lenient | 0.195 | 0.219 | 0.201 |
-| 5 | strict | 0.375 | 0.261 | 0.279 |
-| 5 | lenient | 0.438 | 0.312 | 0.332 |
-| 10 | strict | 0.445 | 0.271 | 0.302 |
-| 10 | lenient | 0.469 | 0.318 | 0.344 |
-| 20 | strict | 0.531 | 0.276 | 0.323 |
-| 20 | lenient | 0.586 | 0.326 | 0.374 |
+| 5 | strict | 0.367 | 0.257 | 0.274 |
+| 5 | lenient | 0.438 | 0.308 | 0.329 |
+| 10 | strict | 0.438 | 0.268 | 0.298 |
+| 10 | lenient | 0.461 | 0.313 | 0.339 |
+| 20 | strict | 0.484 | 0.272 | 0.311 |
+| 20 | lenient | 0.555 | 0.320 | 0.363 |
 
 Per slice, at k=10:
 
 | slice | mode | recall | MRR | nDCG |
 |---|---|---|---|---|
 | citation | strict | 0.700 | 0.425 | 0.492 |
-| paraphrase | strict | 0.393 | 0.217 | 0.257 |
-| crossref | strict | 0.219 | 0.171 | 0.145 |
+| paraphrase | strict | 0.393 | 0.214 | 0.254 |
+| crossref | strict | 0.188 | 0.163 | 0.133 |
 | citation | lenient | 0.700 | 0.481 | 0.536 |
-| paraphrase | lenient | 0.429 | 0.269 | 0.309 |
-| crossref | lenient | 0.250 | 0.200 | 0.169 |
+| paraphrase | lenient | 0.429 | 0.263 | 0.304 |
+| crossref | lenient | 0.219 | 0.189 | 0.155 |
 
 ### Failures at k=10
 
@@ -56,7 +78,7 @@ strict imprecision is reported in the tables above, not here.
 | q010 | paraphrase | 134(1), 134(2) | 134(1), 134(2) | — | I pay rent but my employer gives me no house rent allowance. Can I deduct the rent I pay? |
 | q011 | paraphrase | 22(1)(a) | 22(1)(a) | — | Is there a flat deduction on rental income before I claim anything else? |
 | q015 | paraphrase | 109(1)(b) | 109(1)(b) | — | Can I set off a loss on my rented-out flat against my salary, and is there a ceiling? |
-| q019 | crossref | 123, Schedule XV(1) | Schedule XV(1) | 10 | Which sums qualify for the Rs. 1,50,000 deduction on savings and insurance? |
+| q019 | crossref | 123, Schedule XV(1) | Schedule XV(1) | 9 | Which sums qualify for the Rs. 1,50,000 deduction on savings and insurance? |
 | q020 | crossref | 22(1)(a), 21(1) | 21(1) | 1 | The 30% house property deduction applies to what value exactly? |
 | q022 | crossref | 22(2), 21(6) | 22(2), 21(6) | — | Which houses does the Rs. 2,00,000 home loan interest cap apply to? |
 | q023 | crossref | 82(2), 263 | 263 | 6 | If I have not bought the new house by the time I file my return, what do I have to do with the capital gain? |
@@ -80,8 +102,8 @@ strict imprecision is reported in the tables above, not here.
 | q061 | crossref | 92(2)(b), 94(4) | 92(2)(b), 94(4) | — | Are my horse-race winnings taxable, and can I set my losses off against them? |
 | q062 | crossref | 11, Schedule II(1) | 11, Schedule II(1) | — | Which provision keeps farm income out of my total income, and where is that exemption actually listed? |
 | q063 | crossref | 58(2), 63(2) | 58(2), 63(2) | — | If I declare my profits on a presumptive basis, do I still need a tax audit? |
-| q064 | crossref | 102(1), 195(1) | 195(1) | 10 | An unexplained cash credit was added to my income. Is it taxed at my normal slab rate? |
-| q065 | crossref | 72(1), 197(1)(b) | 72(1) | 3 | How is a long-term capital gain worked out, and what rate applies to it? |
+| q064 | crossref | 102(1), 195(1) | 102(1), 195(1) | — | An unexplained cash credit was added to my income. Is it taxed at my normal slab rate? |
+| q065 | crossref | 72(1), 197(1)(b) | 72(1) | 4 | How is a long-term capital gain worked out, and what rate applies to it? |
 | q066 | crossref | 86(1), 89(b) | 86(1), 89(b) | — | My land was compulsorily acquired and the compensation came late. Does that shorten the window to reinvest in a house? |
 | q067 | crossref | 393, 398(1) | 393, 398(1) | — | Who has to deduct tax at source on a payment, and what happens if they do not? |
 | q068 | crossref | 404, 425(1) | 404, 425(1) | — | When do I have to pay advance tax, and what does it cost me if I underpay an instalment? |
@@ -96,7 +118,7 @@ only through an ancestor chunk.
 | query | required | strict | lenient | retrieved (top 3) |
 |---|---|---|---|---|
 | q023 | 82(2), 263 | 0.00 | 0.50 | 86, 215(1)(b), 341(9) |
-| q055 | 99(1)(c) | 0.00 | 1.00 | 99(1), 99(5)(a)(i), 99(5)(b)(i) |
+| q055 | 99(1)(c) | 0.00 | 1.00 | 99(1), 99(5)(a)(i), 25(a) |
 
 ### Negative separation
 
@@ -109,8 +131,8 @@ table must be read one row-group at a time.
 
 | set | queries | min | median | max |
 |---|---|---|---|---|
-| answerable | 64 | 11.42 | 23.17 | 62.35 |
-| negative | 16 | 10.70 | 18.34 | 24.44 |
+| answerable | 64 | 11.12 | 23.26 | 62.71 |
+| negative | 16 | 10.53 | 18.52 | 24.56 |
 
 | query | top citation | question |
 |---|---|---|
@@ -118,12 +140,12 @@ table must be read one row-group at a time.
 | q026 | 66(37)(d) | How do I register a private limited company in India? |
 | q027 | 78 | What is the stamp duty payable on a sale deed in Maharashtra? |
 | q028 | 263(3) | How do I file a GSTR-3B return? |
-| q029 | 140(5)(b) | What customs duty applies to a laptop imported into India? |
+| q029 | 46(11)(e)(ii) | What customs duty applies to a laptop imported into India? |
 | q030 | 235(d) | What is the minimum wage for a factory worker in Karnataka? |
 | q071 | 39(1)(b) | What is the input tax credit rule for capital goods under GST? |
 | q072 | Schedule XI(A5)(5) | How do I withdraw my provident fund balance from the EPFO portal? |
-| q073 | 402(7)(a) | What is the professional tax slab for a salaried employee in Maharashtra? |
-| q074 | 90(2) | What does it cost to register a property under RERA? |
+| q073 | 2(70) | What is the professional tax slab for a salaried employee in Maharashtra? |
+| q074 | Schedule III(39)(ii)(iii) | What does it cost to register a property under RERA? |
 | q075 | 66(37)(d) | What annual return must a private limited company file with the Registrar of Companies? |
 | q076 | Schedule XI(A6) | What is the employee contribution rate for ESI? |
 | q077 | 30(c) | How much gratuity must my employer pay me under the Payment of Gratuity Act, 1972? |
@@ -139,23 +161,23 @@ Overall, over 64 answerable queries:
 |---|---|---|---|---|
 | 1 | strict | 0.227 | 0.250 | 0.232 |
 | 1 | lenient | 0.398 | 0.422 | 0.404 |
-| 5 | strict | 0.422 | 0.325 | 0.338 |
-| 5 | lenient | 0.531 | 0.474 | 0.477 |
-| 10 | strict | 0.492 | 0.335 | 0.363 |
-| 10 | lenient | 0.562 | 0.480 | 0.490 |
-| 20 | strict | 0.547 | 0.339 | 0.376 |
-| 20 | lenient | 0.617 | 0.484 | 0.504 |
+| 5 | strict | 0.414 | 0.321 | 0.334 |
+| 5 | lenient | 0.531 | 0.471 | 0.475 |
+| 10 | strict | 0.484 | 0.332 | 0.358 |
+| 10 | lenient | 0.555 | 0.475 | 0.484 |
+| 20 | strict | 0.516 | 0.335 | 0.367 |
+| 20 | lenient | 0.602 | 0.480 | 0.497 |
 
 Per slice, at k=10:
 
 | slice | mode | recall | MRR | nDCG |
 |---|---|---|---|---|
 | citation | strict | 0.850 | 0.631 | 0.685 |
-| paraphrase | strict | 0.393 | 0.217 | 0.257 |
-| crossref | strict | 0.219 | 0.171 | 0.145 |
+| paraphrase | strict | 0.393 | 0.214 | 0.254 |
+| crossref | strict | 0.188 | 0.163 | 0.133 |
 | citation | lenient | 1.000 | 1.000 | 1.000 |
-| paraphrase | lenient | 0.429 | 0.269 | 0.309 |
-| crossref | lenient | 0.250 | 0.200 | 0.169 |
+| paraphrase | lenient | 0.429 | 0.263 | 0.304 |
+| crossref | lenient | 0.219 | 0.189 | 0.155 |
 
 ### Failures at k=10
 
@@ -167,7 +189,7 @@ strict imprecision is reported in the tables above, not here.
 | q010 | paraphrase | 134(1), 134(2) | 134(1), 134(2) | — | I pay rent but my employer gives me no house rent allowance. Can I deduct the rent I pay? |
 | q011 | paraphrase | 22(1)(a) | 22(1)(a) | — | Is there a flat deduction on rental income before I claim anything else? |
 | q015 | paraphrase | 109(1)(b) | 109(1)(b) | — | Can I set off a loss on my rented-out flat against my salary, and is there a ceiling? |
-| q019 | crossref | 123, Schedule XV(1) | Schedule XV(1) | 10 | Which sums qualify for the Rs. 1,50,000 deduction on savings and insurance? |
+| q019 | crossref | 123, Schedule XV(1) | Schedule XV(1) | 9 | Which sums qualify for the Rs. 1,50,000 deduction on savings and insurance? |
 | q020 | crossref | 22(1)(a), 21(1) | 21(1) | 1 | The 30% house property deduction applies to what value exactly? |
 | q022 | crossref | 22(2), 21(6) | 22(2), 21(6) | — | Which houses does the Rs. 2,00,000 home loan interest cap apply to? |
 | q023 | crossref | 82(2), 263 | 263 | 6 | If I have not bought the new house by the time I file my return, what do I have to do with the capital gain? |
@@ -188,8 +210,8 @@ strict imprecision is reported in the tables above, not here.
 | q061 | crossref | 92(2)(b), 94(4) | 92(2)(b), 94(4) | — | Are my horse-race winnings taxable, and can I set my losses off against them? |
 | q062 | crossref | 11, Schedule II(1) | 11, Schedule II(1) | — | Which provision keeps farm income out of my total income, and where is that exemption actually listed? |
 | q063 | crossref | 58(2), 63(2) | 58(2), 63(2) | — | If I declare my profits on a presumptive basis, do I still need a tax audit? |
-| q064 | crossref | 102(1), 195(1) | 195(1) | 10 | An unexplained cash credit was added to my income. Is it taxed at my normal slab rate? |
-| q065 | crossref | 72(1), 197(1)(b) | 72(1) | 3 | How is a long-term capital gain worked out, and what rate applies to it? |
+| q064 | crossref | 102(1), 195(1) | 102(1), 195(1) | — | An unexplained cash credit was added to my income. Is it taxed at my normal slab rate? |
+| q065 | crossref | 72(1), 197(1)(b) | 72(1) | 4 | How is a long-term capital gain worked out, and what rate applies to it? |
 | q066 | crossref | 86(1), 89(b) | 86(1), 89(b) | — | My land was compulsorily acquired and the compensation came late. Does that shorten the window to reinvest in a house? |
 | q067 | crossref | 393, 398(1) | 393, 398(1) | — | Who has to deduct tax at source on a payment, and what happens if they do not? |
 | q068 | crossref | 404, 425(1) | 404, 425(1) | — | When do I have to pay advance tax, and what does it cost me if I underpay an instalment? |
@@ -207,7 +229,7 @@ only through an ancestor chunk.
 | q023 | 82(2), 263 | 0.00 | 0.50 | 86, 215(1)(b), 341(9) |
 | q035 | 63(1) | 0.00 | 1.00 | 63, 428(c), 58(3)(b)(ii) |
 | q036 | 126(4) | 0.00 | 1.00 | 126, 126(5)(a), 126(1) |
-| q055 | 99(1)(c) | 0.00 | 1.00 | 99(1), 99(5)(a)(i), 99(5)(b)(i) |
+| q055 | 99(1)(c) | 0.00 | 1.00 | 99(1), 99(5)(a)(i), 25(a) |
 
 ### Negative separation
 
@@ -228,12 +250,12 @@ separation is reported; read the un-composed retriever above.
 | q026 | 66(37)(d) | How do I register a private limited company in India? |
 | q027 | 78 | What is the stamp duty payable on a sale deed in Maharashtra? |
 | q028 | 263(3) | How do I file a GSTR-3B return? |
-| q029 | 140(5)(b) | What customs duty applies to a laptop imported into India? |
+| q029 | 46(11)(e)(ii) | What customs duty applies to a laptop imported into India? |
 | q030 | 235(d) | What is the minimum wage for a factory worker in Karnataka? |
 | q071 | 39(1)(b) | What is the input tax credit rule for capital goods under GST? |
 | q072 | Schedule XI(A5)(5) | How do I withdraw my provident fund balance from the EPFO portal? |
-| q073 | 402(7)(a) | What is the professional tax slab for a salaried employee in Maharashtra? |
-| q074 | 90(2) | What does it cost to register a property under RERA? |
+| q073 | 2(70) | What is the professional tax slab for a salaried employee in Maharashtra? |
+| q074 | Schedule III(39)(ii)(iii) | What does it cost to register a property under RERA? |
 | q075 | 66(37)(d) | What annual return must a private limited company file with the Registrar of Companies? |
 | q076 | Schedule XI(A6) | What is the employee contribution rate for ESI? |
 | q077 | 30(c) | How much gratuity must my employer pay me under the Payment of Gratuity Act, 1972? |

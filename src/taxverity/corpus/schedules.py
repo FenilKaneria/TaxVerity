@@ -26,7 +26,7 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-SCHEDULE_STAGE_VERSION = 1
+SCHEDULE_STAGE_VERSION = 2
 
 # Confirmed by Step 1.1/1.3: the first Schedule opens at page 622 and the
 # corpus ends at page 665 (666 pages, 0-indexed) with no content after
@@ -201,7 +201,17 @@ class ParsedSchedules(BaseModel):
 
     @property
     def unreliable(self) -> tuple[str, ...]:
-        return tuple(sorted({anomaly.section for anomaly in self.anomalies}))
+        """Paragraphs carrying a structure-invalidating anomaly. Same rule as
+        sections: only a duplicate citation breaks the citation -> chunk map."""
+        return tuple(
+            sorted(
+                {
+                    anomaly.section
+                    for anomaly in self.anomalies
+                    if anomaly.invalidates_structure
+                }
+            )
+        )
 
 
 class _ScheduleState:
@@ -353,8 +363,10 @@ def parse_schedules(
     )
     if result.anomalies:
         logger.warning(
-            "%d unplaceable markers in %d paragraphs, whose shape is not trusted: %s",
+            "%d anomalies, %d of them invalidating %d paragraphs whose shape is "
+            "not trusted: %s",
             len(result.anomalies),
+            sum(1 for anomaly in result.anomalies if anomaly.invalidates_structure),
             len(result.unreliable),
             list(result.unreliable),
         )

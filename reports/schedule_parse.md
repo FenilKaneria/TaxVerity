@@ -19,11 +19,11 @@ used for sections.
 | — subitem | 26 |
 | Deepest citation | 6 |
 | Anomalies | 30 |
-| Paragraphs carrying an anomaly | 8 |
+| Paragraphs with untrusted structure | 3 |
 | Footnote apparatus lines | 48 |
 | Schedule/Part headings kept verbatim | 21 |
 | Table regions measured by pdfplumber | 11 |
-| Parse time (incl. pdfplumber scan) | 27.7s |
+| Parse time (incl. pdfplumber scan) | 28.3s |
 
 
 ## Two typographic families, one boundary rule
@@ -92,10 +92,14 @@ override; `schedules.py` always passes `0`.
 ## Residue — reported, not hidden
 
 30 markers could not be placed or produced a
-citation already used, across 8 paragraphs —
-the same residue discipline `substructure.py` already carries for
-sections. No text is lost either way: an unplaceable marker's line
+citation already used — the same residue discipline `substructure.py`
+already carries for sections. No text is lost by any of them: the line
 stays with its enclosing node.
+
+Only a `duplicate_path` anomaly invalidates structure, and
+3 paragraphs carry one. A `too_deep` marker
+creates no node and so no citation to collide; `not_a_marker` is the
+parser correctly declining a marker that is not one.
 
 | Paragraph | Anomalies |
 |---|---|

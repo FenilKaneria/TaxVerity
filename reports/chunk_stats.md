@@ -9,29 +9,29 @@ figures always describe the current parser.
 
 | Measure | Value |
 |---|---|
-| Chunks | 7561 |
+| Chunks | 8351 |
 | Roots (537 sections + 16 Schedules) | 553 |
-| Build time | 59.4s |
+| Build time | 61.4s |
 
 | Node type | Chunks |
 |---|---|
-| clause | 3036 |
-| subsection | 1942 |
-| subclause | 1442 |
+| clause | 3349 |
+| subsection | 2041 |
+| subclause | 1672 |
 | section | 537 |
-| item | 268 |
+| item | 348 |
 | schedule_paragraph | 265 |
-| subitem | 55 |
+| subitem | 123 |
 | schedule | 16 |
 
 | Citation depth | Chunks |
 |---|---|
 | 1 | 553 |
-| 2 | 2584 |
-| 3 | 2929 |
-| 4 | 1229 |
-| 5 | 229 |
-| 6 | 37 |
+| 2 | 2795 |
+| 3 | 3254 |
+| 4 | 1395 |
+| 5 | 292 |
+| 6 | 62 |
 
 ## Size distribution
 
@@ -43,8 +43,8 @@ below is a value some real chunk actually has.
 
 | Measure | min | p50 | p90 | p95 | p99 | max |
 |---|---|---|---|---|---|---|
-| Characters | 8 | 212 | 860 | 1650 | 5833 | 59364 |
-| Estimated tokens | 9 | 71 | 209 | 377 | 1268 | 12929 |
+| Characters | 8 | 212 | 844 | 1635 | 5600 | 59364 |
+| Estimated tokens | 9 | 70 | 206 | 374 | 1215 | 12929 |
 | Defined terms | 0 | 2 | 6 | 8 | 16 | 109 |
 | Outgoing refs | 0 | 0 | 2 | 3 | 13 | 69 |
 
@@ -79,7 +79,7 @@ there is a chosen model. See ADR-057.
 
 ## The large chunks, named and explained
 
-28 chunks exceed 2048 estimated tokens. This is
+29 chunks exceed 2048 estimated tokens. This is
 not a violated cap — ADR-055 makes a chunk carry its whole subtree, so
 a long section is *expected* to produce one long chunk, and the
 precise retrieval unit is its children. The success criterion for this
@@ -88,7 +88,7 @@ table is:
 
 | Citation | Type | Est. tokens | Characters | Why it is this large |
 |---|---|---|---|---|
-| 2 | section | 12929 | 59364 | untrusted subtree, unsplit (ADR-056) |
+| 2 | section | 12929 | 59364 | root carrying its whole subtree (ADR-055) |
 | 393 | section | 9592 | 41010 | untrusted subtree, unsplit (ADR-056) |
 | 206 | section | 5974 | 27292 | root carrying its whole subtree (ADR-055) |
 | Schedule III | schedule | 5697 | 27045 | root carrying its whole subtree (ADR-055) |
@@ -102,15 +102,16 @@ table is:
 | Schedule V | schedule | 3065 | 14780 | root carrying its whole subtree (ADR-055) |
 | Schedule VII | schedule | 2862 | 14368 | root carrying its whole subtree (ADR-055) |
 | 70(1) | subsection | 2680 | 12921 | intermediate node carrying a large subtree (ADR-055) |
-| 536 | section | 2589 | 12165 | untrusted subtree, unsplit (ADR-056) |
+| 536 | section | 2589 | 12165 | root carrying its whole subtree (ADR-055) |
 | Schedule IV | schedule | 2556 | 12281 | root carrying its whole subtree (ADR-055) |
 | 247 | section | 2536 | 12158 | root carrying its whole subtree (ADR-055) |
-| 67 | section | 2522 | 11438 | untrusted subtree, unsplit (ADR-056) |
+| 67 | section | 2522 | 11438 | root carrying its whole subtree (ADR-055) |
 | Schedule VI | schedule | 2457 | 11270 | root carrying its whole subtree (ADR-055) |
 | 66 | section | 2454 | 11235 | root carrying its whole subtree (ADR-055) |
 | 288 | section | 2428 | 11501 | root carrying its whole subtree (ADR-055) |
+| 536(2) | subsection | 2416 | 11360 | intermediate node carrying a large subtree (ADR-055) |
 | Schedule II | schedule | 2412 | 10906 | root carrying its whole subtree (ADR-055) |
-| 46 | section | 2326 | 11265 | untrusted subtree, unsplit (ADR-056) |
+| 46 | section | 2326 | 11265 | root carrying its whole subtree (ADR-055) |
 | 19 | section | 2305 | 10647 | root carrying its whole subtree (ADR-055) |
 | 90 | section | 2216 | 9897 | root carrying its whole subtree (ADR-055) |
 | 286 | section | 2188 | 10465 | root carrying its whole subtree (ADR-055) |
@@ -127,7 +128,7 @@ only way in.
 
 | Measure | Value |
 |---|---|
-| Chunks under 10 estimated tokens | 313 |
+| Chunks under 10 estimated tokens | 348 |
 | Chunks that are only an omission mark | 12 |
 
 Neither group is removed. A chunk like `Schedule XII(A8)` is
@@ -143,8 +144,8 @@ through their parent rather than labelled directly.
 | Measure | Value |
 |---|---|
 | Section 2 glossary terms | 109 |
-| Chunks matching at least one | 5984 |
-| Chunks matching none | 1577 |
+| Chunks matching at least one | 6614 |
+| Chunks matching none | 1737 |
 | Terms per chunk, p50 | 2 |
 | Terms per chunk, max | 109 |
 
@@ -155,21 +156,21 @@ most frequent words:
 
 | Term | Chunks |
 |---|---|
-| tax | 2566 |
-| income | 2225 |
-| person | 1466 |
-| assessee | 1388 |
-| India | 944 |
-| business | 936 |
-| company | 921 |
-| transfer | 713 |
-| prescribed | 697 |
-| interest | 635 |
-| total income | 629 |
-| Assessing Officer | 620 |
-| resident | 481 |
-| assessment | 413 |
-| Board | 412 |
+| tax | 2808 |
+| income | 2410 |
+| person | 1626 |
+| assessee | 1494 |
+| India | 1067 |
+| company | 1061 |
+| business | 1031 |
+| transfer | 804 |
+| prescribed | 752 |
+| interest | 679 |
+| total income | 645 |
+| Assessing Officer | 642 |
+| resident | 504 |
+| Board | 476 |
+| assessment | 436 |
 
 A term matching a third of the corpus carries no information. Phase
 5's statutory-term bridge needs the inverse direction — a lay phrase

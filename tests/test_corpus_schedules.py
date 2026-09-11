@@ -265,14 +265,11 @@ def test_the_residue_is_pinned(parsed_schedules):
     # Citations, not bare markers: "17" alone was two different paragraphs,
     # in Schedules II and III, which is why this list gained an entry
     # without a single new anomaly.
+    # Step 1.10: only a duplicate citation invalidates a paragraph's shape.
+    # II(17), III(4), III(17), III(39) and IV(14) recovered their children.
     assert parsed_schedules.unreliable == (
-        "Schedule II(17)",
-        "Schedule III(17)",
         "Schedule III(19)",
         "Schedule III(30)",
-        "Schedule III(39)",
-        "Schedule III(4)",
-        "Schedule IV(14)",
         "Schedule V(8)",
     )
 

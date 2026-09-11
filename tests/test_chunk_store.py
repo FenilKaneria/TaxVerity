@@ -210,7 +210,7 @@ def test_the_whole_corpus_round_trips_through_the_store(tmp_path, chunks):
         tmp_path / CHUNK_MANIFEST_FILENAME,
     )
     loaded, manifest = load_chunks(tmp_path, corpus_version=CHUNK_TEST_VERSION)
-    assert count == len(chunks) == 7561
+    assert count == len(chunks) == 8351
     assert manifest.root_count == 553
     assert loaded == tuple(chunks)
 
