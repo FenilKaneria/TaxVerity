@@ -1,0 +1,34 @@
+# Local development datastore only (Step 6.1, ADR-087). Production is RDS or
+# Supabase; nothing here is deployed.
+#
+# The image is pinned to the exact pgvector release and Postgres major that the
+# production candidates run, so parity (Step 6.5) and the startup guard
+# (Step 6.6) are tested against the real engine. The `vector` extension is
+# deliberately not created by an init script: RDS and Supabase never run one,
+# so the first migration (Step 6.2) owns CREATE EXTENSION in every environment.
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg17-bookworm
+    environment:
+      POSTGRES_USER: taxverity
+      POSTGRES_PASSWORD: taxverity
+      POSTGRES_DB: taxverity
+    # Loopback only: these are throwaway dev credentials and must not be
+    # reachable from the network.
+    ports:
+      - "127.0.0.1:5432:5432"
+    # The volume name carries the Postgres major because a data directory is
+    # not portable across majors: bumping the image then needs a fresh volume
+    # (or pg_upgrade), and a new name makes that explicit instead of a FATAL
+    # "database files are incompatible with server" at boot.
+    volumes:
+      - pgdata-pg17:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taxverity -d taxverity"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata-pg17:
