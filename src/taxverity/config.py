@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     reports_dir: Path = REPO_ROOT / "reports"
     evals_dir: Path = REPO_ROOT / "evals"
 
+    # Which index this process serves (Step 6.6). Both are named, never
+    # inferred: an embedding set id is a serial, so it means nothing without the
+    # corpus it was built for.
+    serving_corpus_version: str | None = None
+    serving_embedding_set_id: int | None = None
+
     log_level: str = "INFO"
     log_format: Literal["text", "json"] = "text"
 

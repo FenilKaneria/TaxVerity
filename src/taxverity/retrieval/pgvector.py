@@ -61,7 +61,7 @@ SELECT s.embedding_set_id, s.corpus_version, s.model_id, s.dim, s.revision,
 # cosine distance, so 1 - distance is the cosine the NumPy index returns as a dot
 # product. The ordinal tie-break is why chunk_embeddings carries no ordinal of
 # its own — the corpus order lives in one place (ADR-089).
-_SEARCH_SQL = """
+SEARCH_SQL = """
 SELECT c.chunk_id, c.parent_id, c.doc_id, c.corpus_version, c.node_type,
        c.node_path, c.section_number, c.schedule_number, c.root_title,
        c.chapter_numeral, c.chapter_title, c.text, c.page_start, c.page_end,
@@ -239,7 +239,7 @@ class PgVectorIndex:
         literal = vector_literal(vector)
         rows = (
             self._conn.cursor(row_factory=dict_row)
-            .execute(_SEARCH_SQL, (literal, self._set_id, literal, k))
+            .execute(SEARCH_SQL, (literal, self._set_id, literal, k))
             .fetchall()
         )
         return [

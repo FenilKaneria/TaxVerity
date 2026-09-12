@@ -7,13 +7,13 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
 
 from taxverity.embedding.backends import ModelInfo, describe
 from taxverity.embedding.store import StaleVectorStoreError
 from taxverity.retrieval.base import ScoredChunk
-from taxverity.retrieval.dense import DenseRetriever
 
 QUERY_VECTORS_FILENAME = "gold_query_vectors.json"
 
@@ -60,11 +60,18 @@ def load_query_vectors(
     return loaded
 
 
+class VectorIndex(Protocol):
+    """Both dense indexes, the NumPy one and Step 6.4's Postgres one, so a
+    cached-vector run can be pointed at either (Step 6.5)."""
+
+    def search_vector(self, vector: Sequence[float], k: int) -> Sequence[ScoredChunk]: ...
+
+
 class CachedQueryRetriever:
     """A dense index searched with stored question vectors. A question with no
     vector raises KeyError; it never reaches the network."""
 
-    def __init__(self, dense: DenseRetriever, vectors: Mapping[str, Sequence[float]]) -> None:
+    def __init__(self, dense: VectorIndex, vectors: Mapping[str, Sequence[float]]) -> None:
         self._dense = dense
         self._vectors = vectors
 

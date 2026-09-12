@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -67,6 +68,44 @@ def discover_migrations(directory: Path = MIGRATIONS_DIR) -> tuple[Migration, ..
     return tuple(migrations)
 
 
+def applied_migrations(conn: psycopg.Connection) -> dict[int, str]:
+    """Version -> sha256 as recorded in the database. An absent table is an
+    unmigrated database, not an error: `migrate()` creates it, and the Step 6.6
+    guard reports it as the refusal it is."""
+    present = conn.execute("SELECT to_regclass('schema_migrations')").fetchone()
+    if present is None or present[0] is None:
+        return {}
+    return {
+        version: sha256
+        for version, sha256 in conn.execute(
+            "SELECT version, sha256 FROM schema_migrations"
+        ).fetchall()
+    }
+
+
+def schema_conflicts(
+    migrations: Sequence[Migration], applied: Mapping[int, str]
+) -> tuple[str, ...]:
+    """Ways the recorded schema disagrees with these files — a migration this
+    code does not carry, or one edited after it was applied. Pending migrations
+    are not a conflict: `migrate()` applies them, the guard refuses on them.
+    """
+    known = {m.version: m for m in migrations}
+    reasons = []
+    for version, sha256 in sorted(applied.items()):
+        if version not in known:
+            reasons.append(
+                f"database has migration {version:04d} applied, but this code "
+                f"only knows up to {len(migrations):04d}"
+            )
+        elif known[version].sha256 != sha256:
+            reasons.append(
+                f"migration {version:04d}_{known[version].name} changed after it "
+                f"was applied; write a new migration instead of editing it"
+            )
+    return tuple(reasons)
+
+
 def migrate(
     conn: psycopg.Connection, directory: Path = MIGRATIONS_DIR
 ) -> tuple[int, ...]:
@@ -78,25 +117,11 @@ def migrate(
         )
     migrations = discover_migrations(directory)
     conn.execute(SCHEMA_MIGRATIONS_DDL)
-    applied = {
-        version: sha256
-        for version, sha256 in conn.execute(
-            "SELECT version, sha256 FROM schema_migrations"
-        ).fetchall()
-    }
+    applied = applied_migrations(conn)
 
-    known = {m.version: m for m in migrations}
-    for version, sha256 in sorted(applied.items()):
-        if version not in known:
-            raise MigrationError(
-                f"database has migration {version:04d} applied, but this code "
-                f"only knows up to {len(migrations):04d}"
-            )
-        if known[version].sha256 != sha256:
-            raise MigrationError(
-                f"migration {version:04d}_{known[version].name} changed after it "
-                f"was applied; write a new migration instead of editing it"
-            )
+    conflicts = schema_conflicts(migrations, applied)
+    if conflicts:
+        raise MigrationError(conflicts[0])
 
     pending = [m for m in migrations if m.version not in applied]
     if applied and pending and pending[0].version < max(applied):
