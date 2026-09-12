@@ -44,4 +44,9 @@ docker compose up -d --wait   # pgvector 0.8.6 on Postgres 17, 127.0.0.1:5432
 ```
 
 Set `TAXVERITY_DATABASE_URL` in `.env` as shown in `.env.example`. Without it,
-the database tests skip.
+the database tests skip. Then create the schema and load the corpus:
+
+```bash
+uv run python scripts/migrate.py         # apply pending SQL migrations
+uv run python scripts/ingest_corpus.py   # load chunks and vectors, idempotent
+```

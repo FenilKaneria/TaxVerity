@@ -1,18 +1,27 @@
 import os
+import uuid
 from pathlib import Path
 
+import numpy as np
+import psycopg
 import pytest
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
 
 from taxverity.chunking.chunker import build_chunks
+from taxverity.chunking.models import Chunk
 from taxverity.chunking.pipeline import read_corpus_version
-from taxverity.chunking.store import load_chunks
+from taxverity.chunking.store import ChunkManifest, load_chunks
 from taxverity.config import ENV_PREFIX, MissingSettingError, Settings
 from taxverity.corpus.crossrefs import extract_crossrefs
 from taxverity.corpus.loader import read_pages_jsonl
+from taxverity.corpus.nodes import NodeType
 from taxverity.corpus.schedules import FIRST_SCHEDULE_PAGE, parse_schedules
 from taxverity.corpus.sections import parse
 from taxverity.corpus.substructure import candidate_table_pages, parse_substructure
 from taxverity.corpus.tables import find_table_regions
+from taxverity.db.migrate import migrate
+from taxverity.embedding.backends import ModelInfo
 from taxverity.embedding.store import load_vector_store
 from taxverity.evals.gold import GOLD_V2_FILENAME, load_gold_set
 from taxverity.evals.metrics import CitationIndex
@@ -158,7 +167,9 @@ def retrieval_legs(gold, stored_chunks):
     if not (VECTOR_STORE / "vector_manifest.json").exists() or not cache_path.exists():
         pytest.skip("run scripts/embed_corpus.py, then scripts/measure_hybrid.py")
     corpus_version, stored = stored_chunks
-    vectors, ids, manifest = load_vector_store(VECTOR_STORE, corpus_version=corpus_version)
+    vectors, ids, manifest = load_vector_store(
+        VECTOR_STORE, corpus_version=corpus_version
+    )
     cached = load_query_vectors(
         cache_path, model=manifest.model, questions=[q.question for q in gold]
     )
@@ -169,3 +180,132 @@ def retrieval_legs(gold, stored_chunks):
         BM25Retriever(stored),
         CitationRetriever(stored),
     )
+
+
+# --- database fixtures --------------------------------------------------------
+# Every database test gets its own throwaway database, so the dev database is
+# never touched and tests cannot see each other's rows.
+
+
+@pytest.fixture(scope="module")
+def admin_url():
+    url = Settings().database_url
+    if url is None:
+        pytest.skip("TAXVERITY_DATABASE_URL not set; run `docker compose up -d`")
+    return url.get_secret_value()
+
+
+@pytest.fixture
+def db(admin_url):
+    name = f"taxverity_test_{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(admin_url, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    try:
+        url = make_conninfo(admin_url, dbname=name)
+        with psycopg.connect(url, autocommit=True) as conn:
+            yield conn
+    finally:
+        with psycopg.connect(admin_url, autocommit=True) as admin:
+            admin.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name))
+            )
+
+
+@pytest.fixture
+def schema(db):
+    migrate(db)
+    return db
+
+
+# A hand-built four-chunk corpus with matching manifests: the Step 6.3 ingest
+# and the Step 6.4 index both need rows in a database, and neither is testing
+# the real corpus.
+MICRO_V1 = "a" * 64
+MICRO_V2 = "b" * 64
+MICRO_DIM = 1024
+MICRO_STAGE_VERSIONS = {"chunk_model": 1, "chunker": 1}
+MICRO_MODEL = ModelInfo(
+    model_id="test-model",
+    dim=MICRO_DIM,
+    revision="r1",
+    runtime="test",
+    encoding="test/v1",
+)
+
+
+def micro_chunks(version: str) -> tuple[Chunk, ...]:
+    root = Chunk.create(
+        version,
+        "1",
+        "1. Short title.\n(1) This Act may be called the Test Act.\n(2) It extends.",
+        parent_id=None,
+        doc_id="test-act",
+        node_type=NodeType.SECTION,
+        section_number="1",
+        root_title="Short title",
+        chapter_numeral="I",
+        chapter_title="Preliminary",
+        page_start=0,
+        page_end=1,
+        defined_terms=("tax", "person"),
+        outgoing_refs=("2(1)", "Schedule I"),
+    )
+    first = Chunk.create(
+        version,
+        "1(1)",
+        "(1) This Act may be called the Test Act.",
+        parent_id=root.chunk_id,
+        doc_id="test-act",
+        node_type=NodeType.SUBSECTION,
+        section_number="1",
+        root_title="Short title",
+        chapter_numeral="I",
+        chapter_title="Preliminary",
+        page_start=0,
+        page_end=0,
+        char_start=17,
+        char_end=56,
+        outgoing_refs=("2(1)",),
+    )
+    second = Chunk.create(
+        version,
+        "1(2)",
+        "(2) It extends.",
+        parent_id=root.chunk_id,
+        doc_id="test-act",
+        node_type=NodeType.SUBSECTION,
+        section_number="1",
+        root_title="Short title",
+        page_start=1,
+        page_end=1,
+    )
+    schedule = Chunk.create(
+        version,
+        "Schedule I",
+        "SCHEDULE I\n1. Gold.",
+        parent_id=None,
+        doc_id="test-act",
+        node_type=NodeType.SCHEDULE,
+        schedule_number="I",
+        page_start=2,
+        page_end=2,
+    )
+    return root, first, second, schedule
+
+
+def micro_chunk_manifest(chunks, version=MICRO_V1, **overrides) -> ChunkManifest:
+    fields = {
+        "doc_id": "test-act",
+        "corpus_version": version,
+        "chunk_count": len(chunks),
+        "root_count": sum(1 for chunk in chunks if chunk.is_root),
+        "stage_versions": dict(MICRO_STAGE_VERSIONS),
+        "artifact_sha256": "1" * 64,
+    }
+    return ChunkManifest(**(fields | overrides))
+
+
+def micro_unit_vectors(count: int, seed: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    vectors = rng.standard_normal((count, MICRO_DIM)).astype(np.float32)
+    return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)

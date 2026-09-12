@@ -1,13 +1,9 @@
-import uuid
-
 import numpy as np
 import psycopg
 import pytest
 from psycopg import errors, sql
-from psycopg.conninfo import make_conninfo
 
 from taxverity.chunking.models import CHUNKABLE_TYPES
-from taxverity.config import Settings
 from taxverity.corpus.nodes import NodeType
 from taxverity.db.migrate import (
     MIGRATIONS_DIR,
@@ -67,38 +63,6 @@ def test_hash_ignores_line_endings(tmp_path):
     _write(lf, "0001_a.sql", "SELECT 1;\nSELECT 2;\n")
     _write(crlf, "0001_a.sql", "SELECT 1;\r\nSELECT 2;\r\n")
     assert discover_migrations(lf)[0].sha256 == discover_migrations(crlf)[0].sha256
-
-
-# Every database test gets its own throwaway database, so the dev database is
-# never touched and tests cannot see each other's rows.
-@pytest.fixture(scope="module")
-def admin_url():
-    url = Settings().database_url
-    if url is None:
-        pytest.skip("TAXVERITY_DATABASE_URL not set; run `docker compose up -d`")
-    return url.get_secret_value()
-
-
-@pytest.fixture
-def db(admin_url):
-    name = f"taxverity_test_{uuid.uuid4().hex[:12]}"
-    with psycopg.connect(admin_url, autocommit=True) as admin:
-        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-    try:
-        url = make_conninfo(admin_url, dbname=name)
-        with psycopg.connect(url, autocommit=True) as conn:
-            yield conn
-    finally:
-        with psycopg.connect(admin_url, autocommit=True) as admin:
-            admin.execute(
-                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name))
-            )
-
-
-@pytest.fixture
-def schema(db):
-    migrate(db)
-    return db
 
 
 def test_migrate_applies_everything_once(db):

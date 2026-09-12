@@ -49,6 +49,57 @@ class DenseRetrievalError(RuntimeError):
     the citation shortcut; it is never told "no results" instead."""
 
 
+class FingerprintGate:
+    """The probe-fingerprint check and the query-side encode, shared by every
+    dense index.
+
+    It exists once rather than per index because both halves are correctness
+    paths. ADR-069 allows exactly one QUERY call site in the system, and the
+    drift refusal has to be sticky in the same way wherever an index is served
+    from — a second copy is a second place that can quietly stop being either.
+    """
+
+    def __init__(self, embedder: Embedder, manifest: VectorManifest) -> None:
+        self._embedder = embedder
+        self._manifest = manifest
+        self._verified = False
+        self._refusal: str | None = None
+        self.fingerprint_cosine: float | None = None
+
+    def embed_query(self, query: str) -> list[float]:
+        self.ensure_verified()
+        try:
+            # QUERY is a literal here and the only query-side call site in the
+            # system (ADR-069). It is never taken from an argument.
+            (vector,) = self._embedder.embed([query], EmbedKind.QUERY)
+        except EmbeddingAPIError as error:
+            raise DenseRetrievalError(f"query embedding failed: {error}") from error
+        return vector
+
+    def ensure_verified(self) -> None:
+        # Deferred to the first search rather than done at construction: the
+        # check is a vendor call, and a vendor outage at startup must degrade
+        # like one at query time, not stop the process.
+        if self._refusal is not None:
+            raise DenseRetrievalError(self._refusal)
+        if self._verified:
+            return
+        try:
+            self.fingerprint_cosine = verify_fingerprint(self._embedder, self._manifest)
+        except ModelIdentityError as error:
+            # Sticky: the same upstream model will fail the same probes on every
+            # query, and re-probing would spend tokens to learn nothing.
+            self._refusal = f"dense index refused, the embedder has drifted: {error}"
+            logger.warning("%s", self._refusal)
+            raise DenseRetrievalError(self._refusal) from error
+        except EmbeddingAPIError as error:
+            # Not sticky: an outage ends, and the next query tries again.
+            raise DenseRetrievalError(
+                f"fingerprint check could not run: {error}"
+            ) from error
+        self._verified = True
+
+
 class DenseRetriever:
     """Satisfies the Step 3.3 `Retriever` Protocol."""
 
@@ -114,10 +165,7 @@ class DenseRetriever:
             matrix[[row[chunk.chunk_id] for chunk in self._chunks]]
         )
         self._manifest = manifest
-        self._embedder = embedder
-        self._verified = False
-        self._refusal: str | None = None
-        self.fingerprint_cosine: float | None = None
+        self._gate = FingerprintGate(embedder, manifest)
         logger.info(
             "dense index: %d vectors, dim %d, %s, in %.2fs",
             len(self._chunks),
@@ -148,17 +196,14 @@ class DenseRetriever:
             raise ValueError(f"k must be at least 1, not {k}")
         return self.search_vector(self.embed_query(query), k)
 
+    @property
+    def fingerprint_cosine(self) -> float | None:
+        return self._gate.fingerprint_cosine
+
     def embed_query(self, query: str) -> list[float]:
         """Public so a measurement can embed each question once and search it
         against several indexes, without a second query-side call site."""
-        self._ensure_verified()
-        try:
-            # QUERY is a literal here and the only query-side call site in the
-            # system (ADR-069). It is never taken from an argument.
-            (vector,) = self._embedder.embed([query], EmbedKind.QUERY)
-        except EmbeddingAPIError as error:
-            raise DenseRetrievalError(f"query embedding failed: {error}") from error
-        return vector
+        return self._gate.embed_query(query)
 
     def search_vector(self, vector: Sequence[float], k: int) -> Sequence[ScoredChunk]:
         if k < 1:
@@ -174,24 +219,3 @@ class DenseRetriever:
         return [
             ScoredChunk(chunk=self._chunks[i], score=float(scores[i])) for i in order
         ]
-
-    def _ensure_verified(self) -> None:
-        # Deferred to the first search rather than done at construction: the
-        # check is a vendor call, and a vendor outage at startup must degrade
-        # like one at query time, not stop the process.
-        if self._refusal is not None:
-            raise DenseRetrievalError(self._refusal)
-        if self._verified:
-            return
-        try:
-            self.fingerprint_cosine = verify_fingerprint(self._embedder, self._manifest)
-        except ModelIdentityError as error:
-            # Sticky: the same upstream model will fail the same probes on every
-            # query, and re-probing would spend tokens to learn nothing.
-            self._refusal = f"dense index refused, the embedder has drifted: {error}"
-            logger.warning("%s", self._refusal)
-            raise DenseRetrievalError(self._refusal) from error
-        except EmbeddingAPIError as error:
-            # Not sticky: an outage ends, and the next query tries again.
-            raise DenseRetrievalError(f"fingerprint check could not run: {error}") from error
-        self._verified = True
