@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     def vectors_dir(self) -> Path:
         return self.data_dir / "vectors"
 
+    @property
+    def llm_cache_dir(self) -> Path:
+        return self.data_dir / "llm"
+
     def require(self, name: str) -> str:
         value = getattr(self, name)
         if value is None:
