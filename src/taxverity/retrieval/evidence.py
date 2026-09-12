@@ -167,27 +167,6 @@ class EvidencePacker:
                 targets.setdefault(target.chunk_id, target)
         return list(targets.values())
 
-    def unmet_references(self, pack: EvidencePack) -> tuple[tuple[int, str, str], ...]:
-        """(position, retrieved unit, target) for each reference a retrieved
-        unit makes to a provision the pack does not carry. Position is 1-based
-        among the retrieved units in rank order.
-
-        Carried means the target or an ancestor is packed, the test `_place`
-        applies. A packed descendant carries only part of it, so it does not
-        count. Step 8.1 reads this; packing does not.
-        """
-        packed = {unit.chunk.chunk_id for unit in pack.units}
-        retrieved = sorted(
-            (unit for unit in pack.units if unit.role is EvidenceRole.RETRIEVED),
-            key=lambda unit: unit.rank,
-        )
-        return tuple(
-            (position, unit.citation, target.node_path)
-            for position, unit in enumerate(retrieved, start=1)
-            for target in self._targets(unit.chunk)
-            if not packed & self._lineage_of(target)
-        )
-
     def _unit(
         self, chunk: Chunk, rank: int, role: EvidenceRole, cited_by: str | None
     ) -> EvidenceUnit:

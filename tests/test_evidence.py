@@ -366,34 +366,6 @@ def test_a_referenced_unit_must_name_its_citer_and_only_it_may():
         )
 
 
-# --- unmet references (Step 8.1) --------------------------------------------------
-
-
-def unmet(*paths):
-    packer = EvidencePacker(XCHUNKS)
-    return packer.unmet_references(packer.pack(xhits(*paths)))
-
-
-def test_unmet_references_name_the_citing_unit_by_rank_position():
-    assert unmet("22(1)(a)", "23") == ((1, "22(1)(a)", "21(1)"), (2, "23", "21"))
-
-
-def test_a_target_carried_by_itself_or_an_ancestor_is_met():
-    assert unmet("22(1)(a)", "21") == ()
-
-
-def test_a_packed_descendant_does_not_carry_its_ancestor():
-    assert unmet("23", "21(1)") == ((1, "23", "21"),)
-
-
-def test_a_reference_to_the_units_own_lineage_is_not_unmet():
-    assert unmet("22(2)") == ()
-
-
-def test_a_reference_into_a_pruned_subtree_is_unmet_at_its_nearest_ancestor():
-    assert unmet("2(1)") == ((1, "2(1)", "21(6)"),)
-
-
 # --- the rule ---------------------------------------------------------------------
 
 
