@@ -7,9 +7,10 @@ from collections.abc import Iterator
 from uuid import UUID
 
 import psycopg
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header
 
 from taxverity.api.app import AppState, app_state
+from taxverity.api.errors import auth_failed
 from taxverity.auth.tokens import InvalidToken
 
 
@@ -23,11 +24,9 @@ def current_user(
     authorization: str | None = Header(default=None),
 ) -> UUID:
     if authorization is None or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="auth_failed")
+        raise auth_failed()
     token = authorization.removeprefix("Bearer ").strip()
     try:
         return state.access_tokens.verify(token)
     except InvalidToken:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="auth_failed"
-        ) from None
+        raise auth_failed() from None

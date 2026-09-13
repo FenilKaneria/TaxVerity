@@ -22,12 +22,13 @@ from collections.abc import Iterator
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from taxverity.api.app import AppState, app_state, request_deps
 from taxverity.api.deps import current_user, get_conn
+from taxverity.api.errors import not_found, rate_limited
 from taxverity.api.limits import DailyLimitReached, check_daily_turn_limit
 from taxverity.graph.build import build_graph
 from taxverity.observability import get_logger
@@ -71,11 +72,11 @@ def create_turn_route(
     try:
         get_thread(conn, user_id, thread_id)
     except ThreadNotFound:
-        raise HTTPException(status_code=404, detail="not_found") from None
+        raise not_found() from None
     try:
         check_daily_turn_limit(conn, user_id)
     except DailyLimitReached:
-        raise HTTPException(status_code=429, detail="rate_limited") from None
+        raise rate_limited() from None
 
     def event_stream() -> Iterator[str]:
         try:

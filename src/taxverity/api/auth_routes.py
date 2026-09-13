@@ -13,11 +13,12 @@ which needs to read it too.
 from __future__ import annotations
 
 import psycopg
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from pydantic import BaseModel
 
 from taxverity.api.app import AppState, app_state
 from taxverity.api.deps import get_conn
+from taxverity.api.errors import auth_failed, invalid_request, rate_limited
 from taxverity.auth.accounts import (
     InvalidEmail,
     LoginFailed,
@@ -107,7 +108,7 @@ def register_route(
             base_url=state.settings.app_base_url,
         )
     except (InvalidEmail, WeakPassword) as error:
-        raise HTTPException(status_code=400, detail=str(error)) from None
+        raise invalid_request(str(error)) from None
     # Deliberately the same response whatever happened inside `register()` —
     # rule 03's enumeration concern extends to this endpoint's own shape.
     return {"status": "if that address can register, a verification email was sent"}
@@ -124,9 +125,9 @@ def login_route(
     try:
         account = authenticate(conn, body.email, body.password, ip=_client_ip(request))
     except LoginThrottled:
-        raise HTTPException(status_code=429, detail="rate_limited") from None
+        raise rate_limited() from None
     except LoginFailed:
-        raise HTTPException(status_code=401, detail="auth_failed") from None
+        raise auth_failed() from None
     refresh = issue_refresh_token(conn, account.user_id)
     _set_refresh_cookie(response, refresh)
     return TokenResponse(access_token=state.access_tokens.issue(account.user_id))
@@ -140,14 +141,14 @@ def refresh_route(
     refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
 ) -> TokenResponse:
     if refresh_token is None:
-        raise HTTPException(status_code=401, detail="auth_failed")
+        raise auth_failed()
     try:
         rotation = rotate_refresh_token(conn, refresh_token)
     except TokenReuse:
         response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
-        raise HTTPException(status_code=401, detail="auth_failed") from None
+        raise auth_failed() from None
     except InvalidToken:
-        raise HTTPException(status_code=401, detail="auth_failed") from None
+        raise auth_failed() from None
     _set_refresh_cookie(response, rotation.refresh_token)
     return TokenResponse(access_token=state.access_tokens.issue(rotation.user_id))
 
@@ -170,7 +171,7 @@ def verify_email_route(
     try:
         verify_email(conn, body.token)
     except InvalidToken:
-        raise HTTPException(status_code=400, detail="invalid_request") from None
+        raise invalid_request() from None
 
 
 @router.post("/resend-verification", status_code=status.HTTP_202_ACCEPTED)
@@ -206,6 +207,6 @@ def reset_password_route(
     try:
         reset_password(conn, body.token, body.new_password)
     except InvalidToken:
-        raise HTTPException(status_code=400, detail="invalid_request") from None
+        raise invalid_request() from None
     except WeakPassword as error:
-        raise HTTPException(status_code=400, detail=str(error)) from None
+        raise invalid_request(str(error)) from None

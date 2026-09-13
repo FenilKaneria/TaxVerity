@@ -39,6 +39,7 @@ from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response as StarletteResponse
 from starlette.types import ASGIApp
 
+from taxverity.api.errors import install_error_handlers
 from taxverity.api.limits import MAX_BODY_BYTES
 from taxverity.auth.tokens import AccessTokens
 from taxverity.config import Settings
@@ -138,6 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             dense_conn.close()
 
     app = FastAPI(title="TaxVerity API", lifespan=lifespan)
+    install_error_handlers(app)
     app.add_middleware(BodySizeLimitMiddleware)
     # Only the configured frontend origin (Vercel in prod, PLAN 14.6) — not a
     # wildcard, since credentials (the refresh cookie) are allowed.

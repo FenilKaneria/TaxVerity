@@ -13,10 +13,11 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, ConfigDict
 
 from taxverity.api.deps import current_user, get_conn
+from taxverity.api.errors import invalid_request, not_found
 from taxverity.facts import FactField
 from taxverity.memory.fact_state import (
     apply_user_edit,
@@ -67,7 +68,7 @@ def create_thread_route(
     try:
         thread = create_thread(conn, user_id, body.title)
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from None
+        raise invalid_request(str(error)) from None
     return ThreadOut.model_validate(thread)
 
 
@@ -88,7 +89,7 @@ def get_thread_route(
     try:
         return ThreadOut.model_validate(get_thread(conn, user_id, thread_id))
     except ThreadNotFound:
-        raise HTTPException(status_code=404, detail="not_found") from None
+        raise not_found() from None
 
 
 @router.patch("/{thread_id}")
@@ -101,9 +102,9 @@ def rename_thread_route(
     try:
         thread = rename_thread(conn, user_id, thread_id, body.title)
     except ThreadNotFound:
-        raise HTTPException(status_code=404, detail="not_found") from None
+        raise not_found() from None
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from None
+        raise invalid_request(str(error)) from None
     return ThreadOut.model_validate(thread)
 
 
@@ -116,7 +117,7 @@ def delete_thread_route(
     try:
         delete_thread(conn, user_id, thread_id)
     except ThreadNotFound:
-        raise HTTPException(status_code=404, detail="not_found") from None
+        raise not_found() from None
 
 
 @router.get("/{thread_id}/facts")
@@ -128,7 +129,7 @@ def get_facts_route(
     try:
         return to_json(load_fact_state(conn, user_id, thread_id))
     except ThreadNotFound:
-        raise HTTPException(status_code=404, detail="not_found") from None
+        raise not_found() from None
 
 
 @router.patch("/{thread_id}/facts")
@@ -141,10 +142,10 @@ def edit_facts_route(
     try:
         state = load_fact_state(conn, user_id, thread_id)
     except ThreadNotFound:
-        raise HTTPException(status_code=404, detail="not_found") from None
+        raise not_found() from None
     try:
         state = apply_user_edit(state, body.field, body.raw_value)
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from None
+        raise invalid_request(str(error)) from None
     save_fact_state(conn, user_id, thread_id, state)
     return to_json(state)
