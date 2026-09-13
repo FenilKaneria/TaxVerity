@@ -62,7 +62,7 @@ def facts(unmapped=(), statuses=None, **changes):
 
 
 def test_the_stage_version_is_declared():
-    assert SCOPE_STAGE_VERSION == 1
+    assert SCOPE_STAGE_VERSION == 2
 
 
 def test_regime_and_age_are_the_only_facts_that_are_not_inputs():

@@ -20,7 +20,7 @@ from taxverity.calculator.rates import OutsideAct, load_rates, supported_tax_yea
 from taxverity.calculator.settlement import Settlement, settle
 from taxverity.facts import Fact, FactField, FactStatus, ResidentialStatus, UserFacts
 
-SCOPE_STAGE_VERSION = 1
+SCOPE_STAGE_VERSION = 2
 
 
 class Route(StrEnum):
@@ -72,8 +72,11 @@ class CalculatorInputs:
     other_income: Decimal
     resident_individual: bool
     claimed: dict[str, Decimal]
-    tax_deducted_at_source: Decimal
-    advance_tax: Decimal
+    # None when not known. The tax is still computed, but no balance is: a
+    # settlement needs everything paid, and a nil guess would be wrong for most
+    # salaried people (ADR-108).
+    tax_deducted_at_source: Decimal | None
+    advance_tax: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -101,7 +104,7 @@ class ScopeDecision:
 @dataclass(frozen=True)
 class Computation:
     comparison: RegimeComparison
-    settlement: Settlement
+    settlement: Settlement | None
     # The Act defers both to "the Central Acts", so no computed tax here is the
     # whole liability, and an answer must say so every time.
     not_computed: tuple[OutsideAct, ...]
@@ -141,28 +144,33 @@ def route(facts: UserFacts) -> ScopeDecision:
     if unknown:
         return ScopeDecision(Route.INCOMPLETE, **common)
 
-    def amount(name: FactField) -> Decimal:
-        return usable[name].value
-
-    inputs = CalculatorInputs(
-        tax_year=usable[FactField.TAX_YEAR].value,
-        salary=amount(FactField.SALARY_INCOME),
-        other_income=amount(FactField.OTHER_SOURCES_INCOME),
-        resident_individual=usable[FactField.RESIDENTIAL_STATUS].value in _RESIDENT,
-        claimed={
-            FactField.DEDUCTION_SAVINGS_INSURANCE.value: amount(FactField.DEDUCTION_SAVINGS_INSURANCE),
-            FactField.DEDUCTION_HEALTH_INSURANCE.value: amount(FactField.DEDUCTION_HEALTH_INSURANCE),
-        },
-        tax_deducted_at_source=amount(FactField.TDS_PAID),
-        advance_tax=amount(FactField.ADVANCE_TAX_PAID),
-    )
+    inputs = inputs_from({name: fact.value for name, fact in usable.items()})
     return ScopeDecision(Route.COMPUTE, inputs=inputs, **common)
+
+
+def inputs_from(values: dict[FactField, object]) -> CalculatorInputs:
+    """Calculator inputs from field values; tax already paid may be absent."""
+    return CalculatorInputs(
+        tax_year=values[FactField.TAX_YEAR],
+        salary=values[FactField.SALARY_INCOME],
+        other_income=values[FactField.OTHER_SOURCES_INCOME],
+        resident_individual=values[FactField.RESIDENTIAL_STATUS] in _RESIDENT,
+        claimed={
+            FactField.DEDUCTION_SAVINGS_INSURANCE.value: values[FactField.DEDUCTION_SAVINGS_INSURANCE],
+            FactField.DEDUCTION_HEALTH_INSURANCE.value: values[FactField.DEDUCTION_HEALTH_INSURANCE],
+        },
+        tax_deducted_at_source=values.get(FactField.TDS_PAID),
+        advance_tax=values.get(FactField.ADVANCE_TAX_PAID),
+    )
 
 
 def compute(decision: ScopeDecision) -> Computation:
     if decision.inputs is None:
         raise ValueError(f"a {decision.route} decision is not computed")
-    inputs = decision.inputs
+    return run(decision.inputs)
+
+
+def run(inputs: CalculatorInputs) -> Computation:
     rates = load_rates(inputs.tax_year)
     comparison = compare_regimes(
         rates,
@@ -171,12 +179,14 @@ def compute(decision: ScopeDecision) -> Computation:
         resident_individual=inputs.resident_individual,
         claimed=inputs.claimed,
     )
-    settlement = settle(
-        rates,
-        comparison.under_202_1,
-        tax_deducted_at_source=inputs.tax_deducted_at_source,
-        advance_tax=inputs.advance_tax,
-    )
+    settlement = None
+    if inputs.tax_deducted_at_source is not None and inputs.advance_tax is not None:
+        settlement = settle(
+            rates,
+            comparison.under_202_1,
+            tax_deducted_at_source=inputs.tax_deducted_at_source,
+            advance_tax=inputs.advance_tax,
+        )
     return Computation(
         comparison=comparison,
         settlement=settlement,

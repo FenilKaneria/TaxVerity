@@ -50,7 +50,7 @@ from taxverity.observability import get_logger, redact
 
 logger = get_logger(__name__)
 
-EXTRACTION_STAGE_VERSION = 2
+EXTRACTION_STAGE_VERSION = 3
 
 # Step 7.1: reasoning cannot be disabled and is billed against this cap, so a
 # cap sized for the visible JSON alone truncates it mid-object.
@@ -125,9 +125,10 @@ REPAIR_HINTS: dict[FactIssue, str] = {
         "from the message, or drop this field if the message does not contain it."
     ),
     FactIssue.SIGN_CONTRADICTS_SPAN: (
-        "The quoted words describe a loss but the value is positive. Write a loss "
-        "with a leading minus sign, or, if this figure is not a loss, quote only "
-        "the words that give it."
+        "The words around the quoted figure describe a loss but the value is "
+        "positive. Write a loss with a leading minus sign. If this figure is not a "
+        "loss, quote only the words that give it; a positive figure stays refused "
+        "while its own clause describes a loss."
     ),
     FactIssue.UNPARSABLE_VALUE: (
         "Write the value as digits only, with no separators, currency symbol or words."

@@ -133,7 +133,7 @@ def capture():
 
 
 def test_stage_version_is_declared():
-    assert EXTRACTION_STAGE_VERSION == 2
+    assert EXTRACTION_STAGE_VERSION == 3
 
 
 def test_strict_format_names_the_facts_schema():
@@ -524,3 +524,28 @@ def test_what_the_repair_was_asked_to_fix_is_reported():
     node, _ = build(ok(payload(bad)), ok(payload()))
     result = node.extract(TURN)
     assert [r.issue for r in result.repairable] == [FactIssue.MISSING_SPAN]
+
+
+# --- Step 7.8: the context guard through the node (ADR-109) -----------------
+
+
+def test_a_loss_whose_span_omits_the_loss_word_is_repaired_to_a_negative():
+    turn = "My business made a loss of 3,00,000 last year."
+    bad = entry("business_income", "300000", span="3,00,000")
+    good = entry("business_income", "-300000", span="3,00,000")
+    node, recorder = build(ok(payload(bad)), ok(payload(good)))
+    result = node.extract(turn)
+    assert REPAIR_HINTS[FactIssue.SIGN_CONTRADICTS_SPAN] in recorder.bodies[1]["messages"][-1]["content"]
+    assert result.facts.get(FactField.BUSINESS_INCOME).value == Decimal("-300000")
+    assert result.rejections == ()
+
+
+def test_a_positive_reaffirmed_in_a_loss_clause_is_dropped_never_accepted():
+    turn = "My business made a loss of 3,00,000 last year."
+    bad = entry("business_income", "300000", span="3,00,000")
+    node, recorder = build(ok(payload(bad)), ok(payload(bad)))
+    result = node.extract(turn)
+    assert len(recorder.requests) == 2
+    assert result.facts.get(FactField.BUSINESS_INCOME).status is FactStatus.MISSING
+    assert {r.issue for r in result.rejections} == {FactIssue.SIGN_CONTRADICTS_SPAN}
+

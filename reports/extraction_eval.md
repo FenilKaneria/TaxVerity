@@ -1,16 +1,16 @@
 # Extraction eval — Step 7.7
 
-42 labelled turns, 49 labelled facts, 53,295 tokens, 373s.
+42 labelled turns, 49 labelled facts, 54,964 tokens, 0s.
 
 ## Headline
 
 Detection is whether the node found the field at all; value and status accuracy are measured only over the fields it did find, because a prompt change fixes the first and `normalise_value` fixes the second.
 
 - Field precision **1.000**, recall **1.000**, f1 **1.000**
-- Value accuracy **0.980**
+- Value accuracy **1.000**
 - Status accuracy **0.959**
-- Strict (field, value and status all right) **0.939**
-- Turns with nothing wrong: **41/42**
+- Strict (field, value and status all right) **0.959**
+- Turns with nothing wrong: **42/42**
 
 ## Source spans
 
@@ -18,7 +18,7 @@ Detection is whether the node found the field at all; value and status accuracy 
 
 - Fabricated-span rate **0.000** (0 of 45 stated attempts)
 - Stated facts quoting nothing: 0
-- Turns that needed a repair: **0**, of which the repair helped **0**
+- Turns that needed a repair: **1**, of which the repair helped **1**
 
 ## By slice
 
@@ -55,5 +55,4 @@ Detection is whether the node found the field at all; value and status accuracy 
 
 ## Every turn that was not clean
 
-- **t041** (loss) `My business made a loss of 3,00,000 last year.`
-  - business_income: expected -300000, got 300000
+None.

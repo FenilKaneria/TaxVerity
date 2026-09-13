@@ -46,6 +46,8 @@ GOLD_FILENAME = "extraction_gold_v1.jsonl"
 # Written and frozen before the loss-sign fix touched the prompt or the parser,
 # so the re-measure is not scored on the turns the fix was aimed at (ADR-098).
 LOSS_HOLDOUT_FILENAME = "extraction_loss_holdout_v1.jsonl"
+# Frozen before Step 7.8's context guard, for the same reason (ADR-109).
+LOSS_HOLDOUT_V2_FILENAME = "extraction_loss_holdout_v2.jsonl"
 TURN_ID = re.compile(r"^t\d{3}$")
 
 

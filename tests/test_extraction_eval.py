@@ -44,7 +44,7 @@ from taxverity.observability import redact
 
 DATASETS = Path("evals/datasets")
 # The node as it stands: Step 7.7 plus the loss-sign fix (ADR-099).
-STORED_RUN = Settings().data_dir / "extraction" / "extraction_run_v3.json"
+STORED_RUN = Settings().data_dir / "extraction" / "extraction_run_v4.json"
 
 
 @pytest.fixture(scope="session")
@@ -408,12 +408,10 @@ def test_fabricated_spans_stay_rare(measured):
 
 
 def test_the_only_wrong_value_is_the_pinned_residue(measured):
-    # ADR-099 cleared t013 and t017. The ADR-100 re-measure dropped t041's sign:
-    # the model quoted "3,00,000" without the loss word, so the span guard could
-    # not fire. Pinned exactly (ADR-102), so the set cannot grow and a fix cannot
-    # land silently. The extraction node does not feed the calculator until the
-    # gap is closed.
-    assert [j.turn_id for j in measured.turns if j.value_wrong] == ["t041"]
+    # ADR-102 pinned t041 here. Step 7.8's fresh run (ADR-109) wrote its sign
+    # right on the first pass, and the clause guard now refuses the positive it
+    # once returned. A wrong value admits no residue.
+    assert [j.turn_id for j in measured.turns if j.value_wrong] == []
 
 
 def test_every_surviving_span_is_in_the_turn_the_model_saw(gold):

@@ -466,3 +466,56 @@ def test_the_schema_carries_the_field_descriptions_the_model_needs():
 
     assert "Act section 123" in description
     assert "negative for a loss" in description
+
+
+# --- Step 7.8: the loss word is read in the span's clause (ADR-109) ---------
+
+
+def sign_issues(turn, name, value, span):
+    return issues(parse_facts(payload(entry(name=name, value=value, span=span)), turn))
+
+
+@pytest.mark.parametrize(
+    ("turn", "name", "span"),
+    [
+        ("My business made a loss of 3,00,000 last year.", "business_income", "3,00,000"),
+        ("My tuition classes lost 60,000 during the year.", "business_income", "60,000"),
+        ("Long-term capital gains: 2.5 lakh loss on my old plot.", "capital_gains_long_term", "2.5 lakh"),
+        ("My let-out flat ran up a net loss of Rs. 1,60,000.", "house_property_income", "1,60,000"),
+        ("Salary 14,20,000, business loss of 2,10,000 and TDS of 1,05,000.", "business_income", "2,10,000"),
+        ("Rs. 90,000 was the deficit on my shop.", "business_income", "90,000"),
+    ],
+)
+def test_a_positive_figure_in_a_loss_clause_is_refused_when_the_span_omits_the_word(turn, name, span):
+    assert sign_issues(turn, name, "1", span) == [FactIssue.SIGN_CONTRADICTS_SPAN]
+
+
+@pytest.mark.parametrize(
+    ("turn", "name", "span"),
+    [
+        ("My house property income is 2,10,000, no loss this time.", "house_property_income", "2,10,000"),
+        ("Last year's business loss is behind me; this year the business earned 3,40,000.", "business_income", "3,40,000"),
+        ("No capital loss this time, and my long-term capital gain was 1,25,000.", "capital_gains_long_term", "1,25,000"),
+        ("I lost my tenant for two months, but my house property income this year is 1,80,000.", "house_property_income", "1,80,000"),
+        ("My shop made a profit of 2,20,000, unlike the losses of the last two years.", "business_income", "2,20,000"),
+        ("We lost money. The business then earned 50,000.", "business_income", "50,000"),
+        ("Last year was a loss but this year the shop earned 3,40,000.", "business_income", "3,40,000"),
+    ],
+)
+def test_a_loss_word_in_a_neighbouring_clause_does_not_fire(turn, name, span):
+    assert sign_issues(turn, name, "1", span) == []
+
+
+def test_a_span_that_crosses_a_clause_is_read_whole():
+    turn = "My house property income is 2,10,000, no loss this time."
+    assert sign_issues(turn, "house_property_income", "210000", turn) == [FactIssue.SIGN_CONTRADICTS_SPAN]
+
+
+def test_a_figure_repeated_in_a_loss_clause_and_a_gain_clause_is_refused():
+    turn = "I made 50,000 on shares and lost 50,000 on bonds."
+    assert sign_issues(turn, "capital_gains_short_term", "50000", "50,000") == [FactIssue.SIGN_CONTRADICTS_SPAN]
+
+
+def test_a_negative_figure_in_a_loss_clause_is_accepted():
+    turn = "My business made a loss of 3,00,000 last year."
+    assert sign_issues(turn, "business_income", "-300000", "3,00,000") == []

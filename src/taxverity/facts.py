@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from taxverity.corpus.loader import normalise
 
-FACTS_STAGE_VERSION = 4
+FACTS_STAGE_VERSION = 5
 
 
 class FactStatus(StrEnum):
@@ -393,16 +393,19 @@ def parse_facts(payload: Any, turn: str) -> Extraction:
         # positive, which inverts the tax. Refused, never flipped: the words can
         # sit beside a genuine positive figure ("no loss this time"), and a
         # refusal costs a repair call where a wrong flip costs a wrong answer.
+        # The clause is read, not the span alone, because ADR-100's re-measure
+        # quoted only "3,00,000" out of "a loss of 3,00,000" (ADR-109).
         if (
             FIELDS[field].allows_negative
             and isinstance(value, Decimal)
             and value > 0
-            and _LOSS_WORDS.search(normalise(span))
+            and span
+            and _clause_describes_loss(normalise(span), normalised_turn)
         ):
             rejections.append(
                 Rejection(
                     FactIssue.SIGN_CONTRADICTS_SPAN,
-                    f"{field} is positive but {span!r} describes a loss",
+                    f"{field} is positive but the clause around {span!r} describes a loss",
                     entry,
                 )
             )
@@ -430,6 +433,27 @@ def parse_facts(payload: Any, turn: str) -> Extraction:
 
 
 _LOSS_WORDS = re.compile(r"\b(?:loss(?:es)?|lost|minus|negative|deficit)\b", re.IGNORECASE)
+# A period ends a clause only before a capital or the end, so "Rs. 1,60,000"
+# and "3.2 lakh" stay whole; a comma only before a space, so Indian digit
+# grouping never splits a figure.
+_CLAUSE_BREAK = re.compile(
+    r"[;:!?]|\.(?=\s+[A-Z]|\s*$)|,\s|\s(?i:and|but|while|whereas)\s"
+)
+
+
+def _clause_describes_loss(span: str, turn: str) -> bool:
+    # Every occurrence is read: a figure repeated in a loss clause and a gain
+    # clause is ambiguous, and ambiguity is refused.
+    # Breaks are found over the whole turn: a search cut off at the span would
+    # let "$" match there and end the clause at "Rs.".
+    breaks = list(_CLAUSE_BREAK.finditer(turn))
+    for occurrence in re.finditer(re.escape(span), turn):
+        start = max((b.end() for b in breaks if b.end() <= occurrence.start()), default=0)
+        following = _CLAUSE_BREAK.search(turn, occurrence.end())
+        end = following.start() if following else len(turn)
+        if _LOSS_WORDS.search(turn[start:end]):
+            return True
+    return False
 
 _MULTIPLIERS = {
     "lakh": 100_000,
