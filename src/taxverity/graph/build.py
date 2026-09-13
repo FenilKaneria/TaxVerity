@@ -32,9 +32,9 @@ import psycopg
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from taxverity.chunking.pipeline import read_corpus_version
-from taxverity.chunking.store import load_chunks
 from taxverity.config import Settings
+from taxverity.db.chunks import load_chunks_from_db
+from taxverity.db.serving import ServedCorpus, resolve_serving
 from taxverity.embedding.jina_api import JinaAPIEmbedder
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph import nodes
@@ -72,16 +72,29 @@ _NODES = (
 )
 
 
-def build_deps(settings: Settings, conn: psycopg.Connection) -> GraphDeps:
-    """Production's composition (ADR-086) over `PgVectorIndex`, per PLAN 13.2.
+def build_deps(
+    settings: Settings, conn: psycopg.Connection
+) -> tuple[GraphDeps, ServedCorpus]:
+    """Production's composition (ADR-086) over `PgVectorIndex`, per PLAN 13.2,
+    widened at Phase 14 to hydrate its chunks from the database rather than a
+    local `chunks.jsonl` — TaxVerity is deploy-only, and a production instance
+    has no corpus files on disk (ADR-006's serving guard, Step 6.6).
 
-    One instance per process; `conn` is a single connection, adequate for
-    Phase 13's own tests and scripts. Phase 14's API owns pooling one per
-    request.
+    `resolve_serving()` runs first, per its own contract: an outage cannot
+    stop this from refusing a schema or corpus this code cannot serve. One
+    instance per process; `conn` is a single connection here, adequate for
+    Phase 13's own tests and scripts. Phase 14's API builds this once at
+    startup against one dedicated connection for `PgVectorIndex`, then swaps
+    `GraphDeps.conn` per request with `dataclasses.replace` — the request
+    connection never reaches the dense index, which does only read queries.
     """
-    corpus_version = read_corpus_version(settings.interim_dir / "corpus_manifest.json")
-    chunks = load_chunks(settings.interim_dir, corpus_version=corpus_version)[0]
     embedding_set_id = settings.require("serving_embedding_set_id")
+    served = resolve_serving(
+        conn,
+        corpus_version=settings.require("serving_corpus_version"),
+        embedding_set_id=embedding_set_id,
+    )
+    chunks = load_chunks_from_db(conn, served.corpus_version)
 
     bm25 = BM25Retriever(chunks)
     dense = PgVectorIndex(conn, embedding_set_id, JinaAPIEmbedder.from_settings(settings))
@@ -96,7 +109,7 @@ def build_deps(settings: Settings, conn: psycopg.Connection) -> GraphDeps:
     llm = CachedLLMClient(llm, settings.llm_cache_dir)
     llm = TracedLLMClient(llm, LangfuseTracer.from_settings(settings))
 
-    return GraphDeps(
+    deps = GraphDeps(
         conn=conn,
         chunks=by_path,
         retriever=retriever,
@@ -106,6 +119,7 @@ def build_deps(settings: Settings, conn: psycopg.Connection) -> GraphDeps:
         extractor=FactExtractor.from_settings(settings),
         generator=AnswerGenerator(llm, by_path),
     )
+    return deps, served
 
 
 def build_graph(deps: GraphDeps) -> CompiledStateGraph:
