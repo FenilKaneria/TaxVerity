@@ -66,6 +66,19 @@ class WithheldEvent(BaseModel):
     reason: str
 
 
+# Step 12.6 (rule 03): a constant, never model-generated, carried in every
+# `final` event the streaming contract (rule 04) defines - Phase 13's graph is
+# what assembles that event, but the text lives here so it has one source of
+# truth from the moment any caller needs it, verbatim from
+# `docs/SAFETY_POLICY.md`'s own Disclaimer section. The frontend (Phase 16)
+# renders it non-dismissible.
+DISCLAIMER = (
+    "This is general information about the Income-tax Act, 2025, not "
+    "professional tax advice. Confirm anything material with a qualified "
+    "professional before acting on it."
+)
+
+
 def parse_claim(line: str) -> Claim:
     try:
         payload = json.loads(line)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
@@ -10,6 +11,7 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from taxverity.generation.claims import (
+    DISCLAIMER,
     Citation,
     ClaimEvent,
     ClaimType,
@@ -106,3 +108,25 @@ def test_closing_the_lines_closes_the_source():
     next(lines)
     lines.close()
     assert closed == [True]
+
+
+# --- Step 12.6: the disclaimer constant --------------------------------------
+
+
+def test_the_disclaimer_matches_the_safety_policy_doc_verbatim():
+    # The doc renders the disclaimer as a markdown blockquote ("> " per line);
+    # strip that marker before collapsing whitespace, or it survives as a
+    # stray token between words and breaks the substring match.
+    lines = Path("docs/SAFETY_POLICY.md").read_text(encoding="utf-8").splitlines()
+    policy = " ".join(
+        " ".join(line.removeprefix(">").split()) for line in lines
+    )
+    assert " ".join(DISCLAIMER.split()) in policy
+
+
+def test_the_disclaimer_is_not_dismissed_as_advice():
+    # It must disclaim professional advice, not just describe the product -
+    # a frontend rendering "informational" language alone would not satisfy
+    # rule 03's legal-posture requirement.
+    assert "not" in DISCLAIMER
+    assert "professional" in DISCLAIMER.lower()
