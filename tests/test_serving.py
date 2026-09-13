@@ -67,7 +67,7 @@ def test_an_unmigrated_database_is_refused_before_any_table_is_read(db):
     with pytest.raises(ServingRefusal) as refusal:
         resolve_serving(db, corpus_version=V1, embedding_set_id=1)
     assert refusal.value.reasons == (
-        "schema is behind this code: migration(s) 0001 unapplied — "
+        "schema is behind this code: migration(s) 0001, 0002 unapplied — "
         "run scripts/migrate.py",
     )
 

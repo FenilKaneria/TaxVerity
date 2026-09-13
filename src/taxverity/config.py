@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     jina_api_key: SecretStr | None = None
     database_url: SecretStr | None = None
+    # Signs access tokens (Step 11.3). At least 32 bytes.
+    jwt_secret: SecretStr | None = None
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None
     langfuse_host: str | None = None
