@@ -167,3 +167,13 @@ def revoke_refresh_family(conn: psycopg.Connection, token: str) -> None:
         "(SELECT family_id FROM refresh_tokens WHERE token_sha256 = %s)",
         (_digest(token),),
     )
+
+
+def revoke_all_refresh_tokens(conn: psycopg.Connection, user_id: UUID) -> None:
+    """A password reset ends every existing session for the account — every
+    refresh token family, not just the one that presented the reset link."""
+    conn.execute(
+        "UPDATE refresh_tokens SET revoked_at = now() "
+        "WHERE revoked_at IS NULL AND user_id = %s",
+        (user_id,),
+    )

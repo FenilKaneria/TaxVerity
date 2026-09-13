@@ -14,7 +14,7 @@ calculator in.
 | Answerable questions with a served claim | 7 |
 | Claims served / withheld | 12 / 3 |
 | Provider errors | 0 |
-| Groq tokens this run | 78,710 |
+| Groq tokens this run | 0 |
 
 ## Gate: no negative question gets a served statute claim
 
@@ -26,7 +26,7 @@ Answerable questions with nothing served (reported, not gated): q003, q011, q021
 
 ### q001 (citation) — What deductions does section 22 allow from income from house property?
 
-Evidence: 22, 131(2). 3.7s.
+Evidence: 22, 131(2). 0.1s.
 
 - [1, statute] Section 22(1)(a) allows a deduction of 30% of the annual value of the property. — `22(1)(a)` "30% of the annual value as determined under section 21"
 - [2, statute] Section 22(1)(b) permits deduction of interest payable on borrowed capital used to acquire, construct, repair, renew or reconstruct the property. — `22(1)(b)` "the amount of any interest payable on such capital"
@@ -36,86 +36,135 @@ Evidence: 22, 131(2). 3.7s.
 
 ### q002 (citation) — Under section 22(2), what is the maximum interest deduction for a self-occupied property?
 
-Evidence: 22, 134, 131, 130, 153(2), 177(5). 1.2s.
+Evidence: 22, 134, 131, 130, 153(2), 177(5). 0.0s.
 
 - [1, statute] The maximum interest deduction for a self‑occupied property under section 22(2) is Rs. 200000, subject to the conditions specified in sub‑clause (a). — `22(2)(a)` "Rs. 200000, subject to the following conditions"
 
 ### q003 (citation) — What does section 6(5) substitute for the sixty-day period?
 
-Evidence: 6(5), 286, 166(8), 274(15), 168(8), 377(7), 298(7), 247(4)(b)(ii), 296, 508(6), 378(9). 21.4s.
+Evidence: 6(5), 286, 166(8), 274(15), 168(8), 377(7), 298(7), 247(4)(b)(ii), 296, 508(6), 378(9). 0.0s.
 
 - [1, withheld] quote_not_in_source
 
 ### q009 (paraphrase) — How many days do I need to spend in India to count as a resident?
 
-Evidence: 6, 2(96), Schedule IV, 9(9)(b)(i), 9(9)(d). 25.8s.
+Evidence: 6, 2(96), Schedule IV, 9(9)(b)(i), 9(9)(d). 0.0s.
 
 - [1, statute] An individual is resident in India in a tax year if he is in India for a total period of one hundred and eighty-two days or more in that tax year. — `6(2)(a)` "is in India for a total period of one hundred and eighty-two days or more in that tax year"
 
 ### q010 (paraphrase) — I pay rent but my employer gives me no house rent allowance. Can I deduct the rent I pay?
 
-Evidence: 134, Schedule III(11), 17, 28, 397(2)(e), 23, Schedule XV(3), 37, 391. 1.3s.
+Evidence: 134, Schedule III(11), 17, 28, 397(2)(e), 23, Schedule XV(3), 37, 391. 0.0s.
 
 - [1, statute] Expenditure incurred towards payment of rent for furnished or unfurnished accommodation occupied for the assessee's own residence is deductible. — `134(1)` "there shall be deducted any expenditure incurred by him towards payment of rent (by whatever name called) in respect of any furnished or unfurnished accommodation occupied by him for the purposes of his own residence"
 - [2, statute] The deduction is allowed only on rent exceeding 10% of total income, subject to a maximum of Rs. 5000 per month or 25% of total income for the tax year, whichever is less. — `134(2)` "The deduction under sub-section (1) shall be allowable on payment of such rent exceeding 10% of his total income, subject to a maximum of Rs. 5000 per month, or 25% of total income for tax year, whichever is less"
 
 ### q011 (paraphrase) — Is there a flat deduction on rental income before I claim anything else?
 
-Evidence: 134, 22, 23, 142, 131, 130. 1.3s.
+Evidence: 134, 22, 23, 142, 131, 130. 0.0s.
 
 - nothing served
 
 ### q012 (paraphrase) — Can I claim the health insurance premium I pay for my parents?
 
-Evidence: 126, 17(2), 30. 2.1s.
+Evidence: 126, 17(2), 30. 0.0s.
 
 - [1, statute] An individual can claim a deduction for health‑insurance premium paid for the parent or parents of the assessee, up to Rs. 25000 in aggregate. — `126(2)(b)` "to effect or to keep in force the health insurance, or any payment made for preventive health check-up, for the parent or parents of the assessee, up to Rs. 25000 in aggregate"
 - [2, statute] The total deduction for health‑insurance premium for parents (sub‑section 2(b)) and medical expenditure for any parent (sub‑section 2(d)) cannot exceed Rs. 50000 in aggregate. — `126(4)` "The amount of sum referred to in sub-section (2) shall not exceed Rs. 50000 in aggregate of the sum specified under sub-section (2)(a) and (c) or aggregate of the sum specified under sub-section (2)(b) and (d)"
 
 ### q019 (crossref) — Which sums qualify for the Rs. 1,50,000 deduction on savings and insurance?
 
-Evidence: 123, Schedule XV(1), Schedule II, 126(3). 23.7s.
+Evidence: 123, Schedule XV(1), Schedule II, 126(3). 0.0s.
 
 - [1, statute] An individual or HUF may claim a deduction for amounts paid that are enumerated in Schedule XV, subject to the overall limit of Rs. 150000 as provided in section 123, and Schedule XV lists such amounts as premium paid for a life insurance policy, sum paid under a deferred annuity contract, contributions to provident and pension funds, subscriptions to notified savings schemes, tuition fees for two children, payment for purchase or construction of a residential house, term deposits of not less than five years, bonds issued by NABARD, deposits under the Senior Citizen Savings Scheme, post‑office time deposits, contributions to central‑government pension schemes, and other specified investments and expenses. — `123` "does not exceed Rs. 150000"; `Schedule XV(1)` "the following amounts shall qualify as deduction for the purpose of section 123"
 
 ### q020 (crossref) — The 30% house property deduction applies to what value exactly?
 
-Evidence: 22, 130, 20, 21, 131, Schedule XV(3). 1.3s.
+Evidence: 22, 130, 20, 21, 131, Schedule XV(3). 0.0s.
 
 - [1, statute] The 30% deduction is calculated on the annual value of the property as determined under section 21. — `22(1)(a)` "30% of the annual value as determined under section 21"
 
 ### q021 (crossref) — What counts as a severe disability for the deduction an individual claims for themselves?
 
-Evidence: 154, 127, Schedule II(17)(e)(i), Schedule XV(2)(1)(c). 4.6s.
+Evidence: 154, 127, Schedule II(17)(e)(i), Schedule XV(2)(1)(c). 0.0s.
 
 - [1, withheld] citation_not_in_evidence
 
 ### q025 (negative) — What is the GST rate on restaurant services?
 
-Evidence: 402(34), 206(2)(b), 66(29), 207, 2(90), 176(5), 218, 397(2)(b), 206(1)(d)(ii)(B), 61(2), 39(1)(b), 285, 211(1)(c). 3.3s.
+Evidence: 402(34), 206(2)(b), 66(29), 207, 2(90), 176(5), 218, 397(2)(b), 206(1)(d)(ii)(B), 61(2), 39(1)(b), 285, 211(1)(c). 0.0s.
 
 - nothing served
 
 ### q026 (negative) — How do I register a private limited company in India?
 
-Evidence: 2(53), 2(29), 9(10), 6(10), 212(e)(iii), 323(1)(a), 206(1)(t)(iv), 265, 52(7)(c)(iv), 206(3)(d), 140(16), 70(1)(ze), 66(37), 206(4)(d), 41(5). 1.0s.
+Evidence: 2(53), 2(29), 9(10), 6(10), 212(e)(iii), 323(1)(a), 206(1)(t)(iv), 265, 52(7)(c)(iv), 206(3)(d), 140(16), 70(1)(ze), 66(37), 206(4)(d), 41(5). 0.0s.
 
 - nothing served
 
 ### q027 (negative) — What is the stamp duty payable on a sale deed in Maharashtra?
 
-Evidence: 92(4), 92(2)(m), 78, 2(105), 53, 131(2)(b), 2(103). 1.1s.
+Evidence: 92(4), 92(2)(m), 78, 2(105), 53, 131(2)(b), 2(103). 0.0s.
 
 - nothing served
 
 ### q028 (negative) — How do I file a GSTR-3B return?
 
-Evidence: 263, 270(1), 316(4), 434(1)(b), 267(3). 0.9s.
+Evidence: 263, 270(1), 316(4), 434(1)(b), 267(3). 0.0s.
 
 - nothing served
 
 ### q029 (negative) — What customs duty applies to a laptop imported into India?
 
-Evidence: 39, 140(5), 207(4)(a), 46(11)(e), 205(5), 411(14), Schedule IV(13), 316, 151(4), 420(7), 152(4). 1.1s.
+Evidence: 39, 140(5), 207(4)(a), 46(11)(e), 205(5), 411(14), Schedule IV(13), 316, 151(4), 420(7), 152(4). 0.0s.
 
 - nothing served
+
+## Follow-up cases — Step 11.8
+
+Multi-turn retrieval, simplified (ADR-110): no recall study, no gate.
+Each case is a prior gold question plus a follow-up phrasing that only
+makes sense after it; Step 11.7's contextualizer rewrites it before
+retrieval sees it. `expected` is for a human to eyeball, not a score.
+
+Rewritten and hit expected citation: 4/5.
+
+### f001 — What if my income is below that threshold instead?
+
+Prior turn: What does section 6(5) substitute for the sixty-day period?
+
+Rewritten (yes): If my income is below the threshold, what happens?
+
+Expected: 6(4), 6(5). Retrieved: 341(6)(b), Schedule III(17), 285, 332(5), 439, 341(8), 156(2)(b), 62(2), 263(1), 175(3), 45(9). miss.
+
+### f002 — Can I pay it to my mother instead?
+
+Prior turn: I pay rent but my employer gives me no house rent allowance. Can I deduct the rent I pay?
+
+Rewritten (yes): Can I pay my rent to my mother instead of my landlord for tax deduction purposes?
+
+Expected: 134(1), 134(2). Retrieved: 134, 397(2)(e), 23, 402(29), 28, Schedule XV(3), 22, 21, 131(1), 131(2)(c), 130(3)(d), 130(1), 2(5)(c). HIT.
+
+### f003 — What if I buy it two years later instead?
+
+Prior turn: I sold my house and bought another one with the money. Do I still pay capital gains tax?
+
+Rewritten (yes): If I sell my house and wait two years before buying another one with the proceeds, do I still have to pay capital gains tax?
+
+Expected: 82(1). Retrieved: 82, 86, 83, 84, 87(1)(b). HIT.
+
+### f004 — What about after that period ends?
+
+Prior turn: Can I deduct the interest on my education loan, and for how many years?
+
+Rewritten (yes): What happens to the education loan interest deduction after the allowed deduction period ends?
+
+Expected: 129(2). Retrieved: 129, 130, 131, 132. HIT.
+
+### f005 — Does the same limit apply to a plug-in hybrid instead?
+
+Prior turn: What deduction does section 132 give for a loan taken to buy an electric vehicle?
+
+Rewritten (yes): Does the deduction limit under section 132 for a loan used to purchase an electric vehicle also apply to a plug‑in hybrid vehicle?
+
+Expected: 132. Retrieved: 132, 37, 131, 130, 129. HIT.

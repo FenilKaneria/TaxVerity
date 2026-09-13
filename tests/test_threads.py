@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 from psycopg import errors
 
-from taxverity.auth.accounts import register
+from conftest import register_account
 from taxverity.threads.store import (
     MAX_TITLE_LENGTH,
     ThreadNotFound,
@@ -29,12 +29,12 @@ PASSWORD = "correct horse battery"
 
 @pytest.fixture
 def alice(schema):
-    return register(schema, "alice@example.com", PASSWORD).user_id
+    return register_account(schema, "alice@example.com", PASSWORD)
 
 
 @pytest.fixture
 def mallory(schema):
-    return register(schema, "mallory@example.com", PASSWORD).user_id
+    return register_account(schema, "mallory@example.com", PASSWORD)
 
 
 @pytest.fixture

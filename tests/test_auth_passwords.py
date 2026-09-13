@@ -1,4 +1,9 @@
-"""Step 11.2 — argon2id hashing, registration and generic login errors."""
+"""Step 11.2/11.4 — argon2id hashing, registration, and generic login errors.
+
+Registration must not reveal whether an address is already taken (rule 03),
+so both branches here are read off the `NullMailer`'s recorded sends rather
+than off `register()`'s return value — it always returns `None`.
+"""
 
 from __future__ import annotations
 
@@ -10,10 +15,10 @@ from argon2 import PasswordHasher
 from psycopg import errors
 from psycopg.conninfo import make_conninfo
 
+from conftest import register_account
 from taxverity.auth.accounts import (
     InvalidEmail,
     LoginFailed,
-    RegistrationRefused,
     authenticate,
     normalise_email,
     register,
@@ -26,8 +31,16 @@ from taxverity.auth.passwords import (
     needs_rehash,
     verify_password,
 )
+from taxverity.mail.gmail import NullMailer
 
 PASSWORD = "correct horse battery"
+BASE_URL = "http://t"
+
+
+def _register(conn, email, password, ip="1.1.1.1", mailer=None):
+    mailer = mailer or NullMailer()
+    register(conn, email, password, ip=ip, mailer=mailer, base_url=BASE_URL)
+    return mailer
 
 
 def test_hash_is_argon2id_and_salted():
@@ -75,25 +88,43 @@ def test_email_is_normalised_and_validated():
             normalise_email(bad)
 
 
-def test_register_then_login(schema):
-    account = register(schema, "Alice@Example.com", PASSWORD)
+def test_register_sends_a_verification_link_and_creates_no_session(schema):
+    mailer = _register(schema, "Alice@Example.com", PASSWORD)
+    assert len(mailer.sent) == 1
+    assert mailer.sent[0].to == "alice@example.com"
+    assert "verify" in mailer.sent[0].body
+    row = schema.execute(
+        "SELECT email_verified_at FROM users WHERE email = 'alice@example.com'"
+    ).fetchone()
+    assert row[0] is None
+
+
+def test_register_then_verify_then_login(schema):
+    user_id = register_account(schema, "alice@example.com", PASSWORD)
+    account = authenticate(schema, "alice@example.com ", PASSWORD, ip="1.1.1.1")
+    assert account.user_id == user_id
     assert account.email == "alice@example.com"
-    stored = schema.execute(
-        "SELECT password_hash FROM users WHERE user_id = %s", (account.user_id,)
-    ).fetchone()[0]
-    assert stored.startswith("$argon2id$") and PASSWORD not in stored
-    assert authenticate(schema, "alice@example.com ", PASSWORD, ip="1.1.1.1") == account
 
 
-def test_a_second_spelling_of_an_address_is_refused(schema):
-    register(schema, "alice@example.com", PASSWORD)
-    with pytest.raises(RegistrationRefused):
-        register(schema, "ALICE@example.com", "another password")
+def test_an_unverified_account_cannot_log_in(schema):
+    _register(schema, "alice@example.com", PASSWORD)
+    with pytest.raises(LoginFailed):
+        authenticate(schema, "alice@example.com", PASSWORD, ip="1.1.1.1")
+
+
+def test_a_second_spelling_of_an_address_gets_a_reset_link_not_a_second_account(
+    schema,
+):
+    _register(schema, "alice@example.com", PASSWORD)
+    mailer = _register(schema, "ALICE@example.com", "another password")
+    assert schema.execute("SELECT count(*) FROM users").fetchone()[0] == 1
+    assert len(mailer.sent) == 1
+    assert "reset" in mailer.sent[0].body
 
 
 def test_a_weak_password_is_refused_before_anything_is_stored(schema):
     with pytest.raises(WeakPassword):
-        register(schema, "alice@example.com", "short")
+        _register(schema, "alice@example.com", "short")
     assert schema.execute("SELECT count(*) FROM users").fetchone()[0] == 0
 
 
@@ -111,7 +142,7 @@ def test_the_schema_refuses_an_unnormalised_email_or_a_non_argon2_hash(schema):
 
 
 def test_wrong_password_and_unknown_account_fail_identically(schema):
-    register(schema, "alice@example.com", PASSWORD)
+    register_account(schema, "alice@example.com", PASSWORD)
     with pytest.raises(LoginFailed) as wrong:
         authenticate(schema, "alice@example.com", "wrong password", ip="1.1.1.1")
     with pytest.raises(LoginFailed) as unknown:
@@ -122,8 +153,18 @@ def test_wrong_password_and_unknown_account_fail_identically(schema):
     assert type(wrong.value) is type(unknown.value) is type(malformed.value)
 
 
+def test_an_unverified_account_fails_identically_to_a_wrong_password(schema):
+    _register(schema, "alice@example.com", PASSWORD)
+    with pytest.raises(LoginFailed) as unverified:
+        authenticate(schema, "alice@example.com", PASSWORD, ip="1.1.1.1")
+    with pytest.raises(LoginFailed) as wrong:
+        authenticate(schema, "alice@example.com", "wrong password", ip="1.1.1.1")
+    assert str(unverified.value) == str(wrong.value)
+    assert type(unverified.value) is type(wrong.value)
+
+
 def test_an_unknown_account_still_pays_for_a_hash(schema):
-    register(schema, "alice@example.com", PASSWORD)
+    register_account(schema, "alice@example.com", PASSWORD)
     dummy_hash()
 
     def timed(email):
@@ -145,4 +186,11 @@ def test_accounts_need_an_autocommit_connection(schema, admin_url):
         with pytest.raises(ValueError, match="autocommit"):
             authenticate(conn, "alice@example.com", PASSWORD, ip="1.1.1.1")
         with pytest.raises(ValueError, match="autocommit"):
-            register(conn, "alice@example.com", PASSWORD)
+            register(
+                conn,
+                "alice@example.com",
+                PASSWORD,
+                ip="1.1.1.1",
+                mailer=NullMailer(),
+                base_url=BASE_URL,
+            )

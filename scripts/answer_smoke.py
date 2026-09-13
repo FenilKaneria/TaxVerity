@@ -7,7 +7,14 @@ bills Groq on the first run, paced under the free tier's 8,000 tokens a
 minute. The Step 7.3 cache stores every finished stream, so a re-run bills
 nothing; `--stored` only re-reports the stored run.
 
-Writes `data/answers/answer_smoke_v1.json` and `reports/answer_smoke.md`.
+Step 11.8 appends ~5 follow-up cases (ADR-110: no recall study). A follow-up's
+rewritten query is generated live by Step 11.7's contextualizer, so unlike the
+fixed gold questions above it cannot be pre-embedded — this is the first eval
+path that calls the Jina embedding and rerank APIs directly rather than
+through a stored fixture, bounded to the 5 cases.
+
+Writes `data/answers/answer_smoke_v1.json`, `data/answers/followup_smoke_v1.json`
+and `reports/answer_smoke.md`.
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ from taxverity.chunking.models import Chunk
 from taxverity.chunking.pipeline import read_corpus_version
 from taxverity.chunking.store import load_chunks
 from taxverity.config import MissingSettingError, Settings
+from taxverity.embedding.jina_api import JinaAPIEmbedder
 from taxverity.embedding.store import load_vector_store
 from taxverity.evals.answers import (
     ANSWER_EVAL_VERSION,
@@ -35,6 +43,15 @@ from taxverity.evals.answers import (
     summarise,
 )
 from taxverity.evals.bridge import BRIDGE_SCORES_FILENAME, BRIDGE_VECTORS_FILENAME
+from taxverity.evals.followups import (
+    FOLLOW_UP_CASES,
+    FOLLOWUP_EVAL_VERSION,
+    FOLLOWUP_RUN_FILENAME,
+    FollowUpRecord,
+    FollowUpRun,
+    load_followup_run,
+    store_followup_run,
+)
 from taxverity.evals.gold import GOLD_V2_FILENAME, QuerySlice, load_gold_set
 from taxverity.evals.query_vectors import (
     QUERY_VECTORS_FILENAME,
@@ -55,6 +72,7 @@ from taxverity.generation.generate import (
 from taxverity.llm.cache import CachedLLMClient
 from taxverity.llm.client import LLMClient, LLMError
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
+from taxverity.memory.contextualize import QueryContextualizer
 from taxverity.observability import configure_logging, get_logger
 from taxverity.retrieval.base import Retriever
 from taxverity.retrieval.bm25 import BM25Retriever
@@ -62,8 +80,15 @@ from taxverity.retrieval.bridge import BridgedRetriever, TermBridge, load_bridge
 from taxverity.retrieval.citations import CitationRetriever, ShortcutRetriever
 from taxverity.retrieval.dense import DenseRetriever
 from taxverity.retrieval.evidence import EVIDENCE_POOL, EvidencePack, EvidencePacker
+from taxverity.retrieval.fallback import FallbackRetriever
 from taxverity.retrieval.fusion import FusionRetriever
-from taxverity.retrieval.rerank import MODEL_ID, RERANK_DEPTH, RerankRetriever
+from taxverity.retrieval.rerank import (
+    MODEL_ID,
+    RERANK_DEPTH,
+    CachedReranker,
+    JinaReranker,
+    RerankRetriever,
+)
 
 logger = get_logger(__name__)
 
@@ -131,6 +156,97 @@ def build_retrieval(
     return chunks, ShortcutRetriever(CitationRetriever(chunks), ranked)
 
 
+def build_followup_retrieval(settings: Settings, chunks: list[Chunk]) -> Retriever:
+    """Production's composition (ADR-086), fully live. A follow-up's rewritten
+    query only exists once the LLM has produced it, so — unlike the fixed gold
+    questions above — there is nothing to pre-embed or pre-rerank ahead of
+    time. Rerank and dense failures still degrade in-process exactly as they
+    do in production (RerankRetriever, FallbackRetriever); nothing here needs
+    to catch them a second time.
+    """
+    corpus_version = read_corpus_version(settings.interim_dir / "corpus_manifest.json")
+    store = settings.vectors_dir / "jina-api"
+    vectors, ids, manifest = load_vector_store(store, corpus_version=corpus_version)
+    dense = DenseRetriever(chunks, vectors, ids, manifest, JinaAPIEmbedder.from_settings(settings))
+    bm25 = BM25Retriever(chunks)
+    fusion = FallbackRetriever(FusionRetriever([dense, bm25]), bm25)
+    bridge = TermBridge(load_bridge_map(), chunks)
+    reranker = CachedReranker(JinaReranker.from_settings(settings))
+    ranked = BridgedRetriever(bridge, RerankRetriever(fusion, reranker))
+    return ShortcutRetriever(CitationRetriever(chunks), ranked)
+
+
+def run_followups(settings: Settings, gold, llm, chunks: list[Chunk]) -> FollowUpRun:
+    retriever = build_followup_retrieval(settings, chunks)
+    packer = EvidencePacker(chunks)
+    contextualizer = QueryContextualizer(llm)
+
+    records = []
+    for case in FOLLOW_UP_CASES:
+        prior_question = gold[case.prior_query_id].question
+        rewritten_query = case.follow_up
+        contextualized = False
+        retrieved: tuple[str, ...] = ()
+        error = None
+        try:
+            result = contextualizer.contextualize(case.follow_up, [prior_question])
+            rewritten_query = result.query
+            contextualized = result.rewritten
+            pack = packer.pack(retriever.search(rewritten_query, EVIDENCE_POOL))
+            retrieved = tuple(unit.citation for unit in pack.units)
+        except LLMError as failure:
+            error = str(failure)
+            logger.warning("%s: contextualization failed: %s", case.case_id, failure)
+        record = FollowUpRecord(
+            case_id=case.case_id,
+            prior_question=prior_question,
+            follow_up=case.follow_up,
+            contextualized=contextualized,
+            rewritten_query=rewritten_query,
+            expected=case.expected,
+            retrieved=retrieved,
+            error=error,
+        )
+        logger.info(
+            "%s: contextualized=%s, %d evidence units, hit=%s",
+            case.case_id, contextualized, len(retrieved), record.hit,
+        )  # fmt: skip
+        records.append(record)
+    return FollowUpRun(eval_version=FOLLOWUP_EVAL_VERSION, records=tuple(records))
+
+
+def render_followups(run: FollowUpRun) -> str:
+    hits = sum(1 for record in run.records if record.hit)
+    lines = [
+        "## Follow-up cases — Step 11.8",
+        "",
+        "Multi-turn retrieval, simplified (ADR-110): no recall study, no gate.",
+        "Each case is a prior gold question plus a follow-up phrasing that only",
+        "makes sense after it; Step 11.7's contextualizer rewrites it before",
+        "retrieval sees it. `expected` is for a human to eyeball, not a score.",
+        "",
+        f"Rewritten and hit expected citation: {hits}/{len(run.records)}.",
+        "",
+    ]
+    for record in run.records:
+        lines += [
+            f"### {record.case_id} — {record.follow_up}",
+            "",
+            f"Prior turn: {record.prior_question}",
+            "",
+            f"Rewritten ({'yes' if record.contextualized else 'no rewrite needed'}): "
+            f"{record.rewritten_query}",
+            "",
+            f"Expected: {', '.join(record.expected)}. "
+            f"Retrieved: {', '.join(record.retrieved) or 'none'}. "
+            f"{'HIT' if record.hit else 'miss'}.",
+            "",
+        ]
+        if record.error:
+            lines += [f"Error: {record.error}", ""]
+    return "\n".join(lines)
+
+
 def evidence_texts(pack: EvidencePack) -> tuple[EvidenceText, ...]:
     return tuple(
         EvidenceText(
@@ -194,7 +310,9 @@ def render(run: AnswerRun, summary: SmokeSummary) -> str:
     return "\n".join(lines)
 
 
-def run_live(settings: Settings, pause: float) -> AnswerRun:
+def run_live(
+    settings: Settings, pause: float, *, followups: bool = True
+) -> tuple[AnswerRun, FollowUpRun | None]:
     gold = {
         q.query_id: q
         for q in load_gold_set(settings.evals_dir / "datasets" / GOLD_V2_FILENAME)
@@ -245,7 +363,7 @@ def run_live(settings: Settings, pause: float) -> AnswerRun:
         )  # fmt: skip
         if spent and index < len(SMOKE_QUERY_IDS):
             time.sleep(pause)
-    return AnswerRun(
+    run = AnswerRun(
         eval_version=ANSWER_EVAL_VERSION,
         generation_stage_version=GENERATION_STAGE_VERSION,
         prompt_version=GENERATION_PROMPT_VERSION,
@@ -253,6 +371,8 @@ def run_live(settings: Settings, pause: float) -> AnswerRun:
         tokens=sum(base.tokens_used.values()),
         records=tuple(records),
     )
+    followup_run = run_followups(settings, gold, llm, chunks) if followups else None
+    return run, followup_run
 
 
 def main() -> int:
@@ -261,33 +381,52 @@ def main() -> int:
     parser.add_argument(
         "--stored", action="store_true", help="re-report the stored run"
     )
+    parser.add_argument(
+        "--skip-followups",
+        action="store_true",
+        help="skip Step 11.8's follow-up cases (they call the Jina API live)",
+    )
     args = parser.parse_args()
     configure_logging()
     settings = Settings()
     path = settings.data_dir / "answers" / ANSWER_RUN_FILENAME
+    followup_path = settings.data_dir / "answers" / FOLLOWUP_RUN_FILENAME
 
     if args.stored:
         run = load_answer_run(path)
+        followup_run = load_followup_run(followup_path) if followup_path.exists() else None
     else:
         try:
-            run = run_live(settings, args.pause)
+            run, followup_run = run_live(
+                settings, args.pause, followups=not args.skip_followups
+            )
         except (MissingSettingError, FileNotFoundError, RuntimeError) as error:
             print(f"error: {error}", file=sys.stderr)
             return 1
         store_answer_run(path, run)
+        if followup_run is not None:
+            store_followup_run(followup_path, followup_run)
 
     summary = summarise(run.records)
     REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(render(run, summary), encoding="utf-8", newline="")
+    report = render(run, summary)
+    if followup_run is not None:
+        report += "\n" + render_followups(followup_run)
+    REPORT.write_text(report, encoding="utf-8", newline="")
     negatives = sum(1 for r in run.records if r.slice is QuerySlice.NEGATIVE)
     print(
         f"answerable with a served claim: {summary.answered}/{summary.questions - negatives}"
     )
     print(f"claims served {summary.claims_served}, withheld {summary.claims_withheld}")
     print(f"served on negative: {', '.join(summary.served_on_negative) or 'none'}")
+    if followup_run is not None:
+        hits = sum(1 for record in followup_run.records if record.hit)
+        print(f"follow-up cases: {hits}/{len(followup_run.records)} hit expected citation")
     print(f"provider errors: {summary.errors}")
     print(f"tokens {run.tokens:,}")
     print(f"wrote {path}")
+    if followup_run is not None:
+        print(f"wrote {followup_path}")
     print(f"wrote {REPORT}")
     return 0 if not summary.served_on_negative else 2
 

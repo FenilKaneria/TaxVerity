@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     langfuse_secret_key: SecretStr | None = None
     langfuse_host: str | None = None
 
+    # Step 11.4 — the Gmail API sends verification and password-reset mail.
+    # An OAuth refresh token for a personal Gmail sender, not a service account
+    # (this project has no Workspace domain to delegate from).
+    gmail_client_id: SecretStr | None = None
+    gmail_client_secret: SecretStr | None = None
+    gmail_refresh_token: SecretStr | None = None
+    gmail_sender: str | None = None
+    # Base URL the frontend serves from, used to build verify/reset links.
+    app_base_url: str = "http://localhost:3000"
+
     @property
     def interim_dir(self) -> Path:
         return self.data_dir / "interim"

@@ -217,6 +217,28 @@ def schema(db):
     return db
 
 
+def register_account(conn, email: str, password: str) -> uuid.UUID:
+    """Test helper: drives the real `register()` flow (so its side effects,
+    like a rate-limited email send, still happen) and then verifies the
+    address directly in the database, the way clicking the emailed link
+    would. Tests that only need a usable, logged-in-able account use this
+    instead of asserting on the verification flow themselves."""
+    from taxverity.auth.accounts import normalise_email, register
+    from taxverity.mail.gmail import NullMailer
+
+    register(
+        conn, email, password, ip="127.0.0.1", mailer=NullMailer(), base_url="http://t"
+    )
+    address = normalise_email(email)
+    (user_id,) = conn.execute(
+        "SELECT user_id FROM users WHERE email = %s", (address,)
+    ).fetchone()
+    conn.execute(
+        "UPDATE users SET email_verified_at = now() WHERE user_id = %s", (user_id,)
+    )
+    return user_id
+
+
 # A hand-built four-chunk corpus with matching manifests: the Step 6.3 ingest
 # and the Step 6.4 index both need rows in a database, and neither is testing
 # the real corpus.

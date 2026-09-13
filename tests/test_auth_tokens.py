@@ -12,7 +12,7 @@ import psycopg
 import pytest
 from psycopg.conninfo import make_conninfo
 
-from taxverity.auth.accounts import register
+from conftest import register_account
 from taxverity.auth.tokens import (
     ACCESS_TOKEN_TTL,
     AccessTokens,
@@ -121,7 +121,7 @@ def test_from_settings_requires_the_secret(tmp_path):
 
 @pytest.fixture
 def user(schema):
-    return register(schema, "alice@example.com", PASSWORD).user_id
+    return register_account(schema, "alice@example.com", PASSWORD)
 
 
 def test_only_the_hash_of_a_refresh_token_is_stored(schema, user):

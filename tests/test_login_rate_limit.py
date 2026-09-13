@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from conftest import register_account
 from taxverity.auth.accounts import (
     LOGIN_WINDOW,
     MAX_FAILURES_PER_EMAIL,
@@ -11,7 +12,6 @@ from taxverity.auth.accounts import (
     LoginFailed,
     LoginThrottled,
     authenticate,
-    register,
 )
 
 PASSWORD = "correct horse battery"
@@ -24,7 +24,7 @@ def fail(conn, email="alice@example.com", ip="1.1.1.1", times=1):
 
 
 def test_the_address_is_throttled_after_its_failure_limit(schema):
-    register(schema, "alice@example.com", PASSWORD)
+    register_account(schema, "alice@example.com", PASSWORD)
     fail(schema, times=MAX_FAILURES_PER_EMAIL)
     # Even the right password from a fresh IP is refused once throttled, so
     # guessing cannot continue by rotating addresses.
@@ -33,7 +33,7 @@ def test_the_address_is_throttled_after_its_failure_limit(schema):
 
 
 def test_one_below_the_limit_still_logs_in(schema):
-    register(schema, "alice@example.com", PASSWORD)
+    register_account(schema, "alice@example.com", PASSWORD)
     fail(schema, times=MAX_FAILURES_PER_EMAIL - 1)
     authenticate(schema, "alice@example.com", PASSWORD, ip="1.1.1.1")
 
@@ -45,20 +45,20 @@ def test_an_address_with_no_account_is_throttled_the_same_way(schema):
 
 
 def test_the_address_limit_spans_spellings(schema):
-    register(schema, "alice@example.com", PASSWORD)
+    register_account(schema, "alice@example.com", PASSWORD)
     fail(schema, email="ALICE@example.com", times=MAX_FAILURES_PER_EMAIL)
     with pytest.raises(LoginThrottled):
         authenticate(schema, "alice@example.com", PASSWORD, ip="9.9.9.9")
 
 
 def test_one_throttled_address_does_not_throttle_another(schema):
-    register(schema, "bob@example.com", PASSWORD)
+    register_account(schema, "bob@example.com", PASSWORD)
     fail(schema, email="alice@example.com", ip="1.1.1.1", times=MAX_FAILURES_PER_EMAIL)
     authenticate(schema, "bob@example.com", PASSWORD, ip="2.2.2.2")
 
 
 def test_the_ip_is_throttled_across_many_addresses(schema):
-    register(schema, "victim@example.com", PASSWORD)
+    register_account(schema, "victim@example.com", PASSWORD)
     for n in range(MAX_FAILURES_PER_IP):
         fail(schema, email=f"user{n}@example.com", ip="6.6.6.6")
     with pytest.raises(LoginThrottled):
@@ -67,7 +67,7 @@ def test_the_ip_is_throttled_across_many_addresses(schema):
 
 
 def test_failures_outside_the_window_do_not_count(schema):
-    register(schema, "alice@example.com", PASSWORD)
+    register_account(schema, "alice@example.com", PASSWORD)
     fail(schema, times=MAX_FAILURES_PER_EMAIL)
     schema.execute(
         "UPDATE login_attempts SET attempted_at = now() - %s - interval '1 second'",
@@ -77,7 +77,7 @@ def test_failures_outside_the_window_do_not_count(schema):
 
 
 def test_a_success_is_recorded_and_a_throttled_attempt_is_not(schema):
-    register(schema, "alice@example.com", PASSWORD)
+    register_account(schema, "alice@example.com", PASSWORD)
     authenticate(schema, "alice@example.com", PASSWORD, ip="1.1.1.1")
     fail(schema, times=MAX_FAILURES_PER_EMAIL)
     with pytest.raises(LoginThrottled):
