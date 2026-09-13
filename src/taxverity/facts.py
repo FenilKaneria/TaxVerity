@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from taxverity.corpus.loader import normalise
 
-FACTS_STAGE_VERSION = 1
+FACTS_STAGE_VERSION = 3
 
 
 class FactStatus(StrEnum):
@@ -66,7 +66,7 @@ class ResidentialStatus(StrEnum):
 
 
 class FactField(StrEnum):
-    ASSESSMENT_YEAR = "assessment_year"
+    TAX_YEAR = "tax_year"
     REGIME = "regime"
     AGE = "age"
     RESIDENTIAL_STATUS = "residential_status"
@@ -99,9 +99,12 @@ class FieldSpec:
 
 
 FIELDS: dict[FactField, FieldSpec] = {
-    FactField.ASSESSMENT_YEAR: FieldSpec(
+    FactField.TAX_YEAR: FieldSpec(
         ValueKind.YEAR_RANGE,
-        "The assessment year the question is about, as 2026-27.",
+        "The tax year the question is about, as 2026-27: the financial year "
+        "from 1 April. Copy the year as the user wrote it, even when they call "
+        "it an assessment year.",
+        section="3(1)",
     ),
     FactField.REGIME: FieldSpec(
         ValueKind.CHOICE,
@@ -118,6 +121,7 @@ FIELDS: dict[FactField, FieldSpec] = {
     FactField.RESIDENTIAL_STATUS: FieldSpec(
         ValueKind.CHOICE,
         "Residential status for the tax year.",
+        section="6",
         choices=tuple(ResidentialStatus),
     ),
     FactField.SALARY_INCOME: FieldSpec(
@@ -134,16 +138,19 @@ FIELDS: dict[FactField, FieldSpec] = {
     FactField.BUSINESS_INCOME: FieldSpec(
         ValueKind.MONEY,
         "Income from business or profession; negative for a loss.",
+        section="26",
         allows_negative=True,
     ),
     FactField.CAPITAL_GAINS_SHORT_TERM: FieldSpec(
         ValueKind.MONEY,
         "Short-term capital gains; negative for a loss.",
+        section="67",
         allows_negative=True,
     ),
     FactField.CAPITAL_GAINS_LONG_TERM: FieldSpec(
         ValueKind.MONEY,
         "Long-term capital gains; negative for a loss.",
+        section="67",
         allows_negative=True,
     ),
     FactField.OTHER_SOURCES_INCOME: FieldSpec(
@@ -186,6 +193,7 @@ class FactIssue(StrEnum):
     VALUE_OUT_OF_DOMAIN = "value_out_of_domain"
     MISSING_SPAN = "missing_span"
     SPAN_NOT_IN_TURN = "span_not_in_turn"
+    SIGN_CONTRADICTS_SPAN = "sign_contradicts_span"
     MALFORMED_ENTRY = "malformed_entry"
 
 
@@ -371,12 +379,30 @@ def parse_facts(payload: Any, turn: str) -> Extraction:
             )
             continue
 
-        value = normalise_value(FIELDS[field].kind, raw_value)
+        value = fact_value(field, raw_value, span)
         if value is None:
             rejections.append(
                 Rejection(
                     FactIssue.UNPARSABLE_VALUE,
                     f"{raw_value!r} is not a {FIELDS[field].kind}",
+                    entry,
+                )
+            )
+            continue
+        # Step 7.7 measured the model quoting "loss" and writing the amount
+        # positive, which inverts the tax. Refused, never flipped: the words can
+        # sit beside a genuine positive figure ("no loss this time"), and a
+        # refusal costs a repair call where a wrong flip costs a wrong answer.
+        if (
+            FIELDS[field].allows_negative
+            and isinstance(value, Decimal)
+            and value > 0
+            and _LOSS_WORDS.search(normalise(span))
+        ):
+            rejections.append(
+                Rejection(
+                    FactIssue.SIGN_CONTRADICTS_SPAN,
+                    f"{field} is positive but {span!r} describes a loss",
                     entry,
                 )
             )
@@ -403,6 +429,8 @@ def parse_facts(payload: Any, turn: str) -> Extraction:
     )
 
 
+_LOSS_WORDS = re.compile(r"\b(?:loss(?:es)?|lost|minus|negative|deficit)\b", re.IGNORECASE)
+
 _MULTIPLIERS = {
     "lakh": 100_000,
     "lakhs": 100_000,
@@ -415,9 +443,32 @@ _MONEY = re.compile(
     r"^(?P<sign>-)?\s*(?:rs\.?|inr|₹)?\s*(?P<number>[\d,]*\d(?:\.\d+)?)\s*"
     r"(?P<multiplier>lakhs?|crores?|cr|k)?$"
 )
+_ASSESSMENT_YEAR = re.compile(r"\bassessment\s+year\b|\ba\.?\s?y\.?\s*(?=\d{4})")
 _YEAR_RANGE = re.compile(
     r"^(?:a\.?y\.?\s*)?(?P<start>\d{4})\s*[-/]\s*(?P<end>\d{2,4})$"
 )
+
+
+def fact_value(field: FactField, raw_value: str, span: str) -> Decimal | int | str | None:
+    """The value a fact carries, from what the model wrote and the words it quoted.
+
+    Recomputed from both wherever a fact is rebuilt, so a stored run re-derives
+    exactly the value the parser produced.
+    """
+    value = normalise_value(FIELDS[field].kind, raw_value)
+    # The 2025 Act has no assessment year: section 3(1) makes the tax year the
+    # financial year itself. In the repealed Act's usage assessment year 2026-27
+    # is the financial year 2025-26, so taking the figure literally would put a
+    # question one year late — and possibly under the wrong statute. Shifted in
+    # code, not by the model, because the rule is arithmetic.
+    if (
+        isinstance(value, str)
+        and FIELDS[field].kind is ValueKind.YEAR_RANGE
+        and _ASSESSMENT_YEAR.search(normalise(f"{raw_value} {span}").casefold())
+    ):
+        start = int(value[:4]) - 1
+        value = f"{start}-{(start + 1) % 100:02d}"
+    return value
 
 
 def normalise_value(kind: ValueKind, raw: str) -> Decimal | int | str | None:

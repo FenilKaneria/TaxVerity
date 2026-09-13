@@ -133,7 +133,7 @@ def capture():
 
 
 def test_stage_version_is_declared():
-    assert EXTRACTION_STAGE_VERSION == 1
+    assert EXTRACTION_STAGE_VERSION == 2
 
 
 def test_strict_format_names_the_facts_schema():
@@ -281,6 +281,22 @@ def test_a_fabricated_span_is_repaired():
     salary = result.facts.get(FactField.SALARY_INCOME)
     assert salary is not None and salary.value == Decimal("1400000")
     assert result.rejections == ()
+
+
+def test_a_loss_written_positive_is_repaired_to_a_negative():
+    turn = "I booked a business loss of 80,000."
+    bad = entry("business_income", "80000", span="business loss of 80,000")
+    good = entry("business_income", "-80000", span="business loss of 80,000")
+    node, recorder = build(ok(payload(bad)), ok(payload(good)))
+    result = node.extract(turn)
+    repair = recorder.bodies[1]["messages"][-1]["content"]
+    assert REPAIR_HINTS[FactIssue.SIGN_CONTRADICTS_SPAN] in repair
+    assert result.facts.get(FactField.BUSINESS_INCOME).value == Decimal("-80000")
+    assert result.rejections == ()
+
+
+def test_the_prompt_asks_for_a_minus_sign_on_a_loss():
+    assert "leading minus sign" in SYSTEM_PROMPT
 
 
 def test_the_repair_quotes_the_rejected_entry_and_its_reason():

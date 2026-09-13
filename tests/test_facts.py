@@ -23,6 +23,7 @@ from taxverity.facts import (
     ResidentialStatus,
     UserFacts,
     ValueKind,
+    fact_value,
     normalise_value,
     parse_facts,
 )
@@ -67,6 +68,20 @@ def test_declared_sections_are_the_2025_acts_own_numbers():
     assert FIELDS[FactField.DEDUCTION_HEALTH_INSURANCE].section == "126"
     assert FIELDS[FactField.REGIME].section == "202(1)"
     assert FIELDS[FactField.ADVANCE_TAX_PAID].section == "403"
+
+
+def test_step_9_1_confirmed_the_four_sections_step_7_5_left_open():
+    assert FIELDS[FactField.RESIDENTIAL_STATUS].section == "6"
+    assert FIELDS[FactField.BUSINESS_INCOME].section == "26"
+    assert FIELDS[FactField.CAPITAL_GAINS_SHORT_TERM].section == "67"
+    assert FIELDS[FactField.CAPITAL_GAINS_LONG_TERM].section == "67"
+    assert FIELDS[FactField.TAX_YEAR].section == "3(1)"
+
+
+def test_the_year_field_uses_the_acts_own_term():
+    # The 2025 Act has no "assessment year" (ADR-100).
+    assert "assessment_year" not in {field.value for field in FactField}
+    assert FactField.TAX_YEAR.value == "tax_year"
 
 
 def test_only_heads_of_income_may_be_negative():
@@ -162,12 +177,43 @@ def test_an_unparsable_amount_is_none(raw):
 @pytest.mark.parametrize(
     ("raw", "expected"), [("2026-27", "2026-27"), ("AY 2026-2027", "2026-27")]
 )
-def test_an_assessment_year_normalises(raw, expected):
+def test_a_year_range_normalises(raw, expected):
     assert normalise_value(ValueKind.YEAR_RANGE, raw) == expected
 
 
-def test_an_assessment_year_that_is_not_consecutive_is_refused():
+def test_a_year_range_that_is_not_consecutive_is_refused():
     assert normalise_value(ValueKind.YEAR_RANGE, "2026-29") is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "span", "expected"),
+    [
+        ("2026-27", "tax year 2026-27", "2026-27"),
+        ("2026-27", "for 2026-27", "2026-27"),
+        ("2026-27", "assessment year 2026-27", "2025-26"),
+        ("2025-26", "For A.Y. 2025-26", "2024-25"),
+        ("AY 2026-27", "AY 2026-27", "2025-26"),
+        ("2026-27", "ay2026-27", "2025-26"),
+        ("2000-01", "Assessment Year 2000-01", "1999-00"),
+        ("2026-27", "in May 2026-27", "2026-27"),
+    ],
+)
+def test_an_assessment_year_is_shifted_back_to_its_tax_year(raw, span, expected):
+    assert fact_value(FactField.TAX_YEAR, raw, span) == expected
+
+
+def test_the_shift_touches_no_other_field():
+    assert fact_value(FactField.SALARY_INCOME, "800000", "A.Y. 2025-26 salary 800000") == Decimal(800000)
+
+
+def test_a_parsed_assessment_year_comes_out_as_a_tax_year():
+    turn = "For A.Y. 2025-26 my salary was 8,00,000."
+    payload = {"fields": [entry("tax_year", "2025-26", "stated", "A.Y. 2025-26")]}
+
+    fact = parse_facts(payload, turn).facts.get(FactField.TAX_YEAR)
+
+    assert fact.value == "2024-25"
+    assert fact.raw_value == "2025-26"
 
 
 def test_a_choice_normalises_case_and_spacing():
@@ -284,6 +330,42 @@ def test_a_loss_is_accepted_on_a_head_of_income():
     assert extraction.facts.get(FactField.HOUSE_PROPERTY_INCOME).value == Decimal(
         "-30000"
     )
+
+
+def test_a_positive_amount_quoted_as_a_loss_is_refused_not_flipped():
+    turn = "my rented flat lost 30000 this year"
+    extraction = parse_facts(
+        payload(entry(name="house_property_income", value="30000", span="lost 30000")),
+        turn,
+    )
+
+    assert issues(extraction) == [FactIssue.SIGN_CONTRADICTS_SPAN]
+    assert extraction.facts.get(FactField.HOUSE_PROPERTY_INCOME) is None
+
+
+def test_loss_words_do_not_touch_a_field_that_cannot_be_negative():
+    turn = "I lost my job, but my salary was 600000"
+    extraction = parse_facts(payload(entry(value="600000", span=turn)), turn)
+
+    assert issues(extraction) == []
+
+
+def test_loss_words_match_whole_words_only():
+    turn = "Blossom Traders, my firm, earned 30000"
+    extraction = parse_facts(
+        payload(entry(name="business_income", value="30000", span=turn)), turn
+    )
+
+    assert issues(extraction) == []
+
+
+def test_an_inferred_loss_head_has_no_span_to_check():
+    extraction = parse_facts(
+        payload(entry(name="business_income", value="30000", status="inferred", span="")),
+        "my shop did fine after last year's losses",
+    )
+
+    assert issues(extraction) == []
 
 
 def test_an_out_of_domain_choice_is_refused():

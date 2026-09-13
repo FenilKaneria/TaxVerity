@@ -1,24 +1,24 @@
 # Extraction eval — Step 7.7
 
-42 labelled turns, 49 labelled facts, 48,809 tokens, 415s.
+42 labelled turns, 49 labelled facts, 53,295 tokens, 373s.
 
 ## Headline
 
 Detection is whether the node found the field at all; value and status accuracy are measured only over the fields it did find, because a prompt change fixes the first and `normalise_value` fixes the second.
 
 - Field precision **1.000**, recall **1.000**, f1 **1.000**
-- Value accuracy **0.959**
-- Status accuracy **0.980**
+- Value accuracy **0.980**
+- Status accuracy **0.959**
 - Strict (field, value and status all right) **0.939**
-- Turns with nothing wrong: **40/42**
+- Turns with nothing wrong: **41/42**
 
 ## Source spans
 
 `parse_facts()` refuses a span the turn does not contain, so no surviving fact can carry a fabricated one. The rate below is therefore of *attempts*, which is the only honest denominator.
 
-- Fabricated-span rate **0.000** (0 of 46 stated attempts)
+- Fabricated-span rate **0.000** (0 of 45 stated attempts)
 - Stated facts quoting nothing: 0
-- Turns that needed a repair: **1**, of which the repair helped **1**
+- Turns that needed a repair: **0**, of which the repair helped **0**
 
 ## By slice
 
@@ -37,7 +37,7 @@ Detection is whether the node found the field at all; value and status accuracy 
 
 | field | labelled | found | spurious | missed | precision | recall |
 |---|---|---|---|---|---|---|
-| assessment_year | 2 | 2 | 0 | 0 | 1.000 | 1.000 |
+| tax_year | 2 | 2 | 0 | 0 | 1.000 | 1.000 |
 | regime | 3 | 3 | 0 | 0 | 1.000 | 1.000 |
 | age | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
 | residential_status | 4 | 4 | 0 | 0 | 1.000 | 1.000 |
@@ -55,7 +55,5 @@ Detection is whether the node found the field at all; value and status accuracy 
 
 ## Every turn that was not clean
 
-- **t013** (loss) `I have a loss of 250000 from my rented house after the interest deduction.`
-  - house_property_income: expected -250000, got 250000
-- **t017** (loss) `I booked a short-term capital loss of 40,000.`
-  - capital_gains_short_term: expected -40000, got 40000
+- **t041** (loss) `My business made a loss of 3,00,000 last year.`
+  - business_income: expected -300000, got 300000

@@ -38,7 +38,9 @@ from taxverity.observability import configure_logging, get_logger
 logger = get_logger(__name__)
 
 REPORT = Path("reports/extraction_eval.md")
-RUN_FILENAME = "extraction_run_v1.json"
+# v1 is Step 7.7's run; v2 is the node after the loss-sign fix (ADR-099); v3
+# is the tax_year vocabulary (ADR-100). v1 and v2 no longer load.
+RUN_FILENAME = "extraction_run_v3.json"
 
 # Step 7.1 measured 8,000 tokens a minute on the free tier. One extraction is
 # roughly a thousand, so a short pause keeps a 42-turn run inside the limit

@@ -50,7 +50,7 @@ from taxverity.observability import get_logger, redact
 
 logger = get_logger(__name__)
 
-EXTRACTION_STAGE_VERSION = 1
+EXTRACTION_STAGE_VERSION = 2
 
 # Step 7.1: reasoning cannot be disabled and is billed against this cap, so a
 # cap sized for the visible JSON alone truncates it mid-object.
@@ -87,7 +87,9 @@ SYSTEM_PROMPT = (
     'leave "source_span" empty. Never write a source_span the message does not '
     "contain.\n\n"
     'Write "value" as digits only for an amount: no separators, no currency '
-    "symbol, no words such as lakh.\n\n"
+    "symbol, no words such as lakh. A field that can be negative takes a "
+    "leading minus sign when the person describes the amount as a loss or as "
+    'negative, for example "-50000".\n\n'
     "The fields are: " + _SHAPE
 )
 
@@ -101,6 +103,7 @@ REPAIRABLE = frozenset(
         FactIssue.BAD_STATUS,
         FactIssue.MALFORMED_ENTRY,
         FactIssue.MISSING_SPAN,
+        FactIssue.SIGN_CONTRADICTS_SPAN,
         FactIssue.SPAN_NOT_IN_TURN,
         FactIssue.UNPARSABLE_VALUE,
         FactIssue.VALUE_OUT_OF_DOMAIN,
@@ -120,6 +123,11 @@ REPAIR_HINTS: dict[FactIssue, str] = {
     FactIssue.SPAN_NOT_IN_TURN: (
         "source_span must appear in the message character for character. Copy it "
         "from the message, or drop this field if the message does not contain it."
+    ),
+    FactIssue.SIGN_CONTRADICTS_SPAN: (
+        "The quoted words describe a loss but the value is positive. Write a loss "
+        "with a leading minus sign, or, if this figure is not a loss, quote only "
+        "the words that give it."
     ),
     FactIssue.UNPARSABLE_VALUE: (
         "Write the value as digits only, with no separators, currency symbol or words."

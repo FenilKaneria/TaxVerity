@@ -31,6 +31,7 @@ from taxverity.facts import (
     Rejection,
     UnmappedFact,
     UserFacts,
+    fact_value,
     normalise_value,
 )
 from taxverity.llm.client import Completion
@@ -39,9 +40,12 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-EXTRACTION_EVAL_VERSION = 1
+EXTRACTION_EVAL_VERSION = 2
 
 GOLD_FILENAME = "extraction_gold_v1.jsonl"
+# Written and frozen before the loss-sign fix touched the prompt or the parser,
+# so the re-measure is not scored on the turns the fix was aimed at (ADR-098).
+LOSS_HOLDOUT_FILENAME = "extraction_loss_holdout_v1.jsonl"
 TURN_ID = re.compile(r"^t\d{3}$")
 
 
@@ -116,8 +120,10 @@ class LabelledTurn(BaseModel):
         return {fact.name: fact for fact in self.facts}
 
 
-def load_extraction_gold(directory: Path) -> tuple[LabelledTurn, ...]:
-    path = directory / GOLD_FILENAME
+def load_extraction_gold(
+    directory: Path, filename: str = GOLD_FILENAME
+) -> tuple[LabelledTurn, ...]:
+    path = directory / filename
     turns = tuple(
         LabelledTurn.model_validate(json.loads(line))
         for line in path.read_text(encoding="utf-8").splitlines()
@@ -410,7 +416,7 @@ def _result_from_json(entry: Mapping[str, object]) -> ExtractionResult:
                 field=field,
                 status=FactStatus(stored["status"]),
                 raw_value=stored["raw_value"],
-                value=normalise_value(FIELDS[field].kind, stored["raw_value"]),
+                value=fact_value(field, stored["raw_value"], stored["source_span"]),
                 source_span=stored["source_span"],
             )
         )

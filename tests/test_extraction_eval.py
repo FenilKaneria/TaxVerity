@@ -43,7 +43,8 @@ from taxverity.llm.extract import ExtractionResult
 from taxverity.observability import redact
 
 DATASETS = Path("evals/datasets")
-STORED_RUN = Settings().data_dir / "extraction" / "extraction_run_v1.json"
+# The node as it stands: Step 7.7 plus the loss-sign fix (ADR-099).
+STORED_RUN = Settings().data_dir / "extraction" / "extraction_run_v3.json"
 
 
 @pytest.fixture(scope="session")
@@ -361,7 +362,7 @@ def test_a_run_from_another_eval_version_is_refused(tmp_path):
 
 
 def test_the_eval_version_is_declared():
-    assert EXTRACTION_EVAL_VERSION == 1
+    assert EXTRACTION_EVAL_VERSION == 2
 
 
 # --- floors, measured. They skip without the stored run ---------------------
@@ -382,12 +383,6 @@ FIELD_RECALL_FLOOR = 0.95
 VALUE_ACCURACY_FLOOR = 0.90
 STRICT_FLOOR = 0.88
 FABRICATED_SPAN_CEILING = 0.05
-
-# The two turns the measured run got wrong, both by dropping a loss's sign.
-# Pinned as residue, exactly as the corpus parsers pin theirs: it may not grow,
-# and fixing it must break this test rather than pass silently.
-KNOWN_SIGN_FAILURES = ("t013", "t017")
-
 
 def test_field_detection_holds_its_floor(measured):
     assert measured.counts.precision >= FIELD_PRECISION_FLOOR
@@ -412,11 +407,13 @@ def test_fabricated_spans_stay_rare(measured):
     assert measured.fabricated_span_rate <= FABRICATED_SPAN_CEILING
 
 
-def test_the_known_value_failures_are_exactly_the_two_dropped_signs(measured):
-    wrong = tuple(
-        judgement.turn_id for judgement in measured.turns if judgement.value_wrong
-    )
-    assert wrong == KNOWN_SIGN_FAILURES
+def test_the_only_wrong_value_is_the_pinned_residue(measured):
+    # ADR-099 cleared t013 and t017. The ADR-100 re-measure dropped t041's sign:
+    # the model quoted "3,00,000" without the loss word, so the span guard could
+    # not fire. Pinned exactly (ADR-102), so the set cannot grow and a fix cannot
+    # land silently. The extraction node does not feed the calculator until the
+    # gap is closed.
+    assert [j.turn_id for j in measured.turns if j.value_wrong] == ["t041"]
 
 
 def test_every_surviving_span_is_in_the_turn_the_model_saw(gold):

@@ -1,0 +1,197 @@
+{
+ "act": "Income-tax Act, 2025",
+ "commencement": {
+  "citation": "1(3)",
+  "source_text": "it shall come into force on the 1st April, 2026"
+ },
+ "new_regime_slabs": [
+  {
+   "citation": "202(1)",
+   "rate_percent": "0",
+   "source_text": "Upto Rs. 400000\nNil",
+   "upper": "400000"
+  },
+  {
+   "citation": "202(1)",
+   "rate_percent": "5",
+   "source_text": "From Rs. 400001 to Rs. 800000\n5%",
+   "upper": "800000"
+  },
+  {
+   "citation": "202(1)",
+   "rate_percent": "10",
+   "source_text": "From Rs. 800001 to Rs. 1200000\n10%",
+   "upper": "1200000"
+  },
+  {
+   "citation": "202(1)",
+   "rate_percent": "15",
+   "source_text": "From Rs. 1200001 to Rs. 1600000\n15%",
+   "upper": "1600000"
+  },
+  {
+   "citation": "202(1)",
+   "rate_percent": "20",
+   "source_text": "From Rs. 1600001 to Rs. 2000000\n20%",
+   "upper": "2000000"
+  },
+  {
+   "citation": "202(1)",
+   "rate_percent": "25",
+   "source_text": "From Rs. 2000001 to Rs. 2400000\n25%",
+   "upper": "2400000"
+  },
+  {
+   "citation": "202(1)",
+   "rate_percent": "30",
+   "source_text": "Above Rs. 2400000\n30%",
+   "upper": null
+  }
+ ],
+ "not_allowed_under_202_1": {
+  "deduction_health_insurance": {
+   "chapter": "VIII",
+   "citation": "202(2)(a)(xii)",
+   "section": "126",
+   "source_text": "Chapter VIII other than the provisions of section 124(1) and 124(2), or 125(2) or 146"
+  },
+  "deduction_savings_insurance": {
+   "chapter": "VIII",
+   "citation": "202(2)(a)(xii)",
+   "section": "123",
+   "source_text": "Chapter VIII other than the provisions of section 124(1) and 124(2), or 125(2) or 146"
+  }
+ },
+ "outside_act": {
+  "age_based_exemption_limits": {
+   "citation": "4(1)",
+   "reason": "The Act fixes no age-based basic exemption limit; the rates it charges are those a Central Act enacts for the tax year.",
+   "source_text": "Where any Central Act enacts that income-tax shall be charged for any tax year at any rate or rates"
+  },
+  "health_and_education_cess": {
+   "citation": "206(1)(c)(i)(C)",
+   "reason": "The Act states no cess rate; it refers to cess only as levied under the Central Acts.",
+   "source_text": "Education Cess on income-tax, if any, as levied under the Central Acts"
+  },
+  "marginal_relief_on_surcharge": {
+   "citation": "4(1)",
+   "reason": "The Act states no surcharge, so it states no marginal relief on one.",
+   "source_text": "Where any Central Act enacts that income-tax shall be charged for any tax year at any rate or rates"
+  },
+  "old_regime_slabs": {
+   "citation": "4(1)",
+   "reason": "The Act prints slabs only for the section 202(1) regime; any other rates are those a Central Act enacts for the tax year.",
+   "source_text": "Where any Central Act enacts that income-tax shall be charged for any tax year at any rate or rates"
+  },
+  "surcharge": {
+   "citation": "206(1)(c)(i)(B)",
+   "reason": "The Act states no surcharge rate or threshold; it refers to surcharge only as levied under the Central Acts.",
+   "source_text": "surcharge, if any, as levied under the Central Acts"
+  }
+ },
+ "tax_year": "2026-27",
+ "values": {
+  "health_insurance_aggregate_cap": {
+   "citation": "126(4)",
+   "source_text": "shall not exceed Rs. 50000 in aggregate",
+   "unit": "rupees",
+   "value": "50000"
+  },
+  "health_insurance_parents_cap": {
+   "citation": "126(2)(b)",
+   "source_text": "up\nto Rs. 25000 in aggregate",
+   "unit": "rupees",
+   "value": "25000"
+  },
+  "health_insurance_self_family_cap": {
+   "citation": "126(2)(a)",
+   "source_text": "up to Rs. 25000 in aggregate",
+   "unit": "rupees",
+   "value": "25000"
+  },
+  "health_insurance_senior_citizen_cap": {
+   "citation": "126(8)(a)",
+   "source_text": "shall be substituted with Rs. 50000 for Rs. 25000",
+   "unit": "rupees",
+   "value": "50000"
+  },
+  "medical_expenditure_parents_cap": {
+   "citation": "126(2)(d)",
+   "source_text": "up to Rs. 50000 in aggregate",
+   "unit": "rupees",
+   "value": "50000"
+  },
+  "medical_expenditure_self_family_cap": {
+   "citation": "126(2)(c)",
+   "source_text": "up to Rs. 50000 in aggregate",
+   "unit": "rupees",
+   "value": "50000"
+  },
+  "preventive_health_check_up_cap": {
+   "citation": "126(3)",
+   "source_text": "allowed up to Rs. 5000 in aggregate",
+   "unit": "rupees",
+   "value": "5000"
+  },
+  "rebate_new_regime_income_limit": {
+   "citation": "156(2)(a)",
+   "source_text": "the income does not exceed twelve lakh rupees",
+   "unit": "rupees",
+   "value": "1200000"
+  },
+  "rebate_new_regime_marginal_relief_threshold": {
+   "citation": "156(2)(b)",
+   "source_text": "the total income exceeds twelve lakh rupees",
+   "unit": "rupees",
+   "value": "1200000"
+  },
+  "rebate_new_regime_maximum": {
+   "citation": "156(2)(a)",
+   "source_text": "100% of the income-tax payable or Rs. 60000, whichever is less",
+   "unit": "rupees",
+   "value": "60000"
+  },
+  "rebate_other_income_limit": {
+   "citation": "156(1)",
+   "source_text": "not exceed Rs. 500000",
+   "unit": "rupees",
+   "value": "500000"
+  },
+  "rebate_other_maximum": {
+   "citation": "156(1)",
+   "source_text": "100% of income-tax payable or Rs. 12500, whichever is less",
+   "unit": "rupees",
+   "value": "12500"
+  },
+  "rounding_multiple": {
+   "citation": "516",
+   "source_text": "shall be rounded off to the nearest multiple of Rs. 10",
+   "unit": "rupees",
+   "value": "10"
+  },
+  "savings_insurance_deduction_cap": {
+   "citation": "123",
+   "source_text": "as does not exceed Rs. 150000",
+   "unit": "rupees",
+   "value": "150000"
+  },
+  "senior_citizen_age": {
+   "citation": "2(100)",
+   "source_text": "of the age of sixty years or more",
+   "unit": "years",
+   "value": "60"
+  },
+  "standard_deduction_new_regime": {
+   "citation": "19(1)",
+   "source_text": "Rs. 75000 or the salary, whichever is less, where income-tax is\ncomputed under section 202(1)",
+   "unit": "rupees",
+   "value": "75000"
+  },
+  "standard_deduction_other": {
+   "citation": "19(1)",
+   "source_text": "Rs. 50000 or the salary, whichever is less, in any other case",
+   "unit": "rupees",
+   "value": "50000"
+  }
+ }
+}
