@@ -1,0 +1,205 @@
+"""Step 13.6 — path coverage through the compiled graph (PLAN's ~7 scenarios):
+compute, clarify, text-only, prohibited, adjacent, corrective rescue,
+corrective still withheld. Reuses `test_graph_nodes.py`'s `deps` helper,
+`test_scope.py`'s `BASE` facts and `test_verifier.py`'s `CHUNKS` fixture
+rather than building a second fixture set.
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from types import SimpleNamespace
+
+import pytest
+
+from conftest import register_account
+from taxverity.calculator.scope import Route
+from taxverity.facts import FactField, UserFacts
+from taxverity.generation.claims import ClaimEvent
+from taxverity.generation.generate import AnswerGenerator
+from taxverity.graph.build import build_graph
+from taxverity.graph.nodes import RETRY_POOL
+from taxverity.llm.client import LLMUnavailable
+from taxverity.llm.extract import ExtractionResult
+from taxverity.retrieval.base import ScoredChunk
+from taxverity.safety.classifier import FIXED_RESPONSES, ScopeCategory
+from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
+from taxverity.threads.store import create_thread, list_messages
+from test_generation import FABRICATED, GOOD, ndjson
+from test_graph_nodes import PASSWORD, FakeLLM, deps
+from test_scope import BASE
+from test_scope import fact as make_fact
+from test_verifier import CHUNKS, QUESTION
+
+PACK_RESULTS = [
+    ScoredChunk(chunk=CHUNKS["22(1)"], score=2.0),
+    ScoredChunk(chunk=CHUNKS["24"], score=1.0),
+]
+
+
+@pytest.fixture
+def alice(schema):
+    return register_account(schema, "alice@example.com", PASSWORD)
+
+
+@pytest.fixture
+def thread_id(schema, alice):
+    return create_thread(schema, alice, "House property").thread_id
+
+
+def _in_scope_deps(schema, **kwargs) -> object:
+    base = dict(
+        conn=schema,
+        classifier=SimpleNamespace(
+            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None)
+        ),
+        contextualizer=SimpleNamespace(
+            contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
+        ),
+    )
+    base.update(kwargs)
+    return deps(**base)
+
+
+def _facts(missing: tuple[FactField, ...] = (), overrides: dict[FactField, object] | None = None):
+    values = dict(BASE)
+    for field_ in missing:
+        del values[field_]
+    values.update(overrides or {})
+    return UserFacts(facts=tuple(make_fact(name, value) for name, value in values.items()))
+
+
+def _extractor_for(
+    missing: tuple[FactField, ...] = (), overrides: dict[FactField, object] | None = None
+):
+    return SimpleNamespace(
+        extract=lambda turn: ExtractionResult(
+            facts=_facts(missing, overrides),
+            rejections=(),
+            repairable=(),
+            repaired=False,
+            completions=(),
+        )
+    )
+
+
+def _fixed_retriever(results):
+    return SimpleNamespace(search=lambda query, k: results)
+
+
+# --- compute -------------------------------------------------------------
+
+
+def test_compute_path_serves_a_claim_and_a_computation(schema, alice, thread_id):
+    d = _in_scope_deps(
+        schema,
+        extractor=_extractor_for(),
+        retriever=_fixed_retriever(PACK_RESULTS),
+        generator=AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert result["scope_decision"].route is Route.COMPUTE
+    assert result["computation"] is not None
+    assert result["final"].route == "compute"
+    assert [type(e) for e in result["events"]] == [ClaimEvent]
+
+
+# --- clarify ---------------------------------------------------------------
+
+
+def test_clarify_path_asks_and_answers_text_only(schema, alice, thread_id):
+    d = _in_scope_deps(
+        schema,
+        extractor=_extractor_for(missing=(FactField.SALARY_INCOME,)),
+        retriever=_fixed_retriever(PACK_RESULTS),
+        generator=AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert result["scope_decision"].route is Route.INCOMPLETE
+    assert result["computation"] is None
+    assert result["clarify_questions"] != ()
+    assert result["final"].route == "incomplete"
+    assert result["final"].computation is None
+
+
+# --- text-only ---------------------------------------------------------------
+
+
+def test_text_only_path_answers_with_no_computation(schema, alice, thread_id):
+    d = _in_scope_deps(
+        schema,
+        extractor=_extractor_for(overrides={FactField.HOUSE_PROPERTY_INCOME: Decimal("-50000")}),
+        retriever=_fixed_retriever(PACK_RESULTS),
+        generator=AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert result["scope_decision"].route is Route.TEXT_ONLY
+    assert result["computation"] is None
+    assert result["final"].route == "text_only"
+    assert result["final"].computation is None
+
+
+# --- prohibited / adjacent (respond_fixed, no retrieval or LLM) --------------
+
+
+@pytest.mark.parametrize("category", [ScopeCategory.PROHIBITED, ScopeCategory.ADJACENT])
+def test_refused_categories_short_circuit_to_the_fixed_template(schema, alice, thread_id, category):
+    d = deps(
+        conn=schema,
+        classifier=SimpleNamespace(
+            classify=lambda q: SimpleNamespace(category=category, response=FIXED_RESPONSES[category])
+        ),
+        contextualizer=SimpleNamespace(
+            contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
+        ),
+    )
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": "how do I hide freelance income?"}
+    )
+    assert result["final"].route == category.value
+    assert result["events"] == []
+    messages = list_messages(schema, alice, thread_id)
+    assert messages[-1].content == FIXED_RESPONSES[category]
+
+
+# --- corrective loop ---------------------------------------------------------
+
+
+def test_corrective_loop_rescues_a_first_pass_with_no_evidence(schema, alice, thread_id):
+    """First pass: retriever returns nothing, pack is empty, the gate withholds.
+    Retry (k = RETRY_POOL): retriever finds `23`, whose own text carries the
+    quote FABRICATED cites, so the retried pass serves a real statute claim."""
+    retriever = SimpleNamespace(
+        search=lambda query, k: (
+            [ScoredChunk(chunk=CHUNKS["23"], score=1.0)] if k == RETRY_POOL else []
+        )
+    )
+    d = _in_scope_deps(
+        schema,
+        extractor=_extractor_for(),
+        retriever=retriever,
+        generator=AnswerGenerator(FakeLLM(ndjson(FABRICATED), LLMUnavailable("no repair")), CHUNKS),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert result["retried"] is True
+    assert [type(e) for e in result["events"]] == [ClaimEvent]
+    assert result["final"].citations == ("23",)
+
+
+def test_corrective_loop_still_withholds_when_the_retry_finds_nothing(schema, alice, thread_id):
+    """Both passes retrieve nothing: the retry runs once (bounded), and the
+    turn is still withheld rather than looping or fabricating."""
+    d = _in_scope_deps(
+        schema,
+        extractor=_extractor_for(),
+        retriever=_fixed_retriever([]),
+        generator=AnswerGenerator(
+            FakeLLM(ndjson(FABRICATED), LLMUnavailable("no repair"), LLMUnavailable("no repair")),
+            CHUNKS,
+        ),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert result["retried"] is True
+    assert not any(isinstance(e, ClaimEvent) for e in result["events"])  # nothing statute-served
+    messages = list_messages(schema, alice, thread_id)
+    assert messages[-1].content == INSUFFICIENT_EVIDENCE_MESSAGE
