@@ -13,9 +13,9 @@ understand how the system is *meant* to behave, as distinct from:
 
 ## Contents
 
-Nothing here yet. This directory exists because Step 0.2 established the
-documentation spine; files arrive when a step needs them.
+This directory exists because Step 0.2 established the documentation spine;
+files arrive when a step needs them.
 
-| File | Arrives in | Purpose |
+| File | Arrived in | Purpose |
 |---|---|---|
-| `SAFETY_POLICY.md` | Step 12.1 | The avoidance/evasion boundary taxonomy with worked examples, implementing ADR-023. The safety eval set (12.4) is written against it, and it is the reference to consult rather than re-deriving the taxonomy ad hoc. |
+| `SAFETY_POLICY.md` | Step 12.1 (2026-09-13) | The scope taxonomy and the avoidance/evasion boundary with worked examples, implementing ADR-023. The safety eval set (12.4) is written against it, and it is the reference to consult rather than re-deriving the taxonomy ad hoc. |
