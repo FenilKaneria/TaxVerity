@@ -34,3 +34,6 @@ build/
 # OS
 Thumbs.db
 .DS_Store
+
+# DeepEval local state (Step 10.10)
+.deepeval/
