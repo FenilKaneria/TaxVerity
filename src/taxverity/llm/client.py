@@ -9,15 +9,16 @@ Every knob here was measured in the Step 7.1 spike rather than assumed —
 so the default is the cheapest setting that exists and every cap must be sized
 for reasoning plus answer.
 
-Non-streaming. Steps 10.3 and 14 need a stream, and a stream cannot retry once
-a token has been shown, so it is a separate contract built when it has a
-caller.
+`complete()` is non-streaming. `stream()` (Step 10.3) is a separate contract
+because a stream cannot retry once a token has been shown: retries and the
+fallback apply only before the first token, and a failure after it raises.
 """
 
 from __future__ import annotations
 
+import json
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -240,6 +241,103 @@ class LLMClient:
         )
         return completion
 
+    def stream(
+        self,
+        messages: Sequence[Message],
+        *,
+        max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
+        temperature: float | None = None,
+    ) -> CompletionStream:
+        if not messages:
+            raise ValueError("messages must be non-empty")
+        # Rule 03, egress path 5, exactly as complete() applies it.
+        body: dict[str, Any] = {
+            "messages": [
+                {"role": m.role, "content": redact(m.content)} for m in messages
+            ],
+            "max_completion_tokens": max_completion_tokens,
+            "stream": True,
+        }
+        if temperature is not None:
+            body["temperature"] = temperature
+        return CompletionStream(self, body)
+
+    def _open_stream(self, body: dict[str, Any]) -> _OpenStream:
+        """Connect and read up to the first token, failing over if that fails."""
+        try:
+            return self._open_with_retries(self._primary, body, degraded=False)
+        except LLMUnavailable as primary_error:
+            if self._fallback is None:
+                raise
+            logger.warning(
+                "%s stream unavailable (%s); falling back to %s",
+                self._primary.name,
+                primary_error,
+                self._fallback.name,
+            )
+            try:
+                return self._open_with_retries(self._fallback, body, degraded=True)
+            except LLMUnavailable as fallback_error:
+                raise LLMUnavailable(
+                    f"{self._primary.name} failed ({primary_error}) and "
+                    f"{self._fallback.name} failed ({fallback_error})"
+                ) from fallback_error
+
+    def _open_with_retries(
+        self, provider: Provider, body: dict[str, Any], *, degraded: bool
+    ) -> _OpenStream:
+        payload = {**body, **provider.extras, "model": provider.model}
+        headers = {"Authorization": f"Bearer {self._keys[provider.name]}"}
+        url = f"{provider.base_url}/chat/completions"
+        last: Exception | None = None
+        for attempt in range(1, self._max_attempts + 1):
+            delay = self._backoff_base * 2 ** (attempt - 1)
+            request = self._client.build_request("POST", url, json=payload, headers=headers)
+            response = None
+            try:
+                response = self._client.send(request, stream=True)
+                if response.status_code in RETRYABLE_STATUS:
+                    last = LLMUnavailable(f"{provider.name} returned {response.status_code}")
+                    delay = _retry_after(response) or delay
+                    response.close()
+                elif response.status_code >= 400:
+                    text = response.read().decode("utf-8", "replace")[:200]
+                    response.close()
+                    raise LLMRequestError(
+                        f"{provider.name} returned {response.status_code}: {text}"
+                    )
+                else:
+                    opened = _OpenStream(provider, degraded, response, response.iter_lines())
+                    opened.read_until_first_token()
+                    return opened
+            except (httpx2.RequestError, httpx2.StreamError) as error:
+                last = error
+                if response is not None:
+                    response.close()
+            except LLMUnavailable as error:
+                last = error
+                if response is not None:
+                    response.close()
+            if attempt < self._max_attempts:
+                logger.warning(
+                    "%s stream failed before its first token (attempt %d/%d): %s; "
+                    "retrying in %.2fs",
+                    provider.name,
+                    attempt,
+                    self._max_attempts,
+                    last,
+                    delay,
+                )
+                time.sleep(delay)
+        raise LLMUnavailable(
+            f"{provider.name} stream failed after {self._max_attempts} attempts: {last}"
+        ) from last
+
+    def _record_usage(self, provider: Provider, usage: Usage) -> None:
+        self.tokens_used[provider.name] = (
+            self.tokens_used.get(provider.name, 0) + usage.total_tokens
+        )
+
     def _call(
         self, provider: Provider, body: dict[str, Any], *, degraded: bool
     ) -> Completion:
@@ -333,6 +431,136 @@ class LLMClient:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+class _OpenStream:
+    """One provider's server-sent-event response, read one chunk at a time."""
+
+    def __init__(
+        self,
+        provider: Provider,
+        degraded: bool,
+        response: httpx2.Response,
+        lines: Iterator[str],
+    ) -> None:
+        self.provider = provider
+        self.degraded = degraded
+        self.response = response
+        self._lines = lines
+        self.pending: list[str] = []
+        self.done = False
+        self.model = provider.model
+        self.finish_reason = "unknown"
+        self.usage = Usage()
+
+    def read_until_first_token(self) -> None:
+        while not self.pending and not self.done:
+            self._read_chunk()
+
+    def next_deltas(self) -> list[str]:
+        if not self.pending and not self.done:
+            self._read_chunk()
+        deltas, self.pending = self.pending, []
+        return deltas
+
+    def _read_chunk(self) -> None:
+        for line in self._lines:
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:") :].strip()
+            if data == "[DONE]":
+                self.done = True
+                return
+            self._parse(data)
+            if self.pending:
+                return
+        self.done = True
+
+    def _parse(self, data: str) -> None:
+        try:
+            chunk = json.loads(data)
+            choices = chunk.get("choices") or []
+        except (ValueError, AttributeError) as error:
+            raise LLMUnavailable(
+                f"malformed {self.provider.name} stream chunk: {error!r}"
+            ) from error
+        self.model = str(chunk.get("model") or self.model)
+        for choice in choices:
+            content = (choice.get("delta") or {}).get("content")
+            if content:
+                self.pending.append(content)
+            if choice.get("finish_reason"):
+                self.finish_reason = choice["finish_reason"]
+        # OpenAI-compatible providers put usage on the last chunk; Groq nests
+        # it under x_groq.
+        raw = chunk.get("usage") or (chunk.get("x_groq") or {}).get("usage")
+        if raw:
+            details = raw.get("completion_tokens_details") or {}
+            self.usage = Usage(
+                prompt_tokens=int(raw.get("prompt_tokens", 0)),
+                completion_tokens=int(raw.get("completion_tokens", 0)),
+                reasoning_tokens=int(details.get("reasoning_tokens", 0)),
+            )
+
+
+class CompletionStream:
+    """Text deltas as they arrive. `completion` is set once the stream ends.
+
+    Opening happens on first iteration, so constructing a stream sends nothing.
+    """
+
+    def __init__(self, client: LLMClient, body: dict[str, Any]) -> None:
+        self._client = client
+        self._body = body
+        self._started = False
+        self.completion: Completion | None = None
+
+    def __iter__(self) -> Iterator[str]:
+        if self._started:
+            raise RuntimeError("a completion stream can be read only once")
+        self._started = True
+        started = time.perf_counter()
+        opened = self._client._open_stream(self._body)
+        parts: list[str] = []
+        try:
+            while True:
+                try:
+                    deltas = opened.next_deltas()
+                except (httpx2.RequestError, httpx2.StreamError, LLMUnavailable) as error:
+                    # Tokens are already on screen, so there is no retry and no
+                    # fallback: a second answer would contradict the first.
+                    raise LLMUnavailable(
+                        f"{opened.provider.name} stream interrupted after the first "
+                        f"token: {error}"
+                    ) from error
+                if not deltas and opened.done:
+                    break
+                for delta in deltas:
+                    parts.append(delta)
+                    yield delta
+        finally:
+            opened.response.close()
+        self._client._record_usage(opened.provider, opened.usage)
+        self.completion = Completion(
+            text="".join(parts),
+            provider=opened.provider.name,
+            model=opened.model,
+            finish_reason=opened.finish_reason,
+            usage=opened.usage,
+            degraded=opened.degraded,
+        )
+        logger.info(
+            "llm stream %s/%s finished in %.2fs: %d prompt + %d completion tokens "
+            "(%d reasoning), finish_reason=%s%s",
+            opened.provider.name,
+            opened.model,
+            time.perf_counter() - started,
+            opened.usage.prompt_tokens,
+            opened.usage.completion_tokens,
+            opened.usage.reasoning_tokens,
+            opened.finish_reason,
+            ", degraded" if opened.degraded else "",
+        )
 
 
 def _retry_after(response: httpx2.Response) -> float | None:

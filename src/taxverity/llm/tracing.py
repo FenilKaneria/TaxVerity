@@ -19,7 +19,7 @@ from __future__ import annotations
 import base64
 import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
@@ -296,6 +296,38 @@ class TracedLLMClient:
             messages, parameters, time.perf_counter() - started, completion=completion
         )
         return completion
+
+    def stream(
+        self,
+        messages: Sequence[Message],
+        *,
+        max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
+        temperature: float | None = None,
+    ) -> Iterator[str]:
+        """Traced once the stream ends or fails, never per token."""
+        parameters: dict[str, Any] = {
+            "max_completion_tokens": max_completion_tokens,
+            "stream": True,
+        }
+        if temperature is not None:
+            parameters["temperature"] = temperature
+        inner = self._inner.stream(
+            messages, max_completion_tokens=max_completion_tokens, temperature=temperature
+        )
+        started = time.perf_counter()
+        try:
+            yield from inner
+        except Exception as error:
+            self._trace(
+                messages,
+                parameters,
+                time.perf_counter() - started,
+                error=f"{type(error).__name__}: {error}",
+            )
+            raise
+        # A cache hit replays stored text and carries no completion record.
+        completion = getattr(inner, "completion", None)
+        self._trace(messages, parameters, time.perf_counter() - started, completion=completion)
 
     def _trace(
         self,

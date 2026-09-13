@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +76,45 @@ class CachedLLMClient:
         )
         _write(path, request, completion)
         return completion
+
+    def stream(
+        self,
+        messages: Sequence[Message],
+        *,
+        max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
+        temperature: float | None = None,
+    ) -> Iterator[str]:
+        """A stored stream replays its text line by line; a new one is stored
+        only once it has finished, so an interrupted stream is never a hit."""
+        request = self._request(
+            messages,
+            max_completion_tokens=max_completion_tokens,
+            response_format=None,
+            temperature=temperature,
+        )
+        request["stream"] = True
+        path = self._path(request)
+        stored = _read(path, request)
+        if stored is not None:
+            self.hits += 1
+            return iter(stored.text.splitlines(keepends=True))
+        self.misses += 1
+        return self._stream_and_store(path, request, messages, max_completion_tokens, temperature)
+
+    def _stream_and_store(
+        self,
+        path: Path,
+        request: dict[str, Any],
+        messages: Sequence[Message],
+        max_completion_tokens: int,
+        temperature: float | None,
+    ) -> Iterator[str]:
+        inner = self._inner.stream(
+            messages, max_completion_tokens=max_completion_tokens, temperature=temperature
+        )
+        yield from inner
+        if inner.completion is not None:
+            _write(path, request, inner.completion)
 
     def _request(
         self,
