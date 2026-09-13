@@ -101,6 +101,7 @@ class TaxYearRates:
     values: dict[str, RateValue]
     outside_act: dict[str, OutsideAct]
     not_allowed_under_202_1: dict[str, NotAllowed]
+    rules: dict[str, Provenance]
 
     def value(self, name: str) -> RateValue:
         if name in self.outside_act:
@@ -110,6 +111,11 @@ class TaxYearRates:
             raise KeyError(f"no rate named {name!r} for tax year {self.tax_year}")
         return self.values[name]
 
+    def rule(self, name: str) -> Provenance:
+        if name not in self.rules:
+            raise KeyError(f"no rule named {name!r} for tax year {self.tax_year}")
+        return self.rules[name]
+
     def provenances(self) -> tuple[Provenance, ...]:
         return (
             self.commencement,
@@ -117,6 +123,7 @@ class TaxYearRates:
             *(entry.provenance for entry in self.values.values()),
             *(entry.provenance for entry in self.outside_act.values()),
             *(entry.provenance for entry in self.not_allowed_under_202_1.values()),
+            *self.rules.values(),
         )
 
 
@@ -163,6 +170,7 @@ def parse_rates(payload: dict[str, Any]) -> TaxYearRates:
             name: NotAllowed(section=entry["section"], chapter=entry["chapter"], provenance=_provenance(entry))
             for name, entry in payload["not_allowed_under_202_1"].items()
         },
+        rules={name: _provenance(entry) for name, entry in payload["rules"].items()},
     )
 
 

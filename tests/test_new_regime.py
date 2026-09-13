@@ -31,7 +31,7 @@ def tax(rates, salary="0", other="0", resident=True, **claimed):
 
 
 def test_the_stage_version_is_declared():
-    assert NEW_REGIME_STAGE_VERSION == 1
+    assert NEW_REGIME_STAGE_VERSION == 2
 
 
 # Worked by hand from sections 19(1), 202(1), 156(2) and 516, not from the engine.

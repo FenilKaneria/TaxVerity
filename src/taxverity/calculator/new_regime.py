@@ -23,7 +23,7 @@ from taxverity.calculator.slabs import (
     slab_tax,
 )
 
-NEW_REGIME_STAGE_VERSION = 1
+NEW_REGIME_STAGE_VERSION = 2
 
 _ZERO = Decimal(0)
 
@@ -136,6 +136,8 @@ def _not_allowed(rates: TaxYearRates, claimed: dict[str, Decimal]) -> tuple[Line
         require_amount(amount, name)
         if name not in rates.not_allowed_under_202_1:
             raise KeyError(f"{name} is not a deduction this computation knows to exclude")
+        if amount == 0:
+            continue
         entry = rates.not_allowed_under_202_1[name]
         lines.append(
             LineItem(

@@ -89,6 +89,32 @@
    "source_text": "surcharge, if any, as levied under the Central Acts"
   }
  },
+ "rules": {
+  "advance_tax_adjusted": {
+   "citation": "270(1)(c)(iii)",
+   "source_text": "any advance tax paid"
+  },
+  "chapter_viii_within_gross_total_income": {
+   "citation": "122(2)",
+   "source_text": "The aggregate amount of the deductions under this Chapter shall not, in any case, exceed the gross total income of the assessee."
+  },
+  "health_insurance_limit_depends_on_who_is_insured": {
+   "citation": "126(2)",
+   "source_text": "In the case of an assessee, being an individual, the sum referred to in sub-section (1), shall be the aggregate of the whole of the amount paid"
+  },
+  "section_202_1_option": {
+   "citation": "202(4)",
+   "source_text": "Nothing contained in sub-section (1) shall apply to a person, where an option is exercised by such person under this section"
+  },
+  "sum_payable_or_refund_after_adjustment": {
+   "citation": "270(1)(c)",
+   "source_text": "the sum payable by, or the amount of refund due to, the assessee shall be determined after adjustment of the tax, interest and fee, if any"
+  },
+  "tax_deducted_at_source_adjusted": {
+   "citation": "270(1)(c)(i)",
+   "source_text": "any tax deducted at source"
+  }
+ },
  "tax_year": "2026-27",
  "values": {
   "health_insurance_aggregate_cap": {

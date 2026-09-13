@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from taxverity.corpus.loader import normalise
 
-FACTS_STAGE_VERSION = 3
+FACTS_STAGE_VERSION = 4
 
 
 class FactStatus(StrEnum):
@@ -443,7 +443,7 @@ _MONEY = re.compile(
     r"^(?P<sign>-)?\s*(?:rs\.?|inr|₹)?\s*(?P<number>[\d,]*\d(?:\.\d+)?)\s*"
     r"(?P<multiplier>lakhs?|crores?|cr|k)?$"
 )
-_ASSESSMENT_YEAR = re.compile(r"\bassessment\s+year\b|\ba\.?\s?y\.?\s*(?=\d{4})")
+_ASSESSMENT_YEAR_MARKER = r"(?:\bassessment\s+year|\ba\.?\s?y\.?)\s*(?:of\s+|:\s*)?"
 _YEAR_RANGE = re.compile(
     r"^(?:a\.?y\.?\s*)?(?P<start>\d{4})\s*[-/]\s*(?P<end>\d{2,4})$"
 )
@@ -461,14 +461,23 @@ def fact_value(field: FactField, raw_value: str, span: str) -> Decimal | int | s
     # is the financial year 2025-26, so taking the figure literally would put a
     # question one year late — and possibly under the wrong statute. Shifted in
     # code, not by the model, because the rule is arithmetic.
+    #
+    # The marker must name this figure, not merely appear nearby: "FY 2025-26
+    # (AY 2026-27)" gives 2025-26 as a tax year, and shifting it because the span
+    # also says "AY" would move the question a year early.
     if (
         isinstance(value, str)
         and FIELDS[field].kind is ValueKind.YEAR_RANGE
-        and _ASSESSMENT_YEAR.search(normalise(f"{raw_value} {span}").casefold())
+        and _names_assessment_year(value[:4], raw_value, span)
     ):
         start = int(value[:4]) - 1
         value = f"{start}-{(start + 1) % 100:02d}"
     return value
+
+
+def _names_assessment_year(start: str, *texts: str) -> bool:
+    marked = re.compile(rf"{_ASSESSMENT_YEAR_MARKER}{start}\s*[-/]")
+    return any(marked.search(normalise(text).casefold()) for text in texts)
 
 
 def normalise_value(kind: ValueKind, raw: str) -> Decimal | int | str | None:

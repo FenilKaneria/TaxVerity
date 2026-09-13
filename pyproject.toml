@@ -43,6 +43,7 @@ packages = ["src/taxverity"]
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.168.0",
     "pytest>=8.3",
     "ruff>=0.9",
 ]

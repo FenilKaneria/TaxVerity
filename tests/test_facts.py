@@ -196,6 +196,13 @@ def test_a_year_range_that_is_not_consecutive_is_refused():
         ("2026-27", "ay2026-27", "2025-26"),
         ("2000-01", "Assessment Year 2000-01", "1999-00"),
         ("2026-27", "in May 2026-27", "2026-27"),
+        ("2026-27", "assessment year of 2026-27", "2025-26"),
+        ("2026-27", "A.Y.: 2026-27", "2025-26"),
+        # The marker names another figure in the same span, so this one stays.
+        ("2025-26", "for FY 2025-26 (AY 2026-27)", "2025-26"),
+        ("2026-27", "AY 2027-28, that is tax year 2026-27", "2026-27"),
+        ("2026-27", "tax year 2026-27, not the assessment year", "2026-27"),
+        ("2027-28", "for FY 2026-27 (AY 2027-28)", "2026-27"),
     ],
 )
 def test_an_assessment_year_is_shifted_back_to_its_tax_year(raw, span, expected):
