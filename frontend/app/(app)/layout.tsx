@@ -8,8 +8,13 @@
 // from a bearer-authenticated call the server validates independently, and
 // the cross-user isolation tests at the store and HTTP layers (Step
 // 11.4/14.3) are what actually enforce it. See PLAN.md Phase 16.
+//
+// An anonymous visitor here is bounced to `/`, not `/login` — since the
+// ADR-112 guest-trial fix, `/` is the guest chat landing with sign-in/sign-up
+// as an explicit choice, not a login wall. `/login` still exists and is
+// linked from there for anyone who already has an account.
 
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuthStatus } from "@/components/auth-provider";
 import { ThreadSidebar } from "@/components/thread-sidebar";
@@ -18,13 +23,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
     if (status === "anonymous") {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      router.replace("/");
     }
-  }, [status, pathname, router]);
+  }, [status, router]);
 
   if (status !== "authenticated") {
     return (

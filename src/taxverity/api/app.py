@@ -168,12 +168,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     from taxverity.api.auth_routes import router as auth_router
+    from taxverity.api.guest_routes import router as guest_router
     from taxverity.api.threads_routes import router as threads_router
     from taxverity.api.turns_routes import router as turns_router
 
     app.include_router(auth_router)
     app.include_router(threads_router)
     app.include_router(turns_router)
+    app.include_router(guest_router)
     return app
 
 

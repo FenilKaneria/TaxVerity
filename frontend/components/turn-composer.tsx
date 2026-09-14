@@ -5,7 +5,7 @@
 // and lifts evidence/computation state up to the thread page's side panels
 // (16.5/16.6) via callback props rather than owning them itself.
 
-import { Loader2, Send, Square } from "lucide-react";
+import { CheckCircle2, Loader2, RotateCw, Send, ShieldAlert, Square } from "lucide-react";
 import { useRef, useState } from "react";
 import { Typewriter } from "@/components/typewriter";
 import { Button } from "@/components/ui/button";
@@ -116,8 +116,22 @@ export function TurnComposer({ threadId, onEvidence, onComputation, onTurnComple
       {showLive && (
         <div className="flex flex-col gap-2 border-b border-border p-4">
           {streaming && stage && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
+            // Step 16.11: "refining search" is the one stage that means something
+            // happened (the corrective retry fired, rule 04/ADR-033) rather than
+            // ordinary progress, so it gets its own small indicator, not the
+            // generic spinner+label every other stage shares.
+            <p
+              className={
+                stage === "refining search"
+                  ? "flex items-center gap-2 text-sm text-seal"
+                  : "flex items-center gap-2 text-sm text-muted-foreground"
+              }
+            >
+              {stage === "refining search" ? (
+                <RotateCw className="size-3.5 animate-spin" />
+              ) : (
+                <Loader2 className="size-3.5 animate-spin" />
+              )}
               {STAGE_LABELS[stage]}
             </p>
           )}
@@ -126,32 +140,47 @@ export function TurnComposer({ threadId, onEvidence, onComputation, onTurnComple
               <p key={i} className="text-sm text-foreground">
                 <Typewriter key={event.id} text={event.text} />
                 {event.citations.length > 0 && (
-                  <span className="ml-1.5 font-serif text-xs text-seal">
-                    [{event.citations.map((c) => c.path).join(", ")}]
+                  <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-seal/10 px-2 py-0.5 font-serif text-xs text-seal">
+                    <CheckCircle2 className="size-3" />
+                    {event.citations.map((c) => c.path).join(", ")}
                   </span>
                 )}
               </p>
             ) : (
-              <p key={i} className="text-sm text-withheld italic">
+              <p key={i} className="flex items-center gap-1.5 text-sm text-withheld italic">
+                <ShieldAlert className="size-3.5 shrink-0 not-italic" />
                 A claim was withheld: {event.reason}
               </p>
             ),
           )}
           {clarify.length > 0 && (
-            <ul className="flex flex-col gap-1">
+            // Step 16.8: rendered as chips, not a bullet list — these are
+            // deterministic materiality-probe questions (rule 04), one fact
+            // missing per chip, not free-form prose to read as a paragraph.
+            <div className="flex flex-wrap gap-2">
               {clarify.map((question, i) => (
-                <li key={i} className="text-sm text-foreground">
-                  • {question}
-                </li>
+                <span
+                  key={i}
+                  className="rounded-full border border-border bg-accent px-3 py-1 text-sm text-accent-foreground"
+                >
+                  {question}
+                </span>
               ))}
-            </ul>
+            </div>
           )}
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
             </p>
           )}
-          {disclaimer && <p className="text-xs text-muted-foreground">{disclaimer}</p>}
+          {disclaimer && (
+            // Step 16.9/rule 03: non-dismissible — no close control exists here,
+            // and it stays mounted for every `final` event including the
+            // zero-claim fixed-template routes (adjacent/out_of_scope/prohibited).
+            <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+              {disclaimer}
+            </p>
+          )}
         </div>
       )}
       <form

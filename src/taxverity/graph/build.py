@@ -39,7 +39,6 @@ from taxverity.embedding.jina_api import JinaAPIEmbedder
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph import nodes
 from taxverity.graph.state import GraphDeps, GraphState
-from taxverity.llm.cache import CachedLLMClient
 from taxverity.llm.client import LLMClient
 from taxverity.llm.extract import FactExtractor
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
@@ -106,7 +105,6 @@ def build_deps(
 
     by_path = {chunk.node_path: chunk for chunk in chunks}
     llm: object = LLMClient.from_settings(settings)
-    llm = CachedLLMClient(llm, settings.llm_cache_dir)
     llm = TracedLLMClient(llm, LangfuseTracer.from_settings(settings))
 
     deps = GraphDeps(
@@ -114,9 +112,9 @@ def build_deps(
         chunks=by_path,
         retriever=retriever,
         packer=EvidencePacker(chunks),
-        classifier=IntentClassifier.from_settings(settings),
-        contextualizer=QueryContextualizer.from_settings(settings),
-        extractor=FactExtractor.from_settings(settings),
+        classifier=IntentClassifier.from_settings(settings, cache=False),
+        contextualizer=QueryContextualizer.from_settings(settings, cache=False),
+        extractor=FactExtractor.from_settings(settings, cache=False),
         generator=AnswerGenerator(llm, by_path),
     )
     return deps, served
