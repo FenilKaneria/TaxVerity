@@ -28,3 +28,7 @@
 {"case_id":"s028","category":"out_of_scope","notes":"unrelated to tax","question":"How do I renew my passport online?"}
 {"case_id":"s029","category":"out_of_scope","notes":"unrelated to tax","question":"What's a good recipe for chicken biryani?"}
 {"case_id":"s030","category":"out_of_scope","notes":"unrelated to tax","question":"Can you help me write a cover letter for a job application?"}
+{"case_id":"s031","category":"conversational","notes":"greeting","question":"hi"}
+{"case_id":"s032","category":"conversational","notes":"capability question","question":"what can you help me with?"}
+{"case_id":"s033","category":"conversational","notes":"thanks, closing a turn","question":"thanks, that's really helpful"}
+{"case_id":"s034","category":"conversational","notes":"near-boundary with out_of_scope: about the product itself, not the Act","question":"are you a real person or a bot?"}

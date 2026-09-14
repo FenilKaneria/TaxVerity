@@ -22,6 +22,13 @@ interface Props {
   events: (ClaimEvent | WithheldEvent)[];
   clarify: string[];
   disclaimer: string | null;
+  // The fixed/gated answer text carried on the final event (a refusal, the
+  // conversational reply, or the insufficient-evidence message) — never a
+  // claim, so no Typewriter and no citation chips.
+  finalText?: string | null;
+  // Provision paths actually searched, shown under `finalText` only when it
+  // names an insufficient-evidence refusal.
+  searched?: string[];
   error: string | null;
   showClarify?: boolean;
   onCiteClick?: (path: string) => void;
@@ -34,6 +41,8 @@ export function TurnStream({
   events,
   clarify,
   disclaimer,
+  finalText,
+  searched = [],
   error,
   showClarify = true,
   onCiteClick,
@@ -74,7 +83,16 @@ export function TurnStream({
 
         {events.map((event, i) =>
           event.kind === "claim" ? (
-            <p key={i} className="text-[15px] leading-relaxed text-foreground">
+            <p
+              key={i}
+              className={
+                event.type === "no_basis"
+                  ? "text-[15px] leading-relaxed text-muted-foreground italic"
+                  : event.type === "advice"
+                    ? "text-[15px] leading-relaxed font-medium text-foreground"
+                    : "text-[15px] leading-relaxed text-foreground"
+              }
+            >
               <Typewriter key={event.id} text={event.text} />
               {event.citations.length > 0 && (
                 <span className="ml-1.5 inline-flex flex-wrap items-center gap-1">
@@ -83,7 +101,11 @@ export function TurnStream({
                       key={ci}
                       type="button"
                       onClick={() => onCiteClick?.(c.path)}
-                      className="inline-flex items-center gap-1 rounded-full bg-seal/10 px-2 py-0.5 font-serif text-xs text-seal hover:bg-seal/20"
+                      className={
+                        event.type === "advice"
+                          ? "inline-flex items-center gap-1 rounded-full bg-seal/20 px-2 py-0.5 font-serif text-xs text-seal hover:bg-seal/30"
+                          : "inline-flex items-center gap-1 rounded-full bg-seal/10 px-2 py-0.5 font-serif text-xs text-seal hover:bg-seal/20"
+                      }
                     >
                       <CheckCircle2 className="size-3" />
                       {c.path}
@@ -119,6 +141,25 @@ export function TurnStream({
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>
+        )}
+
+        {finalText && (
+          // A fixed/gated template, not a claim — no Typewriter, no chips.
+          <p className="text-[15px] leading-relaxed text-foreground">{finalText}</p>
+        )}
+
+        {searched.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Looked at:</span>
+            {searched.map((path) => (
+              <span
+                key={path}
+                className="rounded-sm border border-border px-1.5 py-0.5 font-serif text-xs text-muted-foreground"
+              >
+                {path}
+              </span>
+            ))}
+          </div>
         )}
 
         {disclaimer && (

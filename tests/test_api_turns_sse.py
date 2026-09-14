@@ -27,6 +27,7 @@ from taxverity.llm.client import LLMUnavailable
 from taxverity.llm.extract import ExtractionResult
 from taxverity.retrieval.base import ScoredChunk
 from taxverity.safety.classifier import ScopeCategory
+from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
 from taxverity.threads.store import create_thread
 from test_generation import FABRICATED, GOOD, FakeLLM, ndjson
 from test_graph_nodes import deps
@@ -192,3 +193,24 @@ def test_fault_injection_withholds_the_bad_claim_and_keeps_the_good_one_intact(
     assert len(withheld_events) == 1
     assert withheld_events[0]["id"] == 2
     assert withheld_events[0]["reason"] == "citation_not_in_evidence"
+
+
+def test_a_gated_turn_still_names_its_frame_final_and_carries_the_message(
+    schema, access_tokens, alice, thread_id
+):
+    """Advisor pivot, Step 4: `_event_name` sniffs `"disclaimer"` before
+    `"verified"`/`"reason"`, so adding `text`/`searched` to `FinalEvent` must
+    not make a gated turn's frame collide with `claim`/`withheld`."""
+    generator = AnswerGenerator(FakeLLM(""), CHUNKS)  # the model emits nothing
+    client = _client(schema, access_tokens, generator)
+    response = client.post(
+        f"/v1/threads/{thread_id}/turns",
+        json={"question": QUESTION},
+        headers=_auth(access_tokens, alice),
+    )
+    events = _parse_sse(response.text)
+    assert events[-1][0] == "final"
+    final_data = events[-1][1]
+    assert final_data["text"] == INSUFFICIENT_EVIDENCE_MESSAGE
+    assert final_data["searched"] == ["22(1)", "24"]
+    assert not any(name in ("claim", "withheld") for name, _ in events)

@@ -48,7 +48,7 @@ from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
 from taxverity.memory.fact_state import ThreadFactState
 from taxverity.observability import configure_logging, get_logger
 from taxverity.retrieval.evidence import EvidencePacker
-from taxverity.safety.evidence_gate import served_statute_claims
+from taxverity.safety.evidence_gate import served_grounded_claims
 
 logger = get_logger(__name__)
 
@@ -78,7 +78,7 @@ def run_query(deps: GraphDeps, question: str) -> dict[str, Any]:
         state["events"] = []
 
     retried = False
-    if error is None and served_statute_claims(state["events"]) == 0:
+    if error is None and served_grounded_claims(state["events"]) == 0:
         state.update(nodes.retrieve_retry(state, deps, writer=_noop))
         retried = True
         try:
@@ -92,7 +92,7 @@ def run_query(deps: GraphDeps, question: str) -> dict[str, Any]:
         "first_pass_pack": first_pack,
         "retried": retried,
         "final_pack": tuple(unit.citation for unit in state["pack"].units),
-        "served": served_statute_claims(events),
+        "served": served_grounded_claims(events),
         "withheld": sum(1 for e in events if isinstance(e, WithheldEvent)),
         "citations": tuple(
             citation.path

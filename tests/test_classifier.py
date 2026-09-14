@@ -93,7 +93,7 @@ def build(*responses):
 
 
 def test_stage_version_is_declared():
-    assert CLASSIFIER_STAGE_VERSION == 1
+    assert CLASSIFIER_STAGE_VERSION == 2
 
 
 def test_strict_format_names_the_scope_schema():
@@ -107,9 +107,10 @@ def test_object_format_is_the_measured_fallback_mode():
     assert OBJECT_FORMAT == {"type": "json_object"}
 
 
-def test_schema_enumerates_all_four_categories():
+def test_schema_enumerates_all_five_categories():
     assert set(CLASSIFICATION_JSON_SCHEMA["properties"]["category"]["enum"]) == {
         "in_scope",
+        "conversational",
         "adjacent",
         "out_of_scope",
         "prohibited",

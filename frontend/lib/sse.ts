@@ -27,7 +27,11 @@ export interface ClarifyEvent {
 export interface ClaimEvent {
   kind: "claim";
   id: number;
-  type: "statute" | "computation";
+  // "advice" applies the Act to the person's own situation; "statute"
+  // describes a provision itself; "no_basis" names what the Act does not
+  // address (it carries no citations). Advisor pivot — see
+  // generation/claims.py's ClaimType.
+  type: "statute" | "advice" | "computation" | "no_basis";
   text: string;
   citations: Citation[];
   // Rule 04's invariant is a type on the wire (generation/claims.py's
@@ -54,6 +58,13 @@ export interface FinalEvent {
   computation: ComputationSummary | null;
   citations: string[];
   disclaimer: string;
+  // The fixed/gated answer text (a refusal, the conversational reply, or the
+  // insufficient-evidence message) — null when the turn served claim events
+  // and the browser already rendered the answer from those. Advisor pivot.
+  text?: string | null;
+  // Provision paths the evidence pack actually held, when `text` names an
+  // insufficient-evidence refusal — empty otherwise.
+  searched?: string[];
 }
 
 export type TurnEvent = StageEvent | ClarifyEvent | ClaimEvent | WithheldEvent | FinalEvent;

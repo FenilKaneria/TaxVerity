@@ -15,7 +15,7 @@ from taxverity.safety.evidence_gate import (
     EVIDENCE_GATE_STAGE_VERSION,
     INSUFFICIENT_EVIDENCE_MESSAGE,
     gate,
-    served_statute_claims,
+    served_grounded_claims,
 )
 
 CORPUS_VERSION = "test-v1"
@@ -59,6 +59,24 @@ def statute_event(claim_id: int = 1) -> ClaimEvent:
     )
 
 
+def advice_event(claim_id: int = 1) -> ClaimEvent:
+    return ClaimEvent(
+        id=claim_id,
+        type=ClaimType.ADVICE,
+        text="You may deduct thirty per cent of the annual value.",
+        citations=(Citation(path="22", quote="Thirty per cent of the annual value"),),
+    )
+
+
+def no_basis_event(claim_id: int = 1) -> ClaimEvent:
+    return ClaimEvent(
+        id=claim_id,
+        type=ClaimType.NO_BASIS,
+        text="The Act does not deal with this.",
+        citations=(),
+    )
+
+
 def computation_event(claim_id: int = 1) -> ClaimEvent:
     return ClaimEvent(id=claim_id, type=ClaimType.COMPUTATION, text="Tax is 50000.", citations=())
 
@@ -68,23 +86,35 @@ def withheld_event(claim_id: int = 1) -> WithheldEvent:
 
 
 def test_stage_version_is_declared():
-    assert EVIDENCE_GATE_STAGE_VERSION == 1
+    assert EVIDENCE_GATE_STAGE_VERSION == 2
 
 
-# --- served_statute_claims ----------------------------------------------------
+# --- served_grounded_claims ----------------------------------------------------
 
 
-def test_counts_only_statute_claims():
-    events = [statute_event(1), computation_event(2), withheld_event(3)]
-    assert served_statute_claims(events) == 1
+def test_counts_statute_and_advice_but_not_computation_or_no_basis():
+    events = [
+        statute_event(1),
+        computation_event(2),
+        withheld_event(3),
+        advice_event(4),
+        no_basis_event(5),
+    ]
+    assert served_grounded_claims(events) == 2
 
 
 def test_zero_for_no_events():
-    assert served_statute_claims([]) == 0
+    assert served_grounded_claims([]) == 0
 
 
 def test_zero_when_only_computation_claims_are_served():
-    assert served_statute_claims([computation_event(1)]) == 0
+    assert served_grounded_claims([computation_event(1)]) == 0
+
+
+def test_zero_when_only_no_basis_claims_are_served():
+    # A no_basis claim cites nothing, by construction - it must not be able
+    # to satisfy the gate on its own (advisor pivot).
+    assert served_grounded_claims([no_basis_event(1)]) == 0
 
 
 # --- gate ----------------------------------------------------------------
@@ -97,6 +127,15 @@ def test_an_empty_pack_gates_regardless_of_events():
 
 def test_a_non_empty_pack_with_a_served_statute_claim_does_not_gate():
     assert gate(make_pack(), [statute_event()]) is None
+
+
+def test_a_non_empty_pack_with_a_served_advice_claim_does_not_gate():
+    assert gate(make_pack(), [advice_event()]) is None
+
+
+def test_a_non_empty_pack_with_only_a_no_basis_claim_still_gates():
+    pack = make_pack()
+    assert gate(pack, [no_basis_event()]) == INSUFFICIENT_EVIDENCE_MESSAGE
 
 
 def test_a_non_empty_pack_with_zero_statute_claims_gates():

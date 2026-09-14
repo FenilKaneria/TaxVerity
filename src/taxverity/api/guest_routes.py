@@ -18,6 +18,18 @@ The guest id travels in an httpOnly cookie, minted on first use if absent.
 `record_guest_turn` enforces `GUEST_TURN_LIMIT` per id and the looser
 per-IP cap for a cleared cookie (Step 11.4e); `GuestLimitReached` becomes the
 same 429 the daily-turn-cap path already uses.
+
+Advisor pivot, Step 6 — this route duplicates the graph's classify/route
+logic, so every routing change lands here too, not just in `graph/nodes.py`:
+a refusal or conversational reply now streams its text on the final event
+(it used to be dropped entirely on this path, unlike the authenticated graph,
+which at least persisted it to the database); an in-scope turn now calls
+`safety.evidence_gate.gate()` after generation, exactly like
+`generate_verify` does, so a zero-grounded-claim guest answer gets the fixed
+insufficient-evidence message instead of silence. Deliberately **not**
+added: the graph's one-shot corrective retry (ADR-110 scopes it to the
+authenticated graph) — re-running retrieval here would double the cost of
+every guest turn on the free tier for a user this project does not know yet.
 """
 
 from __future__ import annotations
@@ -44,6 +56,7 @@ from taxverity.guests.quota import (
 )
 from taxverity.observability import get_logger
 from taxverity.safety.classifier import ScopeCategory
+from taxverity.safety.evidence_gate import gate
 
 logger = get_logger(__name__)
 
@@ -143,9 +156,22 @@ def create_guest_turn_route(
             with request_deps(state) as deps:
                 yield _sse(StageEvent(stage="thinking").model_dump())
                 result = deps.classifier.classify(body.question)
+                if result.category is ScopeCategory.CONVERSATIONAL:
+                    reply = deps.conversational.reply(body.question)
+                    final = FinalEvent(
+                        route=result.category.value,
+                        computation=None,
+                        citations=(),
+                        text=reply,
+                    )
+                    yield _sse(final.model_dump())
+                    return
                 if result.category is not ScopeCategory.IN_SCOPE:
                     final = FinalEvent(
-                        route=result.category.value, computation=None, citations=()
+                        route=result.category.value,
+                        computation=None,
+                        citations=(),
+                        text=result.response,
                     )
                     yield _sse(final.model_dump())
                     return
@@ -163,10 +189,18 @@ def create_guest_turn_route(
                 ):
                     yield _sse(event.model_dump())
                     events.append(event)
+                answer_text = gate(pack, events)
+                searched = (
+                    tuple(unit.citation for unit in pack.units)
+                    if answer_text is not None
+                    else ()
+                )
                 final = FinalEvent(
                     route="guest",
                     computation=None,
                     citations=_served_citations(events),
+                    text=answer_text,
+                    searched=searched,
                 )
                 yield _sse(final.model_dump())
         except Exception:

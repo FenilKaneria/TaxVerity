@@ -36,7 +36,7 @@ from taxverity.facts import FactStatus, UserFacts
 from taxverity.generation.claims import Citation, Claim, ClaimType
 from taxverity.retrieval.evidence import EvidencePack
 
-VERIFIER_STAGE_VERSION = 1
+VERIFIER_STAGE_VERSION = 2
 
 # A quote of one or two words ("the", "income") is in almost every provision,
 # so it proves nothing about which one the claim rests on.
@@ -52,6 +52,23 @@ _NUMBER = re.compile(
 )
 _MULTIPLIERS = {"lakh": 100_000, "crore": 10_000_000}
 
+# NO_BASIS claims (Step 1, advisor pivot) carry no citation, so they must be
+# recognisable as "the Act is silent" from their own opening words alone —
+# otherwise the one uncited claim type becomes a free-text channel.
+NO_BASIS_OPENERS = ("The Act does not", "The Act is silent on", "Nothing in the Act")
+
+# ADVICE claims assert a prescription; a quote must show the Act actually
+# imposing/permitting one, not merely defining a term the claim leans on.
+_PRESCRIPTIVE = re.compile(
+    r"\b(you (?:should|must|can|may|are entitled)|i recommend|it is advisable)\b",
+    re.IGNORECASE,
+)
+_STATUTORY_MODAL = re.compile(
+    r"\b(shall not|shall|may|is not|no deduction|entitled|allowed|required|"
+    r"liable|exempt)\b",
+    re.IGNORECASE,
+)
+
 
 class Violation(StrEnum):
     MALFORMED_CLAIM = "malformed_claim"
@@ -61,6 +78,8 @@ class Violation(StrEnum):
     QUOTE_NOT_IN_SOURCE = "quote_not_in_source"
     NO_COMPUTATION = "no_computation"
     UNSUPPORTED_NUMBER = "unsupported_number"
+    MALFORMED_NO_BASIS = "malformed_no_basis"
+    UNSUPPORTED_ADVICE = "unsupported_advice"
 
 
 @dataclass(frozen=True)
@@ -108,14 +127,28 @@ class Verifier:
         citations: list[Citation] = []
         allowed: set[Decimal] = set()
 
-        if claim.type is ClaimType.STATUTE and not claim.citations:
-            findings.append(Finding(Violation.NO_CITATION, "a statute claim cites nothing"))
+        if claim.type in (ClaimType.STATUTE, ClaimType.ADVICE) and not claim.citations:
+            findings.append(
+                Finding(Violation.NO_CITATION, f"a {claim.type.value} claim cites nothing")
+            )
         if claim.type is ClaimType.COMPUTATION:
             if self._computation is None:
                 findings.append(
                     Finding(Violation.NO_COMPUTATION, "no computation was provided")
                 )
             allowed |= self._computation_numbers | self._user_numbers
+        if claim.type is ClaimType.NO_BASIS:
+            if claim.citations:
+                findings.append(
+                    Finding(Violation.MALFORMED_NO_BASIS, "a no_basis claim cites evidence")
+                )
+            if not claim.text.startswith(NO_BASIS_OPENERS):
+                findings.append(
+                    Finding(
+                        Violation.MALFORMED_NO_BASIS,
+                        "a no_basis claim must open by naming the Act's silence",
+                    )
+                )
 
         for citation in claim.citations:
             path = canonical_path(citation.path)
@@ -144,6 +177,15 @@ class Verifier:
                 )
                 continue
             allowed |= numbers_in(citation.quote)
+
+        if claim.type is ClaimType.ADVICE and _PRESCRIPTIVE.search(claim.text):
+            if not any(_STATUTORY_MODAL.search(c.quote) for c in claim.citations):
+                findings.append(
+                    Finding(
+                        Violation.UNSUPPORTED_ADVICE,
+                        "no cited quote supports the prescription",
+                    )
+                )
 
         unsupported = sorted(numbers_in(claim.text) - allowed)
         if unsupported:

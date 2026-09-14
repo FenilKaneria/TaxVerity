@@ -157,9 +157,35 @@ def test_refused_categories_short_circuit_to_the_fixed_template(schema, alice, t
         {"user_id": alice, "thread_id": thread_id, "question": "how do I hide freelance income?"}
     )
     assert result["final"].route == category.value
+    assert result["final"].text == FIXED_RESPONSES[category]
     assert result["events"] == []
     messages = list_messages(schema, alice, thread_id)
     assert messages[-1].content == FIXED_RESPONSES[category]
+
+
+# --- conversational (respond_conversational, no retrieval or verifier) -------
+
+
+def test_conversational_category_short_circuits_to_a_guarded_reply(schema, alice, thread_id):
+    d = deps(
+        conn=schema,
+        classifier=SimpleNamespace(
+            classify=lambda q: SimpleNamespace(category=ScopeCategory.CONVERSATIONAL, response=None)
+        ),
+        contextualizer=SimpleNamespace(
+            contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
+        ),
+        conversational=SimpleNamespace(reply=lambda q: "Hello! Ask me about the Act."),
+    )
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": "hi there"}
+    )
+    assert result["final"].route == "conversational"
+    assert result["final"].text == "Hello! Ask me about the Act."
+    assert result["final"].citations == ()
+    assert result["events"] == []
+    messages = list_messages(schema, alice, thread_id)
+    assert messages[-1].content == "Hello! Ask me about the Act."
 
 
 # --- corrective loop ---------------------------------------------------------
@@ -201,5 +227,7 @@ def test_corrective_loop_still_withholds_when_the_retry_finds_nothing(schema, al
     result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
     assert result["retried"] is True
     assert not any(isinstance(e, ClaimEvent) for e in result["events"])  # nothing statute-served
+    assert result["final"].text == INSUFFICIENT_EVIDENCE_MESSAGE
+    assert result["final"].searched == ()
     messages = list_messages(schema, alice, thread_id)
     assert messages[-1].content == INSUFFICIENT_EVIDENCE_MESSAGE

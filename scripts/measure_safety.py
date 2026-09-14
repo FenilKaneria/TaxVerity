@@ -36,7 +36,7 @@ from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 logger = get_logger(__name__)
 
 REPORT = Path("reports/safety_eval.md")
-RUN_FILENAME = "safety_run_v1.json"
+RUN_FILENAME = "safety_run_v2.json"
 
 # Step 7.1 measured 8,000 tokens a minute on the free tier. A classification is
 # small (~250 tokens for the system prompt plus reasoning), but the pause stays

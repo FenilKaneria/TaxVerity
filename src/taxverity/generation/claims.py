@@ -15,14 +15,20 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-CLAIMS_STAGE_VERSION = 1
+CLAIMS_STAGE_VERSION = 2
 
 
 class ClaimType(StrEnum):
     # A statement of what the Act says. It must cite evidence.
     STATUTE = "statute"
+    # Applied advice for the person's own situation. Cited exactly like STATUTE
+    # (citations, verbatim quotes) — the difference is voice, not evidence.
+    ADVICE = "advice"
     # A restatement of the calculator's trace. Its numbers must come from it.
     COMPUTATION = "computation"
+    # "The Act does not deal with X." The one claim type that carries no
+    # citation — gated harder for exactly that reason (see verifier.py).
+    NO_BASIS = "no_basis"
 
 
 class Citation(BaseModel):

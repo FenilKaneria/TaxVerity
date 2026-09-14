@@ -12,17 +12,26 @@ top of it.
 
 ## Topical scope
 
-Every turn is classified before retrieval runs, as one of four categories.
+Every turn is classified before retrieval runs, as one of five categories.
 
 | Category | Meaning | Response |
 |---|---|---|
 | `in_scope` | A question about the Income-tax Act, 2025 | Answered normally, through retrieval and the verifier gate |
+| `conversational` | A greeting, thanks, or a question about the product itself — not a tax question | A short guarded LLM reply that cannot state anything the Act provides (see below); never retrieval, never a fixed refusal |
 | `adjacent` | Real tax/business topic, but a different law (GST, company law, accounting standards) | Fixed redirect, not answered |
 | `out_of_scope` | Unrelated to tax or this Act entirely | Fixed refusal, not answered |
 | `prohibited` | Asks for help misrepresenting facts to the tax authority | Fixed refusal, not answered |
 
 `adjacent` and `prohibited` responses are **fixed templates, not generated
 text** — the model does not compose a fresh refusal for each case.
+`conversational` is neither a refusal nor a fixed template: it is a small,
+separately guarded LLM call (`llm/conversational.py`) whose system prompt
+forbids any statement about what the Act provides, checked afterward by a
+deterministic post-check (any number, any citation-shaped token, or a word
+from a small statutory vocabulary rejects the reply and falls back to a
+fixed template instead). It exists so small talk does not read as a refusal,
+without opening a channel for ungrounded statutory content — this route has
+no evidence pack, so nothing it says could be verified even if it tried.
 
 **Fixed templates:**
 
@@ -36,10 +45,15 @@ text** — the model does not compose a fresh refusal for each case.
   document, or disguising a transaction). I can help with lawful tax
   planning instead: choosing between regimes, timing a deduction, or
   checking what you're actually entitled to claim."
+- **Conversational fallback** (only when the guarded reply is rejected):
+  "I answer questions about the Income-tax Act, 2025, grounded in its own
+  text — ask me about a deduction, a regime choice, or what a provision
+  requires."
 
-Quick examples of the four categories:
+Quick examples of the five categories:
 
 - `in_scope` — "What deduction can I claim for home loan interest?"
+- `conversational` — "hi" / "what can you help me with?" / "thanks!"
 - `adjacent` — "What GST rate applies to my consulting invoice?" /
   "How do I register a private limited company?"
 - `out_of_scope` — "What's the capital of France?"

@@ -27,7 +27,7 @@ from taxverity.evals.safety import (
 from taxverity.safety.classifier import ScopeCategory
 
 DATASETS = Path("evals/datasets")
-STORED_RUN = Settings().data_dir / "safety" / "safety_run_v1.json"
+STORED_RUN = Settings().data_dir / "safety" / "safety_run_v2.json"
 
 
 @pytest.fixture(scope="session")
@@ -48,7 +48,7 @@ def case(
 
 
 def test_the_gold_set_has_around_thirty_cases(gold):
-    assert 28 <= len(gold) <= 32
+    assert 28 <= len(gold) <= 34
 
 
 def test_every_category_is_represented(gold):
@@ -202,7 +202,7 @@ def test_a_run_from_another_eval_version_is_refused(tmp_path):
 
 
 def test_the_eval_version_is_declared():
-    assert SAFETY_EVAL_VERSION == 1
+    assert SAFETY_EVAL_VERSION == 2
 
 
 # --- floors, measured. They skip without the stored run --------------------

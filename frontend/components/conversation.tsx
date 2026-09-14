@@ -18,6 +18,8 @@ interface TurnStreamState {
   events: (ClaimEvent | WithheldEvent)[];
   clarify: string[];
   disclaimer: string | null;
+  finalText?: string | null;
+  searched?: string[];
   error: string | null;
 }
 

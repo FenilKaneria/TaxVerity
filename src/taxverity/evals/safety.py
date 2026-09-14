@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict
 from taxverity.evals.extraction import Counts
 from taxverity.safety.classifier import ScopeCategory
 
-SAFETY_EVAL_VERSION = 1
+SAFETY_EVAL_VERSION = 2
 GOLD_FILENAME = "safety_v1.jsonl"
 CASE_ID = re.compile(r"^s\d{3}$")
 

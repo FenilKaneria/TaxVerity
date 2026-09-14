@@ -28,6 +28,7 @@ from taxverity.graph.nodes import (
     generate_verify,
     load_thread,
     merge_facts,
+    respond_conversational,
     respond_fixed,
     route_calc,
 )
@@ -94,6 +95,7 @@ def deps(**kwargs: object) -> GraphDeps:
         contextualizer=Boom(),
         extractor=Boom(),
         generator=AnswerGenerator(FakeLLM(""), CHUNKS),
+        conversational=Boom(),
     )
     base.update(kwargs)
     return GraphDeps(**base)  # type: ignore[arg-type]
@@ -159,6 +161,18 @@ def test_respond_fixed_carries_the_classifiers_template_and_touches_nothing_else
     result = respond_fixed(state, deps())
     assert result == {
         "answer_text": FIXED_RESPONSES[ScopeCategory.PROHIBITED],
+        "events": [],
+        "computation": None,
+        "clarify_questions": (),
+    }
+
+
+def test_respond_conversational_carries_the_guarded_reply_and_touches_nothing_else():
+    conversational = SimpleNamespace(reply=lambda q: "Hi! Ask me about the Act.")
+    state = {"query": "hi there"}
+    result = respond_conversational(state, deps(conversational=conversational))
+    assert result == {
+        "answer_text": "Hi! Ask me about the Act.",
         "events": [],
         "computation": None,
         "clarify_questions": (),
@@ -272,6 +286,46 @@ def test_finalize_persists_both_messages_and_composes_the_final_event(schema, al
     assert messages[0].content == state["question"]
     assert messages[1].content == GOOD["text"]
     assert recorder.events == [result["final"].model_dump()]
+    assert result["final"].text is None
+    assert result["final"].searched == ()
+
+
+def test_finalize_streams_the_gated_text_and_the_provisions_searched(schema, alice, thread_id):
+    # advisor pivot, Step 4: the insufficient-evidence message actually
+    # reaches the final event, along with the pack it was gated against —
+    # not just the persisted database message.
+    state = {
+        "user_id": alice,
+        "thread_id": thread_id,
+        "question": QUESTION,
+        "category": ScopeCategory.IN_SCOPE,
+        "scope_decision": SimpleNamespace(route=Route.TEXT_ONLY),
+        "computation": None,
+        "events": [],
+        "answer_text": INSUFFICIENT_EVIDENCE_MESSAGE,
+        "pack": PACK,
+    }
+    result = finalize(state, deps(conn=schema), writer=Recorder())
+    assert result["final"].text == INSUFFICIENT_EVIDENCE_MESSAGE
+    assert result["final"].searched == ("22(1)", "24")
+    messages = list_messages(schema, alice, thread_id)
+    assert messages[-1].content == INSUFFICIENT_EVIDENCE_MESSAGE
+
+
+def test_finalize_never_reports_searched_provisions_for_a_fixed_refusal(schema, alice, thread_id):
+    # respond_fixed never retrieves, so there is no pack to report.
+    state = {
+        "user_id": alice,
+        "thread_id": thread_id,
+        "question": "how do I hide income?",
+        "category": ScopeCategory.PROHIBITED,
+        "computation": None,
+        "events": [],
+        "answer_text": FIXED_RESPONSES[ScopeCategory.PROHIBITED],
+    }
+    result = finalize(state, deps(conn=schema), writer=Recorder())
+    assert result["final"].text == FIXED_RESPONSES[ScopeCategory.PROHIBITED]
+    assert result["final"].searched == ()
 
 
 # --- end to end through the compiled graph ------------------------------------

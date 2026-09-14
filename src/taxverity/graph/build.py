@@ -7,8 +7,11 @@ would need an async one for no benefit here. Streaming goes out through
 which is simpler than mapping LangGraph's own event stream onto this
 project's SSE contract.
 
-The scope branch is one conditional edge: `prohibited | out_of_scope |
-adjacent` never reach retrieval, the calculator or the LLM (rule 03).
+The scope branch is one conditional edge, now three-way: `prohibited |
+out_of_scope | adjacent` never reach retrieval, the calculator or the LLM
+(rule 03); `conversational` (advisor pivot, Step 5) skips retrieval and the
+calculator but does reach one small guarded LLM call
+(`llm/conversational.py`), never the generator/verifier.
 `route_calc`'s `TEXT_ONLY`/`INCOMPLETE`/`COMPUTE` split (PLAN 13.3) is not a
 graph branch — it is handled inside `nodes.route_calc` by varying what
 reaches `generate_verify`, since every route still answers through the same
@@ -17,7 +20,7 @@ generation-and-verification step.
 The other conditional edge is Step 13.5's minimal corrective loop (ADR-033 as
 amended by ADR-110): after `generate_verify`, `_retry_branch` sends the run
 back to `retrieve_retry` (wider pool, `pack(expand=True)`) exactly once, when
-the first pass served zero statute claims. `retrieve_retry` feeds back into
+the first pass served zero grounded (statute/advice) claims. `retrieve_retry` feeds back into
 `generate_verify` rather than into `route_calc` — a retry changes only the
 evidence pack, never the calculator's inputs. The retry is bounded to one
 cycle by `state["retried"]`, checked in `_retry_branch` itself, not by any
@@ -40,6 +43,7 @@ from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph import nodes
 from taxverity.graph.state import GraphDeps, GraphState
 from taxverity.llm.client import LLMClient
+from taxverity.llm.conversational import Conversationalist
 from taxverity.llm.extract import FactExtractor
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
 from taxverity.memory.contextualize import QueryContextualizer
@@ -52,15 +56,16 @@ from taxverity.retrieval.fusion import FusionRetriever
 from taxverity.retrieval.pgvector import PgVectorIndex
 from taxverity.retrieval.rerank import CachedReranker, JinaReranker, RerankRetriever
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
-from taxverity.safety.evidence_gate import served_statute_claims
+from taxverity.safety.evidence_gate import served_grounded_claims
 
-GRAPH_BUILD_STAGE_VERSION = 2
+GRAPH_BUILD_STAGE_VERSION = 3
 
 _NODES = (
     "load_thread",
     "contextualize",
     "classify",
     "respond_fixed",
+    "respond_conversational",
     "extract_facts",
     "merge_facts",
     "retrieve",
@@ -116,6 +121,7 @@ def build_deps(
         contextualizer=QueryContextualizer.from_settings(settings, cache=False),
         extractor=FactExtractor.from_settings(settings, cache=False),
         generator=AnswerGenerator(llm, by_path),
+        conversational=Conversationalist.from_settings(settings, cache=False),
     )
     return deps, served
 
@@ -131,9 +137,14 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph:
     graph.add_conditional_edges(
         "classify",
         _scope_branch,
-        {"in_scope": "extract_facts", "refused": "respond_fixed"},
+        {
+            "in_scope": "extract_facts",
+            "conversational": "respond_conversational",
+            "refused": "respond_fixed",
+        },
     )
     graph.add_edge("respond_fixed", "finalize")
+    graph.add_edge("respond_conversational", "finalize")
     graph.add_edge("extract_facts", "merge_facts")
     graph.add_edge("merge_facts", "retrieve")
     graph.add_edge("retrieve", "route_calc")
@@ -149,7 +160,12 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph:
 
 
 def _scope_branch(state: GraphState) -> str:
-    return "in_scope" if state["category"] is ScopeCategory.IN_SCOPE else "refused"
+    category = state["category"]
+    if category is ScopeCategory.IN_SCOPE:
+        return "in_scope"
+    if category is ScopeCategory.CONVERSATIONAL:
+        return "conversational"
+    return "refused"
 
 
 def _retry_branch(state: GraphState) -> str:
@@ -157,6 +173,6 @@ def _retry_branch(state: GraphState) -> str:
     refused question this far), so no separate scope check is needed here."""
     if state.get("retried"):
         return "finalize"
-    if served_statute_claims(state.get("events", [])) > 0:
+    if served_grounded_claims(state.get("events", [])) > 0:
         return "finalize"
     return "retry"

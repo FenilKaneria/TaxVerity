@@ -85,6 +85,22 @@ def respond_fixed(state: GraphState, deps: GraphDeps, writer: Writer | None = No
     }
 
 
+def respond_conversational(
+    state: GraphState, deps: GraphDeps, writer: Writer | None = None
+) -> dict:
+    """Reached only for `conversational` (advisor pivot, Step 5). No
+    retrieval, no facts, no claims — `deps.conversational` is a guarded LLM
+    call that cannot say anything about the Act (see llm/conversational.py);
+    its reply rides to the browser as `FinalEvent.text`, the same field
+    `respond_fixed`'s template uses, so no new event type is needed."""
+    return {
+        "answer_text": deps.conversational.reply(state["query"]),
+        "events": [],
+        "computation": None,
+        "clarify_questions": (),
+    }
+
+
 def extract_facts(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
     # The raw turn, never the contextualized query (rule 04): a follow-up
     # rewrite resolves references for retrieval, it is never fact truth.
@@ -185,15 +201,22 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     decision = state.get("scope_decision")
     route_label = decision.route.value if decision is not None else state["category"].value
     events = state.get("events", [])
-    text = state.get("answer_text")
-    if text is None:
-        text = _served_text(events)
+    answer_text = state.get("answer_text")
+    text = answer_text if answer_text is not None else _served_text(events)
     computation = state.get("computation")
     citations = _served_citations(events)
+    pack = state.get("pack")
+    searched = (
+        tuple(unit.citation for unit in pack.units)
+        if answer_text is not None and pack is not None
+        else ()
+    )
     final_event = FinalEvent(
         route=route_label,
         computation=_computation_summary(computation) if computation is not None else None,
         citations=citations,
+        text=answer_text,
+        searched=searched,
     )
     emit(final_event.model_dump())
     append_message(deps.conn, state["user_id"], state["thread_id"], "user", state["question"])

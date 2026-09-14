@@ -26,6 +26,7 @@ from taxverity.chunking.models import Chunk
 from taxverity.facts import FactField
 from taxverity.generation.claims import DISCLAIMER, ClaimEvent, WithheldEvent
 from taxverity.generation.generate import AnswerGenerator
+from taxverity.llm.conversational import Conversationalist
 from taxverity.llm.extract import ExtractionResult, FactExtractor
 from taxverity.memory.contextualize import QueryContextualizer
 from taxverity.memory.fact_state import ThreadFactState
@@ -33,7 +34,7 @@ from taxverity.retrieval.base import Retriever
 from taxverity.retrieval.evidence import EVIDENCE_POOL, EvidencePack, EvidencePacker
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 
-GRAPH_STAGE_VERSION = 2
+GRAPH_STAGE_VERSION = 3
 
 # rule 04: "a short recent-turns window (2-3 turns of text)".
 RECENT_TURNS_WINDOW = 3
@@ -60,6 +61,15 @@ class FinalEvent(BaseModel):
     computation: dict[str, str] | None
     citations: tuple[str, ...]
     disclaimer: str = DISCLAIMER
+    # The fixed/gated answer text — a refusal template, the conversational
+    # reply, or the insufficient-evidence message. None means the turn served
+    # claim events and the browser already rendered the answer from those; a
+    # non-None value is never a duplicate of already-streamed claim text.
+    text: str | None = None
+    # Provision paths the evidence pack actually held when `text` names an
+    # insufficient-evidence refusal — makes that refusal auditable rather than
+    # a dead end. Empty for every other route (no pack, or the turn served).
+    searched: tuple[str, ...] = ()
 
 
 # Deterministic clarifying-question templates (rule 04: "never from the LLM"),
@@ -135,4 +145,5 @@ class GraphDeps:
     contextualizer: QueryContextualizer
     extractor: FactExtractor
     generator: AnswerGenerator
+    conversational: Conversationalist
     pool_k: int = field(default=EVIDENCE_POOL)

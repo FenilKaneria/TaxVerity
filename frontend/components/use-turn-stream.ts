@@ -47,6 +47,8 @@ export function useTurnStream({
   const [events, setEvents] = useState<(ClaimEvent | WithheldEvent)[]>([]);
   const [clarify, setClarify] = useState<string[]>([]);
   const [disclaimer, setDisclaimer] = useState<string | null>(null);
+  const [finalText, setFinalText] = useState<string | null>(null);
+  const [searched, setSearched] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -60,6 +62,8 @@ export function useTurnStream({
     setEvents([]);
     setClarify([]);
     setDisclaimer(null);
+    setFinalText(null);
+    setSearched([]);
     setError(null);
     onEvidence?.([], []);
     onComputation?.(null);
@@ -93,6 +97,8 @@ export function useTurnStream({
           break;
         case "final":
           setDisclaimer(event.disclaimer);
+          setFinalText(event.text ?? null);
+          setSearched(event.searched ?? []);
           onComputation?.(event.computation);
           break;
       }
@@ -123,5 +129,17 @@ export function useTurnStream({
     abortRef.current?.abort();
   }
 
-  return { pending, streaming, stage, events, clarify, disclaimer, error, submit, cancel };
+  return {
+    pending,
+    streaming,
+    stage,
+    events,
+    clarify,
+    disclaimer,
+    finalText,
+    searched,
+    error,
+    submit,
+    cancel,
+  };
 }

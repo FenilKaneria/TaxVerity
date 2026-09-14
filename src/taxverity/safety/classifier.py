@@ -33,7 +33,7 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-CLASSIFIER_STAGE_VERSION = 1
+CLASSIFIER_STAGE_VERSION = 2
 
 # The answer is one word; reasoning cannot be disabled and is billed against
 # this cap regardless (Step 7.1), so this stays small but not tight.
@@ -45,6 +45,10 @@ SCHEMA_NAME = "scope_classification"
 
 class ScopeCategory(StrEnum):
     IN_SCOPE = "in_scope"
+    # A greeting, thanks, or "what can you do" - not a tax question, but not
+    # a refusal either. Routes to a guarded LLM reply (llm/conversational.py),
+    # never to retrieval or a fixed refusal template.
+    CONVERSATIONAL = "conversational"
     ADJACENT = "adjacent"
     OUT_OF_SCOPE = "out_of_scope"
     PROHIBITED = "prohibited"
@@ -116,6 +120,9 @@ answer it.
 
 Categories:
 - in_scope: a question about the Income-tax Act, 2025 (India).
+- conversational: a greeting, thanks, or a question about what you are and \
+what you can do. Not a tax question, and not unrelated either — do not \
+classify small talk as out_of_scope.
 - adjacent: a real tax or business topic, but a different law — GST, company \
 registration, accounting standards.
 - out_of_scope: unrelated to tax or this Act entirely.

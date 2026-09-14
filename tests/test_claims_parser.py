@@ -38,6 +38,29 @@ def test_a_well_formed_line_parses():
     )
 
 
+# --- advisor pivot: ADVICE and NO_BASIS ---------------------------------------
+
+
+def test_advice_parses_like_statute():
+    payload = {
+        "type": "advice",
+        "text": "You may deduct thirty per cent of your rental income.",
+        "citations": [{"path": "22(1)(a)", "quote": "thirty per cent of the annual value"}],
+    }
+    claim = parse_claim(json.dumps(payload))
+    assert claim.type is ClaimType.ADVICE
+    assert claim.citations == (
+        Citation(path="22(1)(a)", quote="thirty per cent of the annual value"),
+    )
+
+
+def test_no_basis_parses_with_no_citations():
+    payload = {"type": "no_basis", "text": "The Act does not deal with this.", "citations": []}
+    claim = parse_claim(json.dumps(payload))
+    assert claim.type is ClaimType.NO_BASIS
+    assert claim.citations == ()
+
+
 @pytest.mark.parametrize(
     "line",
     [
