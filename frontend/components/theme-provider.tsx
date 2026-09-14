@@ -8,7 +8,7 @@ import { ThemeProvider as NextThemeProvider } from "next-themes";
 // a jarring cross-fade of the whole page rather than a clean switch.
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
-    <NextThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+    <NextThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
       {children}
     </NextThemeProvider>
   );

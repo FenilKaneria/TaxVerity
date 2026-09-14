@@ -37,3 +37,6 @@ Thumbs.db
 
 # DeepEval local state (Step 10.10)
 .deepeval/
+
+# Playwright MCP session artifacts (screenshots, console logs)
+.playwright-mcp/

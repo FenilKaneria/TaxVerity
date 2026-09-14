@@ -4,10 +4,16 @@ The LLM call itself never logs its body (Step 7.2). A trace is the opposite: it
 exists to carry the prompt and the completion off this machine, which is the
 whole reason `redact()` is applied here rather than left to a call site.
 
-Hand-rolled over the documented ingestion envelope rather than the Langfuse SDK,
-which would bring eight transitive packages — a second httpx major and the whole
-OpenTelemetry stack — into an image ADR-076 keeps deliberately thin. The wire
-format lives in `_events()` alone, so Langfuse v4's move to OTLP is one method.
+Hand-rolled over the raw OTLP HTTP/JSON wire format rather than the Langfuse
+SDK or an OpenTelemetry SDK, either of which would bring the whole
+OpenTelemetry stack plus a second httpx major into an image ADR-076 keeps
+deliberately thin. **Step 17.7 (ADR-111) migrated the endpoint from
+Langfuse's legacy `/api/public/ingestion` batch-event envelope to
+`/api/public/otel/v1/traces`** — the legacy endpoint is deprecated and
+Langfuse Cloud drops it on its v4 upgrade (16 November 2026). One generation
+is now one OTLP span, carrying Langfuse's `langfuse.observation.*` and
+`langfuse.trace.*` attributes rather than a `trace-create`/`generation-create`
+event pair; the wire format lives in `_span()` and `flush()` alone.
 
 Tracing is never allowed to break, slow or fail a call. An unconfigured process
 traces nothing, a failed post is dropped with a WARNING, and no post is ever
@@ -17,10 +23,10 @@ retried: losing a trace is cheap, delaying an answer is not.
 from __future__ import annotations
 
 import base64
+import json
 import time
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
-from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 import httpx2
@@ -37,7 +43,7 @@ logger = get_logger(__name__)
 
 TRACING_STAGE_VERSION = 1
 
-INGESTION_PATH = "/api/public/ingestion"
+OTLP_TRACES_PATH = "/api/public/otel/v1/traces"
 
 # One attempt, short. A trace that misses is a trace; a retry is latency the
 # user pays for on the answer path.
@@ -96,8 +102,13 @@ class LangfuseTracer:
                 "a Langfuse tracer needs a public key, a secret key and a host"
             )
         token = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
-        self._headers = {"Authorization": f"Basic {token}"}
-        self._url = host.rstrip("/") + INGESTION_PATH
+        self._headers = {
+            "Authorization": f"Basic {token}",
+            # Asks Langfuse Cloud to process the batch synchronously rather
+            # than queueing it, so a trace is visible immediately.
+            "x-langfuse-ingestion-version": "4",
+        }
+        self._url = host.rstrip("/") + OTLP_TRACES_PATH
         self._release = release
         self._environment = environment
         self._owns_client = http_client is None
@@ -132,8 +143,8 @@ class LangfuseTracer:
         latency_s: float | None = None,
         error: str | None = None,
     ) -> None:
-        self._batch.extend(
-            self._events(
+        self._batch.append(
+            self._span(
                 name,
                 messages,
                 completion=completion,
@@ -145,7 +156,7 @@ class LangfuseTracer:
         if len(self._batch) >= MAX_BATCH_EVENTS:
             self.flush()
 
-    def _events(
+    def _span(
         self,
         name: str,
         messages: Sequence[Message],
@@ -154,15 +165,14 @@ class LangfuseTracer:
         model_parameters: Mapping[str, Any] | None,
         latency_s: float | None,
         error: str | None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         now = time.time()
         started = now - latency_s if latency_s is not None else now
-        # Rule 03, egress path 1. Applied on the way into the envelope so a
+        # Rule 03, egress path 1. Applied on the way into the span so a
         # future caller cannot forget it; redact() leaves statutory tokens and
         # ordinary amounts intact, so evidence text crosses unchanged.
         prompt = [{"role": m.role, "content": redact(m.content)} for m in messages]
         output = redact(completion.text) if completion is not None else None
-        trace_id = str(uuid.uuid4())
         metadata: dict[str, Any] = {"stage_version": TRACING_STAGE_VERSION}
         if completion is not None:
             # A degraded answer came from the fallback vendor. A trace recording
@@ -171,73 +181,97 @@ class LangfuseTracer:
             metadata["finish_reason"] = completion.finish_reason
             metadata["reasoning_tokens"] = completion.usage.reasoning_tokens
             metadata["provider"] = completion.provider
-        trace: dict[str, Any] = {
-            "id": trace_id,
-            "name": name,
-            "timestamp": _timestamp(started),
-            "input": prompt,
-            "output": output,
-            "metadata": metadata,
-        }
-        generation: dict[str, Any] = {
-            "id": str(uuid.uuid4()),
-            "traceId": trace_id,
-            "name": name,
-            "startTime": _timestamp(started),
-            "endTime": _timestamp(now),
-            "input": prompt,
-            "output": output,
-            "metadata": metadata,
-            "level": "ERROR" if error is not None else "DEFAULT",
-        }
-        if error is not None:
-            generation["statusMessage"] = error
-        if completion is not None:
-            generation["model"] = completion.model
-            generation["usage"] = {
-                "promptTokens": completion.usage.prompt_tokens,
-                "completionTokens": completion.usage.completion_tokens,
-                "totalTokens": completion.usage.total_tokens,
-            }
-        if model_parameters:
-            generation["modelParameters"] = dict(model_parameters)
-        for body in (trace, generation):
-            if self._release is not None:
-                body["release"] = self._release
-            if self._environment is not None:
-                body["environment"] = self._environment
-        return [
-            _envelope("trace-create", trace),
-            _envelope("generation-create", generation),
+
+        attributes = [
+            _str_attr("langfuse.observation.type", "generation"),
+            _str_attr("langfuse.trace.name", name),
+            _str_attr("langfuse.observation.input", json.dumps(prompt)),
+            _str_attr("langfuse.observation.metadata", json.dumps(metadata)),
         ]
+        if output is not None:
+            attributes.append(_str_attr("langfuse.observation.output", json.dumps(output)))
+        if completion is not None:
+            attributes.append(_str_attr("langfuse.observation.model.name", completion.model))
+            attributes.append(
+                _str_attr(
+                    "langfuse.observation.usage_details",
+                    json.dumps(
+                        {
+                            "input": completion.usage.prompt_tokens,
+                            "output": completion.usage.completion_tokens,
+                            "total": completion.usage.total_tokens,
+                        }
+                    ),
+                )
+            )
+        if model_parameters:
+            attributes.append(
+                _str_attr(
+                    "langfuse.observation.model.parameters",
+                    json.dumps(dict(model_parameters)),
+                )
+            )
+        if error is not None:
+            attributes.append(_str_attr("langfuse.observation.status_message", error))
+
+        return {
+            "traceId": uuid.uuid4().hex,
+            "spanId": uuid.uuid4().hex[:16],
+            "name": name,
+            "startTimeUnixNano": str(int(started * 1_000_000_000)),
+            "endTimeUnixNano": str(int(now * 1_000_000_000)),
+            "attributes": attributes,
+            # OTLP status codes: 0 UNSET, 1 OK, 2 ERROR.
+            "status": (
+                {"code": 2, "message": error} if error is not None else {"code": 1}
+            ),
+        }
 
     def flush(self) -> None:
         if not self._batch:
             return
         batch, self._batch = self._batch, []
+        resource_attributes = [_str_attr("service.name", "taxverity")]
+        if self._release is not None:
+            resource_attributes.append(_str_attr("service.version", self._release))
+        if self._environment is not None:
+            resource_attributes.append(
+                _str_attr("deployment.environment.name", self._environment)
+            )
+        payload = {
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": resource_attributes},
+                    "scopeSpans": [
+                        {"scope": {"name": "taxverity.llm"}, "spans": batch}
+                    ],
+                }
+            ]
+        }
         try:
             response = self._client.post(
-                self._url, json={"batch": batch}, headers=self._headers
+                self._url, json=payload, headers=self._headers
             )
         except httpx2.RequestError as error:
             self.dropped += len(batch)
             # The batch is not requeued: an unreachable Langfuse would otherwise
             # grow this list for the life of the process.
-            logger.warning("dropped %d trace events: %s", len(batch), error)
+            logger.warning("dropped %d trace spans: %s", len(batch), error)
             return
         if response.status_code >= 400:
             self.dropped += len(batch)
             logger.warning(
-                "dropped %d trace events: Langfuse returned %d",
+                "dropped %d trace spans: Langfuse returned %d",
                 len(batch),
                 response.status_code,
             )
             return
-        # 207 is the documented partial success: the batch was accepted but some
-        # of its events were not, and only the body says which.
-        for rejected in _rejected(response):
-            self.dropped += 1
-            logger.warning("Langfuse rejected trace event %s", rejected)
+        # OTLP's own partial-success shape: a 200 whose body still names some
+        # spans the collector could not ingest.
+        rejected = _rejected_span_count(response)
+        if rejected:
+            self.dropped += rejected
+            logger.warning("Langfuse rejected %d trace spans", rejected)
 
     def close(self) -> None:
         self.flush()
@@ -364,28 +398,21 @@ class TracedLLMClient:
         self.close()
 
 
-def _envelope(event_type: str, body: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        "id": str(uuid.uuid4()),
-        "type": event_type,
-        "timestamp": _timestamp(time.time()),
-        "body": dict(body),
-    }
+def _str_attr(key: str, value: str) -> dict[str, Any]:
+    return {"key": key, "value": {"stringValue": value}}
 
 
-def _timestamp(epoch: float) -> str:
-    moment = datetime.fromtimestamp(epoch, UTC)
-    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-def _rejected(response: httpx2.Response) -> list[str]:
+def _rejected_span_count(response: httpx2.Response) -> int:
     try:
         body = response.json()
     except ValueError:
-        return []
+        return 0
     if not isinstance(body, Mapping):
-        return []
-    errors = body.get("errors") or []
-    if not isinstance(errors, list):
-        return []
-    return [str(entry.get("id", entry))[:120] for entry in errors if entry]
+        return 0
+    partial = body.get("partialSuccess")
+    if not isinstance(partial, Mapping):
+        return 0
+    try:
+        return int(partial.get("rejectedSpans", 0) or 0)
+    except (TypeError, ValueError):
+        return 0

@@ -130,7 +130,11 @@ resource "aws_lambda_function" "taxverity" {
   image_uri     = "${aws_ecr_repository.taxverity.repository_url}:${var.image_tag}"
   architectures = ["x86_64"]
   memory_size   = 2048
-  timeout       = 120
+  # Step 17.8's smoke test measured a corrective-retry COMPUTE turn at
+  # 109-120s against Groq's free tier; 120s left no margin and truncated one
+  # turn's SSE stream mid-response with no `final` event. 180s covers the
+  # worst observed case — Lambda bills actual duration, not this ceiling.
+  timeout       = 180
 
   environment {
     variables = {

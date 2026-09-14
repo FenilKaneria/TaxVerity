@@ -130,6 +130,9 @@ def test_registering_a_new_address_creates_an_unverified_user_and_mails_a_link(
     assert row[0] is None
     assert len(mailer.sent) == 1
     assert "verify" in mailer.sent[0].subject.lower()
+    # The frontend route is /verify-email (app/(auth)/verify-email/page.tsx),
+    # not /verify — a mismatch here 404s the link every real user clicks.
+    assert f"{BASE_URL}/verify-email?token=" in mailer.sent[0].body
 
 
 def test_registering_a_taken_address_creates_nothing_and_mails_a_reset_link(schema):
@@ -138,6 +141,8 @@ def test_registering_a_taken_address_creates_nothing_and_mails_a_reset_link(sche
     assert schema.execute("SELECT count(*) FROM users").fetchone()[0] == 1
     assert len(mailer.sent) == 1
     assert "reset" in mailer.sent[0].body.lower()
+    # The frontend route is /reset-password, not /reset.
+    assert f"{BASE_URL}/reset-password?token=" in mailer.sent[0].body
 
 
 # --- login gate -----------------------------------------------------------
@@ -175,7 +180,7 @@ def test_reset_request_for_a_verified_account_mails_a_link(schema):
     mailer = NullMailer()
     request_password_reset(schema, "alice@example.com", "1.1.1.1", mailer, BASE_URL)
     assert len(mailer.sent) == 1
-    assert "token=" in mailer.sent[0].body
+    assert f"{BASE_URL}/reset-password?token=" in mailer.sent[0].body
 
 
 def test_reset_password_changes_the_password_and_revokes_every_session(schema):
@@ -222,6 +227,7 @@ def test_resend_verification_mails_a_fresh_link_for_an_unverified_account(schema
     mailer = NullMailer()
     resend_verification(schema, "alice@example.com", "1.1.1.1", mailer, BASE_URL)
     assert len(mailer.sent) == 1
+    assert f"{BASE_URL}/verify-email?token=" in mailer.sent[0].body
 
 
 # --- send rate limiting -----------------------------------------------------

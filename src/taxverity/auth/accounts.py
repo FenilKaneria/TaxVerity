@@ -131,7 +131,7 @@ def register(
             mailer.send(
                 address,
                 "TaxVerity account already exists",
-                already_registered_body(f"{base_url}/reset?token={token}"),
+                already_registered_body(f"{base_url}/reset-password?token={token}"),
             )
         return None
     logger.info("registered user %s", user_id)
@@ -141,7 +141,7 @@ def register(
         mailer.send(
             address,
             "Verify your TaxVerity account",
-            verify_email_body(f"{base_url}/verify?token={token}"),
+            verify_email_body(f"{base_url}/verify-email?token={token}"),
         )
     return None
 
@@ -166,7 +166,7 @@ def resend_verification(
         mailer.send(
             address,
             "Verify your TaxVerity account",
-            verify_email_body(f"{base_url}/verify?token={token}"),
+            verify_email_body(f"{base_url}/verify-email?token={token}"),
         )
     return None
 
@@ -203,7 +203,7 @@ def request_password_reset(
         mailer.send(
             address,
             "Reset your TaxVerity password",
-            reset_password_body(f"{base_url}/reset?token={token}"),
+            reset_password_body(f"{base_url}/reset-password?token={token}"),
         )
     return None
 

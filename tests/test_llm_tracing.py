@@ -1,8 +1,8 @@
-"""Step 7.4 — Langfuse tracing.
+"""Step 7.4, migrated at Step 17.7 (ADR-111) to raw OTLP HTTP/JSON.
 
 Every test drives a scripted MockTransport: no network, no Langfuse, no key.
 The rule-03 assertions read the literal request body, which is the point of
-hand-rolling the envelope — the bytes on the wire are the thing under test.
+hand-rolling the wire format — the bytes on the wire are the thing under test.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ import pytest
 from taxverity.config import Settings
 from taxverity.llm.client import Completion, LLMUnavailable, Message, Usage
 from taxverity.llm.tracing import (
-    INGESTION_PATH,
     MAX_BATCH_EVENTS,
+    OTLP_TRACES_PATH,
     TRACING_STAGE_VERSION,
     LangfuseTracer,
     NullTracer,
@@ -64,15 +64,36 @@ class Recorder:
             if isinstance(scripted, Exception):
                 raise scripted
             return scripted
-        return httpx2.Response(207, json={"successes": [], "errors": []})
+        return httpx2.Response(200, json={})
 
     @property
-    def batches(self) -> list[list[dict]]:
-        return [json.loads(r.read())["batch"] for r in self.requests]
+    def payloads(self) -> list[dict]:
+        return [json.loads(r.read()) for r in self.requests]
+
+    @property
+    def spans(self) -> list[list[dict]]:
+        return [
+            payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+            for payload in self.payloads
+        ]
 
     @property
     def raw(self) -> str:
         return "".join(r.read().decode("utf-8") for r in self.requests)
+
+
+def attr(span: dict, key: str) -> str | None:
+    for entry in span["attributes"]:
+        if entry["key"] == key:
+            return entry["value"]["stringValue"]
+    return None
+
+
+def resource_attr(payload: dict, key: str) -> str | None:
+    for entry in payload["resourceSpans"][0]["resource"]["attributes"]:
+        if entry["key"] == key:
+            return entry["value"]["stringValue"]
+    return None
 
 
 def make(handler: Recorder, **kwargs) -> LangfuseTracer:
@@ -187,55 +208,51 @@ def test_redaction_survives_the_traced_client_wrapper():
     assert PAN not in handler.raw
 
 
-# --- the envelope ----------------------------------------------------------
+# --- the OTLP span -----------------------------------------------------------
 
 
-def test_a_generation_emits_a_trace_and_a_generation_sharing_a_trace_id():
+def test_a_generation_emits_one_generation_span():
     handler = Recorder()
     tracer = make(handler)
     tracer.generation("extract-facts", ASK, completion=answer())
     tracer.flush()
 
-    batch = handler.batches[0]
-    assert [event["type"] for event in batch] == [
-        "trace-create",
-        "generation-create",
-    ]
-    trace, generation = batch
-    assert generation["body"]["traceId"] == trace["body"]["id"]
-    assert trace["body"]["name"] == generation["body"]["name"] == "extract-facts"
+    spans = handler.spans[0]
+    assert len(spans) == 1
+    span = spans[0]
+    assert span["name"] == "extract-facts"
+    assert attr(span, "langfuse.trace.name") == "extract-facts"
+    assert attr(span, "langfuse.observation.type") == "generation"
 
 
-def test_every_envelope_carries_its_own_unique_id_and_a_timestamp():
+def test_every_span_carries_its_own_trace_and_span_id():
     handler = Recorder()
     tracer = make(handler)
     tracer.generation("llm", ASK, completion=answer())
     tracer.generation("llm", ASK, completion=answer())
     tracer.flush()
 
-    batch = handler.batches[0]
-    ids = [event["id"] for event in batch]
-    assert len(set(ids)) == len(ids) == 4
-    assert all(event["timestamp"].endswith("Z") for event in batch)
-    # The event id deduplicates the envelope; the body id is the object.
-    assert all(event["id"] != event["body"]["id"] for event in batch)
+    spans = handler.spans[0]
+    trace_ids = {span["traceId"] for span in spans}
+    span_ids = {span["spanId"] for span in spans}
+    assert len(trace_ids) == len(span_ids) == 2
+    assert all(len(tid) == 32 for tid in trace_ids)
+    assert all(len(sid) == 16 for sid in span_ids)
 
 
-def test_usage_and_model_are_recorded_on_the_generation():
+def test_usage_and_model_are_recorded_on_the_span():
     handler = Recorder()
     tracer = make(handler)
     tracer.generation("llm", ASK, completion=answer())
     tracer.flush()
 
-    body = handler.batches[0][1]["body"]
-    assert body["model"] == "openai/gpt-oss-120b"
-    assert body["usage"] == {
-        "promptTokens": 120,
-        "completionTokens": 40,
-        "totalTokens": 160,
-    }
-    assert body["metadata"]["reasoning_tokens"] == 12
-    assert body["metadata"]["stage_version"] == TRACING_STAGE_VERSION
+    span = handler.spans[0][0]
+    assert attr(span, "langfuse.observation.model.name") == "openai/gpt-oss-120b"
+    usage = json.loads(attr(span, "langfuse.observation.usage_details"))
+    assert usage == {"input": 120, "output": 40, "total": 160}
+    metadata = json.loads(attr(span, "langfuse.observation.metadata"))
+    assert metadata["reasoning_tokens"] == 12
+    assert metadata["stage_version"] == TRACING_STAGE_VERSION
 
 
 def test_a_degraded_completion_is_traced_as_degraded():
@@ -244,7 +261,7 @@ def test_a_degraded_completion_is_traced_as_degraded():
     tracer.generation("llm", ASK, completion=answer(provider="gemini", degraded=True))
     tracer.flush()
 
-    metadata = handler.batches[0][1]["body"]["metadata"]
+    metadata = json.loads(attr(handler.spans[0][0], "langfuse.observation.metadata"))
     assert metadata["degraded"] is True
     assert metadata["provider"] == "gemini"
 
@@ -255,7 +272,8 @@ def test_a_normal_completion_is_not_traced_as_degraded():
     tracer.generation("llm", ASK, completion=answer())
     tracer.flush()
 
-    assert handler.batches[0][1]["body"]["metadata"]["degraded"] is False
+    metadata = json.loads(attr(handler.spans[0][0], "langfuse.observation.metadata"))
+    assert metadata["degraded"] is False
 
 
 def test_a_failed_call_is_traced_at_error_level_with_no_output():
@@ -264,10 +282,10 @@ def test_a_failed_call_is_traced_at_error_level_with_no_output():
     tracer.generation("llm", ASK, error="LLMUnavailable: groq failed")
     tracer.flush()
 
-    body = handler.batches[0][1]["body"]
-    assert body["level"] == "ERROR"
-    assert body["statusMessage"] == "LLMUnavailable: groq failed"
-    assert body["output"] is None
+    span = handler.spans[0][0]
+    assert span["status"]["code"] == 2
+    assert attr(span, "langfuse.observation.status_message") == "LLMUnavailable: groq failed"
+    assert attr(span, "langfuse.observation.output") is None
 
 
 def test_model_parameters_are_recorded_when_given():
@@ -278,7 +296,10 @@ def test_model_parameters_are_recorded_when_given():
     )
     tracer.flush()
 
-    assert handler.batches[0][1]["body"]["modelParameters"] == {"temperature": 0.0}
+    parameters = json.loads(
+        attr(handler.spans[0][0], "langfuse.observation.model.parameters")
+    )
+    assert parameters == {"temperature": 0.0}
 
 
 def test_latency_puts_the_start_before_the_end():
@@ -287,19 +308,19 @@ def test_latency_puts_the_start_before_the_end():
     tracer.generation("llm", ASK, completion=answer(), latency_s=2.5)
     tracer.flush()
 
-    body = handler.batches[0][1]["body"]
-    assert body["startTime"] < body["endTime"]
+    span = handler.spans[0][0]
+    assert int(span["startTimeUnixNano"]) < int(span["endTimeUnixNano"])
 
 
-def test_release_and_environment_are_carried_when_configured():
+def test_release_and_environment_are_carried_as_resource_attributes():
     handler = Recorder()
     tracer = make(handler, release="v0.1.0", environment="dev")
     tracer.generation("llm", ASK, completion=answer())
     tracer.flush()
 
-    for event in handler.batches[0]:
-        assert event["body"]["release"] == "v0.1.0"
-        assert event["body"]["environment"] == "dev"
+    payload = handler.payloads[0]
+    assert resource_attr(payload, "service.version") == "v0.1.0"
+    assert resource_attr(payload, "deployment.environment.name") == "dev"
 
 
 def test_the_url_and_basic_auth_header_follow_the_documented_api():
@@ -309,9 +330,10 @@ def test_the_url_and_basic_auth_header_follow_the_documented_api():
     tracer.flush()
 
     request = handler.requests[0]
-    assert str(request.url) == HOST + INGESTION_PATH
+    assert str(request.url) == HOST + OTLP_TRACES_PATH
     token = request.headers["authorization"].removeprefix("Basic ")
     assert base64.b64decode(token).decode() == f"{PUBLIC}:{SECRET}"
+    assert request.headers["x-langfuse-ingestion-version"] == "4"
 
 
 def test_a_trailing_slash_on_the_host_does_not_double_the_path():
@@ -325,7 +347,7 @@ def test_a_trailing_slash_on_the_host_does_not_double_the_path():
     tracer.generation("llm", ASK, completion=answer())
     tracer.flush()
 
-    assert str(handler.requests[0].url) == HOST + INGESTION_PATH
+    assert str(handler.requests[0].url) == HOST + OTLP_TRACES_PATH
 
 
 # --- batching and flushing -------------------------------------------------
@@ -349,11 +371,11 @@ def test_a_flush_with_an_empty_batch_posts_nothing():
 def test_a_full_batch_flushes_itself():
     handler = Recorder()
     tracer = make(handler)
-    for _ in range(MAX_BATCH_EVENTS // 2):
+    for _ in range(MAX_BATCH_EVENTS):
         tracer.generation("llm", ASK, completion=answer())
 
     assert len(handler.requests) == 1
-    assert len(handler.batches[0]) == MAX_BATCH_EVENTS
+    assert len(handler.spans[0]) == MAX_BATCH_EVENTS
 
 
 def test_closing_flushes_what_is_left():
@@ -362,7 +384,7 @@ def test_closing_flushes_what_is_left():
     tracer.generation("llm", ASK, completion=answer())
     tracer.close()
 
-    assert len(handler.batches) == 1
+    assert len(handler.spans) == 1
 
 
 def test_a_borrowed_client_survives_close():
@@ -383,8 +405,8 @@ def test_an_unreachable_langfuse_drops_the_batch_and_warns(captured):
     tracer.generation("llm", ASK, completion=answer())
     tracer.flush()
 
-    assert tracer.dropped == 2
-    assert any("dropped 2 trace events" in message for message in warnings(captured))
+    assert tracer.dropped == 1
+    assert any("dropped 1 trace spans" in message for message in warnings(captured))
 
 
 def test_a_rejected_batch_is_dropped_and_warned(captured):
@@ -393,7 +415,7 @@ def test_a_rejected_batch_is_dropped_and_warned(captured):
     tracer.generation("llm", ASK, completion=answer())
     tracer.flush()
 
-    assert tracer.dropped == 2
+    assert tracer.dropped == 1
     assert any("returned 401" in message for message in warnings(captured))
 
 
@@ -407,11 +429,11 @@ def test_a_dropped_batch_is_not_requeued():
     assert len(handler.requests) == 1
 
 
-def test_partial_rejection_is_counted_per_event(captured):
+def test_partial_rejection_is_counted_from_the_otlp_response(captured):
     handler = Recorder(
         httpx2.Response(
-            207,
-            json={"successes": [], "errors": [{"id": "abc", "message": "bad"}]},
+            200,
+            json={"partialSuccess": {"rejectedSpans": "1", "errorMessage": "bad span"}},
         )
     )
     tracer = make(handler)
@@ -419,7 +441,7 @@ def test_partial_rejection_is_counted_per_event(captured):
     tracer.flush()
 
     assert tracer.dropped == 1
-    assert any("rejected trace event abc" in m for m in warnings(captured))
+    assert any("rejected 1 trace spans" in m for m in warnings(captured))
 
 
 def test_a_body_that_is_not_json_is_not_a_failure(captured):
@@ -527,9 +549,9 @@ def test_the_wrapper_traces_a_failure_and_re_raises_it():
         client.complete(ASK)
     tracer.flush()
 
-    body = handler.batches[0][1]["body"]
-    assert body["level"] == "ERROR"
-    assert "LLMUnavailable" in body["statusMessage"]
+    span = handler.spans[0][0]
+    assert span["status"]["code"] == 2
+    assert "LLMUnavailable" in attr(span, "langfuse.observation.status_message")
 
 
 def test_a_broken_tracer_never_breaks_a_call(captured):
@@ -553,6 +575,8 @@ def test_the_wrapper_records_the_parameters_it_was_called_with():
     client.complete(ASK, max_completion_tokens=64, temperature=0.0)
     tracer.flush()
 
-    parameters = handler.batches[0][1]["body"]["modelParameters"]
+    parameters = json.loads(
+        attr(handler.spans[0][0], "langfuse.observation.model.parameters")
+    )
     assert parameters["max_completion_tokens"] == 64
     assert parameters["temperature"] == 0.0
