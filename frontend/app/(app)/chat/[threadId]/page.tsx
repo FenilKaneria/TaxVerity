@@ -2,9 +2,14 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ComputationPanel } from "@/components/computation-panel";
+import { EvidencePanel } from "@/components/evidence-panel";
+import { FactsPanel } from "@/components/facts-panel";
 import { MessageList } from "@/components/message-list";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TurnComposer } from "@/components/turn-composer";
 import { ApiError } from "@/lib/errors";
+import type { Citation, ComputationSummary } from "@/lib/sse";
 import { getThread, listMessages, type Message, type Thread } from "@/lib/threads";
 
 type LoadState =
@@ -18,6 +23,15 @@ type LoadState =
 // no effect ever needs to set state back to "loading" itself.
 function ThreadView({ threadId }: { threadId: string }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  // Step 16.4-16.7: the live turn stream's side effects, lifted out of
+  // TurnComposer so the evidence/computation panels survive after it clears
+  // its own display for the next question. `factsVersion` re-triggers
+  // FactsPanel's own fetch rather than duplicating fact-state here — the
+  // facts store, not the stream's preview, is that panel's source of truth.
+  const [pool, setPool] = useState<string[]>([]);
+  const [cited, setCited] = useState<Citation[]>([]);
+  const [computation, setComputation] = useState<ComputationSummary | null>(null);
+  const [factsVersion, setFactsVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +54,17 @@ function ThreadView({ threadId }: { threadId: string }) {
       cancelled = true;
     };
   }, [threadId]);
+
+  function reloadMessages() {
+    listMessages(threadId)
+      .then((messages) =>
+        setState((prev) => (prev.status === "ready" ? { ...prev, messages } : prev)),
+      )
+      .catch(() => {
+        // History still shows the pre-turn state; the live transcript above
+        // the composer already carries what was just said.
+      });
+  }
 
   if (state.status === "loading") {
     return (
@@ -73,13 +98,32 @@ function ThreadView({ threadId }: { threadId: string }) {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      <header className="border-b border-border px-6 py-3">
-        <h1 className="truncate font-serif text-lg text-foreground">
-          {state.thread.title}
-        </h1>
-      </header>
-      <MessageList messages={state.messages} />
+    <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="border-b border-border px-6 py-3">
+          <h1 className="truncate font-serif text-lg text-foreground">
+            {state.thread.title}
+          </h1>
+        </header>
+        <MessageList messages={state.messages} />
+        <TurnComposer
+          threadId={threadId}
+          onEvidence={(nextPool, nextCited) => {
+            setPool(nextPool);
+            setCited(nextCited);
+          }}
+          onComputation={setComputation}
+          onTurnComplete={() => {
+            reloadMessages();
+            setFactsVersion((v) => v + 1);
+          }}
+        />
+      </div>
+      <aside className="w-full shrink-0 overflow-y-auto border-t border-border lg:h-full lg:w-96 lg:border-t-0 lg:border-l">
+        <EvidencePanel pool={pool} cited={cited} />
+        <ComputationPanel computation={computation} />
+        <FactsPanel threadId={threadId} refreshKey={factsVersion} />
+      </aside>
     </div>
   );
 }
