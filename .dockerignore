@@ -33,3 +33,7 @@ build/
 compose.yaml
 Dockerfile
 .dockerignore
+
+# Step 16.1. The Next.js app is a separate deploy (Vercel, ADR-111) — the API
+# image must not grow with it.
+frontend/

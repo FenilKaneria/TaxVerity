@@ -16,6 +16,7 @@ from taxverity.api.app import app_state
 from taxverity.api.deps import get_conn
 from taxverity.api.threads_routes import router as threads_router
 from taxverity.auth.tokens import AccessTokens
+from taxverity.threads.store import append_message
 
 JWT_SECRET = "y" * 32
 PASSWORD = "correct-horse-1"
@@ -97,6 +98,10 @@ def test_a_foreign_thread_id_reads_as_not_found(client, access_tokens, alice, bo
         == 404
     )
     assert client.delete(f"/v1/threads/{thread_id}", headers=bob_headers).status_code == 404
+    assert (
+        client.get(f"/v1/threads/{thread_id}/messages", headers=bob_headers).status_code
+        == 404
+    )
     assert client.get(f"/v1/threads/{thread_id}/facts", headers=bob_headers).status_code == 404
     assert (
         client.patch(
@@ -139,3 +144,46 @@ def test_facts_edit_round_trips_as_a_stated_override(client, access_tokens, alic
         headers=headers,
     )
     assert len(overridden.json()["overrides"]) == 1
+
+
+def test_messages_requires_auth(client):
+    assert client.get("/v1/threads/00000000-0000-0000-0000-000000000000/messages").status_code == 401
+
+
+def test_an_empty_thread_has_no_messages(client, access_tokens, alice):
+    headers = _auth(access_tokens, alice)
+    thread_id = client.post(
+        "/v1/threads", json={"title": "t"}, headers=headers
+    ).json()["thread_id"]
+
+    empty = client.get(f"/v1/threads/{thread_id}/messages", headers=headers)
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+
+def test_messages_round_trip_oldest_first_with_citations(
+    client, schema, access_tokens, alice
+):
+    headers = _auth(access_tokens, alice)
+    thread_id = client.post(
+        "/v1/threads", json={"title": "t"}, headers=headers
+    ).json()["thread_id"]
+
+    append_message(schema, alice, thread_id, "user", "What is section 19(1)?")
+    append_message(
+        schema,
+        alice,
+        thread_id,
+        "assistant",
+        "A standard deduction of fifty thousand rupees applies.",
+        payload={"citations": ["19(1)"]},
+    )
+
+    response = client.get(f"/v1/threads/{thread_id}/messages", headers=headers)
+    assert response.status_code == 200
+    messages = response.json()
+    assert [m["role"] for m in messages] == ["user", "assistant"]
+    assert messages[0]["content"] == "What is section 19(1)?"
+    assert messages[0]["citations"] == []
+    assert messages[1]["citations"] == ["19(1)"]
+    assert messages[1]["message_id"] > messages[0]["message_id"]

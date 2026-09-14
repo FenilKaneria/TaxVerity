@@ -26,10 +26,12 @@ from taxverity.memory.fact_state import (
     to_json,
 )
 from taxverity.threads.store import (
+    Role,
     ThreadNotFound,
     create_thread,
     delete_thread,
     get_thread,
+    list_messages,
     list_threads,
     rename_thread,
 )
@@ -44,6 +46,14 @@ class ThreadOut(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+
+
+class MessageOut(BaseModel):
+    message_id: int
+    role: Role
+    content: str
+    citations: list[str]
+    created_at: datetime
 
 
 class CreateThreadRequest(BaseModel):
@@ -118,6 +128,32 @@ def delete_thread_route(
         delete_thread(conn, user_id, thread_id)
     except ThreadNotFound:
         raise not_found() from None
+
+
+def _citations(payload: dict[str, Any]) -> list[str]:
+    return list(payload.get("citations", []))
+
+
+@router.get("/{thread_id}/messages")
+def list_messages_route(
+    thread_id: UUID,
+    user_id: UUID = Depends(current_user),  # noqa: B008
+    conn: psycopg.Connection = Depends(get_conn),  # noqa: B008
+) -> list[MessageOut]:
+    try:
+        messages = list_messages(conn, user_id, thread_id)
+    except ThreadNotFound:
+        raise not_found() from None
+    return [
+        MessageOut(
+            message_id=message.message_id,
+            role=message.role,
+            content=message.content,
+            citations=_citations(dict(message.payload)),
+            created_at=message.created_at,
+        )
+        for message in messages
+    ]
 
 
 @router.get("/{thread_id}/facts")
