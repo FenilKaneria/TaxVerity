@@ -1,0 +1,35 @@
+# Step 15.1. The corpus PDF (106 MB) and every derived data/ artifact are
+# loaded into Postgres separately (scripts/ingest_corpus.py, Step 17.1) — the
+# served image is deploy-only and carries no corpus files on disk.
+Income-tax-Act-2025.pdf
+data/
+
+.git/
+.claude/
+PLAN.md
+DECISIONS.md
+docs/
+evals/
+reports/
+tests/
+scripts/
+
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.deepeval/
+
+.env
+.env.example
+
+.github/
+compose.yaml
+Dockerfile
+.dockerignore

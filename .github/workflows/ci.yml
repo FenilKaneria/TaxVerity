@@ -1,0 +1,65 @@
+# Step 15.4 (ESSENTIAL, rule 01 product-first mode). Three independent jobs:
+# lint, the test suite against a real pgvector service container, and a
+# Docker build check. No live-vendor calls: tests needing Jina, Groq, Gemini,
+# Langfuse or Gmail skip without keys (the pattern established from Step 4.6
+# onward), and no secret is configured here on purpose.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
+        env:
+          POSTGRES_USER: taxverity
+          POSTGRES_PASSWORD: taxverity
+          POSTGRES_DB: taxverity
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U taxverity -d taxverity"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      # Live-database tests create and drop their own throwaway
+      # `taxverity_test_<hex>` databases against this admin URL (Steps
+      # 6.2/6.3); nothing here touches a "dev" database. Every test needing a
+      # corpus, an embedding set, or a vendor key skips without one — no
+      # migration or data load runs in CI.
+      TAXVERITY_DATABASE_URL: postgresql://taxverity:taxverity@localhost:5432/taxverity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false

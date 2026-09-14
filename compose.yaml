@@ -1,11 +1,14 @@
-# Local development datastore only (Step 6.1, ADR-087). Production is RDS or
-# Supabase; nothing here is deployed.
+# Local development stack. `postgres` (Step 6.1, ADR-087) is a real
+# datastore, kept local; production is Supabase (ADR-111), nothing here is
+# deployed. `api` (Step 15.3) runs the same image ECR/Lambda serves
+# (Dockerfile, ADR-076) — no local Langfuse, since Cloud is used everywhere.
 #
-# The image is pinned to the exact pgvector release and Postgres major that the
-# production candidates run, so parity (Step 6.5) and the startup guard
-# (Step 6.6) are tested against the real engine. The `vector` extension is
-# deliberately not created by an init script: RDS and Supabase never run one,
-# so the first migration (Step 6.2) owns CREATE EXTENSION in every environment.
+# The postgres image is pinned to the exact pgvector release and Postgres
+# major that the production candidates run, so parity (Step 6.5) and the
+# startup guard (Step 6.6) are tested against the real engine. The `vector`
+# extension is deliberately not created by an init script: RDS and Supabase
+# never run one, so the first migration (Step 6.2) owns CREATE EXTENSION in
+# every environment.
 
 services:
   postgres:
@@ -29,6 +32,21 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+
+  api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      # Overrides the .env value (which points at 127.0.0.1 for host-side
+      # tools like scripts/migrate.py) with the in-network service name —
+      # docker compose applies `environment:` after `env_file:`, so this wins.
+      TAXVERITY_DATABASE_URL: postgresql://taxverity:taxverity@postgres:5432/taxverity
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata-pg17:

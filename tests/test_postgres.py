@@ -21,13 +21,29 @@ def _compose_env(name: str) -> str:
     return match.group(1)
 
 
+def _service_block(name: str) -> str:
+    # `compose.yaml` gained an `api` service at Step 15.3; a regex over the
+    # whole file would see both services' `ports:` entries. Top-level service
+    # keys are two-space indented, so the block runs to the next one (or to
+    # `volumes:`, which sits at zero indent after the last service).
+    match = re.search(
+        rf"^  {name}:\n(.*?)(?=^  \S|^\S)", _compose(), flags=re.MULTILINE | re.DOTALL
+    )
+    assert match, f"{name} service not found in compose.yaml"
+    return match.group(1)
+
+
 def test_image_is_pinned_to_one_pgvector_release_and_postgres_major():
-    images = re.findall(r"^\s+image:\s*(\S+)\s*$", _compose(), flags=re.MULTILINE)
+    images = re.findall(
+        r"^\s+image:\s*(\S+)\s*$", _service_block("postgres"), flags=re.MULTILINE
+    )
     assert images == [IMAGE]
 
 
 def test_postgres_port_is_published_on_loopback_only():
-    published = re.findall(r'^\s+-\s*"([^"]+)"\s*$', _compose(), flags=re.MULTILINE)
+    published = re.findall(
+        r'^\s+-\s*"([^"]+)"\s*$', _service_block("postgres"), flags=re.MULTILINE
+    )
     assert published == ["127.0.0.1:5432:5432"]
 
 
