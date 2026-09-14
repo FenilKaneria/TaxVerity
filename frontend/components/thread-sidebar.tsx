@@ -16,7 +16,7 @@
 // so wrapping the aside in a fixed/translated container here does not move
 // them).
 
-import { MoreHorizontal, Plus, X } from "lucide-react";
+import { MoreHorizontal, PanelLeftClose, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -46,9 +46,16 @@ import { deleteThread, listThreads, renameThread, type Thread } from "@/lib/thre
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  // Desktop-only collapse (lg+) — distinct from `open`, the mobile off-canvas
+  // overlay state. Collapsing removes the sidebar from the flex row entirely
+  // (`lg:hidden`) rather than animating its width, so no content reflow
+  // trick is needed; app/(app)/layout.tsx renders the reopen affordance
+  // while collapsed, since this component is unmounted from view then.
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
-export function ThreadSidebar({ open, onOpenChange }: Props) {
+export function ThreadSidebar({ open, onOpenChange, collapsed, onToggleCollapse }: Props) {
   const router = useRouter();
   const params = useParams<{ threadId?: string }>();
   const activeThreadId = params.threadId;
@@ -125,6 +132,7 @@ export function ThreadSidebar({ open, onOpenChange }: Props) {
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex h-full w-72 shrink-0 flex-col border-r border-border bg-card transition-transform duration-200 lg:static lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
+          collapsed && "lg:hidden",
         )}
       >
         <div className="flex items-center justify-between gap-2 border-b border-border p-4">
@@ -132,9 +140,20 @@ export function ThreadSidebar({ open, onOpenChange }: Props) {
             <LogoMark className="size-7 text-seal" />
             <span className="font-display text-lg text-foreground">TaxVerity</span>
           </Link>
-          <Button size="icon" variant="ghost" aria-label="Close menu" className="lg:hidden" onClick={() => onOpenChange(false)}>
-            <X className="size-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Collapse sidebar"
+              className="hidden lg:inline-flex"
+              onClick={onToggleCollapse}
+            >
+              <PanelLeftClose className="size-4" />
+            </Button>
+            <Button size="icon" variant="ghost" aria-label="Close menu" className="lg:hidden" onClick={() => onOpenChange(false)}>
+              <X className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="p-3">
@@ -148,7 +167,7 @@ export function ThreadSidebar({ open, onOpenChange }: Props) {
           </Button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-3">
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
           <p className="px-1 pb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
             History
           </p>

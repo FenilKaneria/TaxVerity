@@ -109,10 +109,6 @@ function ThreadView({ threadId }: { threadId: string }) {
   function focusCitation(path: string) {
     setHighlightPath(path);
     setRailOpen(true);
-    requestAnimationFrame(() => {
-      document.getElementById(`source-${path}`)?.scrollIntoView({ block: "nearest" });
-    });
-    window.setTimeout(() => setHighlightPath((p) => (p === path ? null : p)), 2000);
   }
 
   if (state.status === "loading") {
@@ -191,7 +187,14 @@ function ThreadView({ threadId }: { threadId: string }) {
         open={railOpen}
         onOpenChange={setRailOpen}
         focusToken={highlightPath}
-        evidence={<EvidencePanel pool={pool} cited={cited} highlightPath={highlightPath} />}
+        evidence={
+          <EvidencePanel
+            pool={pool}
+            cited={cited}
+            selectedPath={highlightPath}
+            onClose={() => setHighlightPath(null)}
+          />
+        }
         computation={<ComputationPanel computation={computation} />}
         facts={<FactsPanel threadId={threadId} refreshKey={factsVersion} />}
       />

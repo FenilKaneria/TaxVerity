@@ -73,7 +73,7 @@ export function GuestComposer() {
   return (
     <div
       data-mode={showLanding ? "landing" : "conversation"}
-      className="texture-paper flex flex-1 flex-col transition-colors duration-500"
+      className="texture-paper flex min-h-0 flex-1 flex-col transition-colors duration-500"
       style={{ backgroundColor: showLanding ? "var(--canvas)" : "var(--background)" }}
     >
       {showLanding ? (

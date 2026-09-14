@@ -86,12 +86,19 @@ def main() -> None:
         help="seconds between questions, matching answer_smoke.py's DEFAULT_PAUSE "
         "(Groq free tier holds ~1.7 evidence-pack queries a minute)",
     )
+    parser.add_argument(
+        "--only",
+        action="append",
+        default=None,
+        help="run only this smoke-set query id; repeatable",
+    )
     args = parser.parse_args()
 
     settings = Settings()
     gold_path = settings.evals_dir / "datasets" / GOLD_V2_FILENAME
     gold = {q.query_id: q for q in load_gold_set(gold_path)}
-    questions = [(qid, gold[qid].question) for qid in SMOKE_QUERY_IDS]
+    ids = args.only if args.only else SMOKE_QUERY_IDS
+    questions = [(qid, gold[qid].question) for qid in ids]
 
     with psycopg.connect(
         settings.database_url.get_secret_value(), autocommit=True
