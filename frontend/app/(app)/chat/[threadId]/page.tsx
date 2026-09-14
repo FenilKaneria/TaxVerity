@@ -1,16 +1,22 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { AppTopbar } from "@/components/app-topbar";
 import { ComputationPanel } from "@/components/computation-panel";
+import { Conversation } from "@/components/conversation";
+import { ContextRail } from "@/components/context-rail";
 import { EvidencePanel } from "@/components/evidence-panel";
 import { FactsPanel } from "@/components/facts-panel";
-import { MessageList } from "@/components/message-list";
+import { QuestionComposer } from "@/components/question-composer";
+import { useSidebarContext } from "@/components/sidebar-context";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TurnComposer } from "@/components/turn-composer";
+import { Button } from "@/components/ui/button";
+import { useThreadTurn } from "@/components/turn-composer";
 import { ApiError } from "@/lib/errors";
 import type { Citation, ComputationSummary } from "@/lib/sse";
 import { getThread, listMessages, type Message, type Thread } from "@/lib/threads";
+import { FileStack } from "lucide-react";
 
 type LoadState =
   | { status: "loading" }
@@ -22,16 +28,34 @@ type LoadState =
 // mount's own `useState({status:"loading"})` initial value *is* the reset —
 // no effect ever needs to set state back to "loading" itself.
 function ThreadView({ threadId }: { threadId: string }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { openSidebar } = useSidebarContext();
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  // Step 16.4-16.7: the live turn stream's side effects, lifted out of
-  // TurnComposer so the evidence/computation panels survive after it clears
-  // its own display for the next question. `factsVersion` re-triggers
-  // FactsPanel's own fetch rather than duplicating fact-state here — the
-  // facts store, not the stream's preview, is that panel's source of truth.
+  // The live turn stream's side effects, lifted out of the composer so the
+  // evidence/computation panels survive after the transcript clears for the
+  // next question. `factsVersion` re-triggers FactsPanel's own fetch rather
+  // than duplicating fact-state here — the facts store, not the stream's
+  // preview, is that panel's source of truth.
   const [pool, setPool] = useState<string[]>([]);
   const [cited, setCited] = useState<Citation[]>([]);
   const [computation, setComputation] = useState<ComputationSummary | null>(null);
   const [factsVersion, setFactsVersion] = useState(0);
+  const [question, setQuestion] = useState("");
+  const [railOpen, setRailOpen] = useState(false);
+  const [highlightPath, setHighlightPath] = useState<string | null>(null);
+
+  const turn = useThreadTurn(threadId, {
+    onEvidence: (nextPool, nextCited) => {
+      setPool(nextPool);
+      setCited(nextCited);
+    },
+    onComputation: setComputation,
+    onTurnComplete: () => {
+      reloadMessages();
+      setFactsVersion((v) => v + 1);
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +79,22 @@ function ThreadView({ threadId }: { threadId: string }) {
     };
   }, [threadId]);
 
+  // Auto-starts the first turn when arriving from the New Chat landing's
+  // ?q=<question> (see app/(app)/chat/page.tsx). The ref guard follows the
+  // pattern already used in app/(auth)/verify-email/page.tsx — without it,
+  // React StrictMode double-invokes and the first question gets asked
+  // twice. The query param is stripped before submitting, not after, so a
+  // refresh mid-stream does not re-ask it.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (!q || autoStarted.current) return;
+    autoStarted.current = true;
+    router.replace(`/chat/${threadId}`);
+    turn.submit(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, threadId]);
+
   function reloadMessages() {
     listMessages(threadId)
       .then((messages) =>
@@ -64,6 +104,15 @@ function ThreadView({ threadId }: { threadId: string }) {
         // History still shows the pre-turn state; the live transcript above
         // the composer already carries what was just said.
       });
+  }
+
+  function focusCitation(path: string) {
+    setHighlightPath(path);
+    setRailOpen(true);
+    requestAnimationFrame(() => {
+      document.getElementById(`source-${path}`)?.scrollIntoView({ block: "nearest" });
+    });
+    window.setTimeout(() => setHighlightPath((p) => (p === path ? null : p)), 2000);
   }
 
   if (state.status === "loading") {
@@ -79,7 +128,7 @@ function ThreadView({ threadId }: { threadId: string }) {
   if (state.status === "not_found") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-        <p className="font-serif text-xl text-foreground">Thread not found</p>
+        <p className="font-display text-xl text-foreground">Thread not found</p>
         <p className="max-w-sm text-sm text-muted-foreground">
           It may have been deleted, or never belonged to this account.
         </p>
@@ -98,32 +147,54 @@ function ThreadView({ threadId }: { threadId: string }) {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="border-b border-border px-6 py-3">
-          <h1 className="truncate font-serif text-lg text-foreground">
+    <div className="flex flex-1 flex-col overflow-hidden xl:flex-row">
+      <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
+        <AppTopbar
+          title={state.thread.title}
+          onOpenSidebar={openSidebar}
+          trailing={
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Sources, computation and facts"
+              onClick={() => setRailOpen(true)}
+            >
+              <FileStack className="size-4" />
+            </Button>
+          }
+        />
+        <header className="hidden border-b border-border px-6 py-3 xl:block">
+          <h1 className="truncate font-display text-lg text-foreground">
             {state.thread.title}
           </h1>
         </header>
-        <MessageList messages={state.messages} />
-        <TurnComposer
-          threadId={threadId}
-          onEvidence={(nextPool, nextCited) => {
-            setPool(nextPool);
-            setCited(nextCited);
-          }}
-          onComputation={setComputation}
-          onTurnComplete={() => {
-            reloadMessages();
-            setFactsVersion((v) => v + 1);
-          }}
+        <Conversation
+          messages={state.messages}
+          turn={turn}
+          onCiteClick={focusCitation}
+          composer={
+            <QuestionComposer
+              value={question}
+              onChange={setQuestion}
+              onSubmit={() => {
+                const q = question;
+                setQuestion("");
+                turn.submit(q);
+              }}
+              streaming={turn.streaming}
+              onCancel={turn.cancel}
+            />
+          }
         />
       </div>
-      <aside className="w-full shrink-0 overflow-y-auto border-t border-border lg:h-full lg:w-96 lg:border-t-0 lg:border-l">
-        <EvidencePanel pool={pool} cited={cited} />
-        <ComputationPanel computation={computation} />
-        <FactsPanel threadId={threadId} refreshKey={factsVersion} />
-      </aside>
+      <ContextRail
+        open={railOpen}
+        onOpenChange={setRailOpen}
+        focusToken={highlightPath}
+        evidence={<EvidencePanel pool={pool} cited={cited} highlightPath={highlightPath} />}
+        computation={<ComputationPanel computation={computation} />}
+        facts={<FactsPanel threadId={threadId} refreshKey={factsVersion} />}
+      />
     </div>
   );
 }

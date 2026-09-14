@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 240" role="img" aria-labelledby="title desc">
+  <title id="title">TaxVerity logo</title>
+  <desc id="desc">An editorial monogram mark combining T and V into a verification seal, paired with the TaxVerity wordmark.</desc>
+
+  <defs>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7A2533"/>
+      <stop offset="100%" stop-color="#4A1721"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Mark -->
+  <g transform="translate(28 28)">
+    <!-- outer editorial seal -->
+    <circle cx="92" cy="92" r="78" fill="#F5EBDD"/>
+    <circle cx="92" cy="92" r="69" fill="none" stroke="#7A2533" stroke-width="3"/>
+
+    <!-- T: a strong legal/editorial stem -->
+    <path d="M50 50 H134" fill="none" stroke="#7A2533" stroke-width="11" stroke-linecap="round"/>
+    <path d="M92 50 V126" fill="none" stroke="#7A2533" stroke-width="11" stroke-linecap="round"/>
+
+    <!-- V: verification gesture -->
+    <path d="M58 77 L88 120 L132 68"
+          fill="none" stroke="url(#mark)" stroke-width="10"
+          stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- small verification dot -->
+    <circle cx="133" cy="68" r="5.5" fill="#B06A3C"/>
+  </g>
+
+  <!-- Wordmark -->
+  <g transform="translate(220 0)">
+    <text x="0" y="117"
+          font-family="Georgia, 'Times New Roman', serif"
+          font-size="78"
+          font-weight="400"
+          letter-spacing="-2.5"
+          fill="#182A2A">Tax</text>
+    <text x="138" y="117"
+          font-family="Georgia, 'Times New Roman', serif"
+          font-size="78"
+          font-weight="400"
+          letter-spacing="-2.5"
+          fill="#7A2533">Verity</text>
+
+    <line x1="2" y1="145" x2="315" y2="145"
+          stroke="#B06A3C" stroke-width="2"/>
+
+    <text x="3" y="179"
+          font-family="Arial, Helvetica, sans-serif"
+          font-size="17"
+          letter-spacing="5"
+          fill="#58605F">TAX LAW • CLEARLY VERIFIED</text>
+  </g>
+</svg>

@@ -1,28 +1,45 @@
 "use client";
 
-// Step 16.3. Route protection is client-side only, and that is forced, not
-// chosen: the access token lives in memory and the refresh cookie is scoped
-// path=/v1/auth, so no Server Component and no middleware can ever see
-// either. This guard hides UI; it guarantees nothing — which is acceptable
-// precisely because it guards no data. Every byte of user content arrives
-// from a bearer-authenticated call the server validates independently, and
-// the cross-user isolation tests at the store and HTTP layers (Step
-// 11.4/14.3) are what actually enforce it. See PLAN.md Phase 16.
+// Step 16.3, restyled. Route protection is client-side only, and that is
+// forced, not chosen: the access token lives in memory and the refresh
+// cookie is scoped path=/v1/auth, so no Server Component and no middleware
+// can ever see either. This guard hides UI; it guarantees nothing — which is
+// acceptable precisely because it guards no data. The cross-user isolation
+// tests at the store and HTTP layers (Step 11.4/14.3) are what actually
+// enforce it.
 //
 // An anonymous visitor here is bounced to `/`, not `/login` — since the
 // ADR-112 guest-trial fix, `/` is the guest chat landing with sign-in/sign-up
-// as an explicit choice, not a login wall. `/login` still exists and is
-// linked from there for anyone who already has an account.
+// as an explicit choice, not a login wall.
+//
+// `data-mode` on <main> is the New-Chat-landing <-> active-conversation
+// transition: exactly `/chat` is "landing" (the hero), any `/chat/<id>` is
+// "conversation" (plain ground, no texture). It lives here rather than on
+// each page because this element is the one thing that survives the route
+// change — the background transitions instead of flashing between two
+// pages. See globals.css's `.texture-paper` / `[data-mode]` rules.
 
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useAuthStatus } from "@/components/auth-provider";
+import { SidebarContextProvider } from "@/components/sidebar-context";
 import { ThreadSidebar } from "@/components/thread-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
   const router = useRouter();
+  const pathname = usePathname();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Closing the off-canvas sidebar on navigation is a render-time state
+  // adjustment (React's own pattern for "reset state when a prop changes"),
+  // not an effect — it happens as part of the render this navigation
+  // triggers, rather than as a separate pass syncing to an external system.
+  const [sidebarClosedFor, setSidebarClosedFor] = useState(pathname);
+  if (pathname !== sidebarClosedFor) {
+    setSidebarClosedFor(pathname);
+    setSidebarOpen(false);
+  }
 
   useEffect(() => {
     if (status === "anonymous") {
@@ -32,16 +49,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (status !== "authenticated") {
     return (
-      <div className="flex h-dvh items-center justify-center">
+      <div className="flex h-dvh items-center justify-center bg-background">
         <Skeleton className="h-8 w-8 rounded-full" />
       </div>
     );
   }
 
+  const mode = pathname === "/chat" ? "landing" : "conversation";
+
   return (
     <div className="flex h-dvh">
-      <ThreadSidebar />
-      <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+      <ThreadSidebar open={sidebarOpen} onOpenChange={setSidebarOpen} />
+      <main
+        data-mode={mode}
+        className="texture-paper flex min-w-0 min-h-0 flex-1 flex-col transition-colors duration-500"
+        style={{
+          backgroundColor: mode === "landing" ? "var(--canvas)" : "var(--background)",
+        }}
+      >
+        <SidebarContextProvider openSidebar={() => setSidebarOpen(true)}>
+          {children}
+        </SidebarContextProvider>
+      </main>
     </div>
   );
 }

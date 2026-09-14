@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
-import { Public_Sans, Source_Serif_4 } from "next/font/google";
+import { Fraunces, Inter_Tight } from "next/font/google";
 import { AuthProvider } from "@/components/auth-provider";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
-const publicSans = Public_Sans({
-  variable: "--font-public-sans",
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
   subsets: ["latin"],
   display: "swap",
+  axes: ["SOFT", "WONK"],
 });
 
-const sourceSerif = Source_Serif_4({
-  variable: "--font-source-serif",
+const interTight = Inter_Tight({
+  variable: "--font-inter-tight",
   subsets: ["latin"],
   display: "swap",
 });
@@ -25,10 +27,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${publicSans.variable} ${sourceSerif.variable} h-full antialiased`}
+      suppressHydrationWarning
+      className={`${fraunces.variable} ${interTight.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <AuthProvider>{children}</AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

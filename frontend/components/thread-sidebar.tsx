@@ -1,14 +1,26 @@
 "use client";
 
-// Step 16.3. Plain React state, not SWR or TanStack Query — five endpoints,
-// one list, no polling, no cross-tab sync, and neither library would help
-// with the one hard problem in this app (token refresh), which lives in
-// lib/api.ts regardless. See PLAN.md Phase 16.
+// Step 16.3, restyled for the parchment/burgundy redesign. Plain React state,
+// not SWR or TanStack Query — five endpoints, one list, no polling, no
+// cross-tab sync, and neither library would help with the one hard problem
+// in this app (token refresh), which lives in lib/api.ts regardless.
+//
+// "New thread" no longer calls createThread() up front — that left an empty
+// thread titled "New question" in history the moment the icon was clicked.
+// It now just routes to /chat, the landing composer, which creates the
+// thread on first submit (see app/(app)/chat/page.tsx).
+//
+// Off-canvas below `lg`: `open`/`onOpenChange` let the parent layout control
+// visibility with a backdrop; the <aside> itself is unchanged in shape (it
+// still sits beside two sibling Dialogs in a fragment — both dialogs portal,
+// so wrapping the aside in a fixed/translated container here does not move
+// them).
 
-import { LogOut, MoreHorizontal, Plus } from "lucide-react";
+import { MoreHorizontal, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { LogoMark } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,25 +38,23 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { UserMenu } from "@/components/user-menu";
 import { cn } from "@/lib/utils";
-import { logout } from "@/lib/auth";
 import { ApiError } from "@/lib/errors";
-import {
-  createThread,
-  deleteThread,
-  listThreads,
-  renameThread,
-  type Thread,
-} from "@/lib/threads";
+import { deleteThread, listThreads, renameThread, type Thread } from "@/lib/threads";
 
-export function ThreadSidebar() {
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function ThreadSidebar({ open, onOpenChange }: Props) {
   const router = useRouter();
   const params = useParams<{ threadId?: string }>();
   const activeThreadId = params.threadId;
 
   const [threads, setThreads] = useState<Thread[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<Thread | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleting, setDeleting] = useState<Thread | null>(null);
@@ -57,19 +67,6 @@ export function ThreadSidebar() {
         setThreads([]);
       });
   }, []);
-
-  async function handleCreate() {
-    setCreating(true);
-    try {
-      const thread = await createThread("New question");
-      setThreads((prev) => [thread, ...(prev ?? [])]);
-      router.push(`/chat/${thread.thread_id}`);
-    } catch {
-      // A failed create has nothing to roll back — the list is unchanged.
-    } finally {
-      setCreating(false);
-    }
-  }
 
   function startRename(thread: Thread) {
     setRenaming(thread);
@@ -109,27 +106,55 @@ export function ThreadSidebar() {
     }
   }
 
+  function navigate(href: string) {
+    router.push(href);
+    onOpenChange(false);
+  }
+
   return (
     <>
-      <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-card">
-        <div className="flex items-center justify-between gap-2 border-b border-border p-3">
-          <Link href="/chat" className="font-serif text-lg text-foreground">
-            TaxVerity
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[1px] lg:hidden"
+          onClick={() => onOpenChange(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex h-full w-72 shrink-0 flex-col border-r border-border bg-card transition-transform duration-200 lg:static lg:translate-x-0",
+          open ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
+        <div className="flex items-center justify-between gap-2 border-b border-border p-4">
+          <Link href="/chat" className="flex items-center gap-2" onClick={() => onOpenChange(false)}>
+            <LogoMark className="size-7 text-seal" />
+            <span className="font-display text-lg text-foreground">TaxVerity</span>
           </Link>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="New thread"
-            onClick={handleCreate}
-            disabled={creating}
-          >
-            <Plus className="size-4" />
+          <Button size="icon" variant="ghost" aria-label="Close menu" className="lg:hidden" onClick={() => onOpenChange(false)}>
+            <X className="size-4" />
           </Button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-2">
+        <div className="p-3">
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2 border-dashed"
+            onClick={() => navigate("/chat")}
+          >
+            <Plus className="size-4" />
+            New question
+          </Button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 pb-3">
+          <p className="px-1 pb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            History
+          </p>
+
           {threads === null && (
-            <div className="flex flex-col gap-2 p-2">
+            <div className="flex flex-col gap-2 p-1">
               <Skeleton className="h-8 w-full" />
               <Skeleton className="h-8 w-full" />
               <Skeleton className="h-8 w-full" />
@@ -137,13 +162,13 @@ export function ThreadSidebar() {
           )}
 
           {threads !== null && threads.length === 0 && !error && (
-            <p className="p-3 text-sm text-muted-foreground">
-              No threads yet. Start one to ask a question.
+            <p className="p-2 text-sm text-muted-foreground">
+              No questions yet — start one above.
             </p>
           )}
 
           {error && (
-            <p role="alert" className="p-3 text-sm text-destructive">
+            <p role="alert" className="p-2 text-sm text-destructive">
               {error}
             </p>
           )}
@@ -160,7 +185,11 @@ export function ThreadSidebar() {
               >
                 <Link
                   href={`/chat/${thread.thread_id}`}
-                  className="min-w-0 flex-1 truncate px-3 py-2 text-sm text-foreground"
+                  onClick={() => onOpenChange(false)}
+                  className={cn(
+                    "min-w-0 flex-1 truncate px-2.5 py-2 text-sm",
+                    active ? "text-accent-foreground" : "text-foreground",
+                  )}
                 >
                   {thread.title}
                 </Link>
@@ -193,15 +222,7 @@ export function ThreadSidebar() {
         </nav>
 
         <div className="border-t border-border p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start gap-2 text-muted-foreground"
-            onClick={() => logout()}
-          >
-            <LogOut className="size-4" />
-            Sign out
-          </Button>
+          <UserMenu />
         </div>
       </aside>
 

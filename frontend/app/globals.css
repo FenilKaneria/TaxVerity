@@ -3,27 +3,33 @@
 @import "shadcn/tailwind.css";
 
 /*
- * No manual theme toggle is built in 16.1-16.3 (no UI calls for one yet), so
- * `dark:` stays Tailwind's default — driven by `prefers-color-scheme`, not a
- * `.dark` class. Switch to a class-based `@custom-variant dark` only once a
- * toggle component actually sets that class.
+ * Class-based dark mode (next-themes, `attribute="class"`). `.dark` on the
+ * root element is the only switch — no media query anywhere below, so an
+ * explicit Light choice is never overridden by system-dark. See
+ * components/theme-provider.tsx.
  */
+@custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Design direction: "statute and system" (Step 16.1, PLAN.md Phase 16).
- * The Act's own words are set in --font-serif; everything TaxVerity itself
- * says is --font-sans. Near-achromatic ink-on-paper; the single chromatic
- * mark (--seal) means exactly one thing across the whole app: "grounded in
- * the statute". --withheld is deliberately its own hue, not --destructive —
- * a withheld claim is the verifier working correctly, not an error.
+ * Design direction: "parchment and seal" (frontend redesign, superseding the
+ * original "statute and system" achromatic palette — see DECISIONS.md).
+ * Warm parchment/cream grounds, ink-dark text, one deep burgundy accent
+ * (--seal, drawn from the TaxVerity mark) meaning "grounded in the statute"
+ * everywhere it appears. --withheld is deliberately its own ochre hue, not
+ * --destructive — a withheld claim is the verifier working correctly, not
+ * an error. --canvas is the richer, textured ground used only by the New
+ * Chat / guest landing state; --background is the plain ground used once a
+ * conversation is underway (see app/(app)/layout.tsx's data-mode switch).
  */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-public-sans);
-  --font-serif: var(--font-source-serif);
-  --font-heading: var(--font-public-sans);
+  --color-canvas: var(--canvas);
+  --font-sans: var(--font-inter-tight);
+  --font-serif: var(--font-fraunces);
+  --font-display: var(--font-fraunces);
+  --font-heading: var(--font-fraunces);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -53,58 +59,66 @@
 }
 
 :root {
-  --background: #f7f8f7;
-  --foreground: #16191b;
-  --card: #ffffff;
-  --card-foreground: #16191b;
-  --popover: #ffffff;
-  --popover-foreground: #16191b;
-  --primary: #16191b;
-  --primary-foreground: #f7f8f7;
-  --secondary: #eef0ef;
-  --secondary-foreground: #16191b;
-  --muted: #eef0ef;
-  --muted-foreground: #5a6268;
-  --accent: #eef0ef;
-  --accent-foreground: #16191b;
-  --destructive: #b42318;
-  --destructive-foreground: #f7f8f7;
-  --border: #dfe3e1;
-  --input: #dfe3e1;
-  --ring: #16191b;
-  --seal: #0e5b4a;
-  --seal-foreground: #f7f8f7;
-  --withheld: #9a3412;
-  --withheld-foreground: #f7f8f7;
-  --radius: 0.375rem;
+  color-scheme: light;
+
+  --background: #faf6ef;
+  --canvas: #f2e8d8;
+  --foreground: #182a2a;
+  --card: #fffdf9;
+  --card-foreground: #182a2a;
+  --popover: #fffdf9;
+  --popover-foreground: #182a2a;
+  --primary: #7a2533;
+  --primary-foreground: #faf6ef;
+  --secondary: #efe6d6;
+  --secondary-foreground: #182a2a;
+  --muted: #efe6d6;
+  --muted-foreground: #58605f;
+  --accent: #ebe0cd;
+  --accent-foreground: #182a2a;
+  --destructive: #a32219;
+  --destructive-foreground: #faf6ef;
+  --border: #e0d5c2;
+  --input: #dcd0bb;
+  --ring: #7a2533;
+  --seal: #7a2533;
+  --seal-foreground: #faf6ef;
+  --withheld: #b06a3c;
+  --withheld-foreground: #fffdf9;
+  --radius: 0.5rem;
+  --shadow-subtle: 0 1px 2px 0 rgb(24 22 18 / 0.06);
+  --shadow-lifted: 0 8px 24px -8px rgb(24 22 18 / 0.16);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #121415;
-    --foreground: #e8eae9;
-    --card: #191c1d;
-    --card-foreground: #e8eae9;
-    --popover: #191c1d;
-    --popover-foreground: #e8eae9;
-    --primary: #e8eae9;
-    --primary-foreground: #121415;
-    --secondary: #202425;
-    --secondary-foreground: #e8eae9;
-    --muted: #202425;
-    --muted-foreground: #9ba3a6;
-    --accent: #202425;
-    --accent-foreground: #e8eae9;
-    --destructive: #f0776a;
-    --destructive-foreground: #121415;
-    --border: #2a2f30;
-    --input: #2a2f30;
-    --ring: #9ba3a6;
-    --seal: #4fc0a4;
-    --seal-foreground: #0d2420;
-    --withheld: #e8896a;
-    --withheld-foreground: #2b1006;
-  }
+.dark {
+  color-scheme: dark;
+
+  --background: #14100e;
+  --canvas: #1a1512;
+  --foreground: #ede5d8;
+  --card: #1d1815;
+  --card-foreground: #ede5d8;
+  --popover: #1d1815;
+  --popover-foreground: #ede5d8;
+  --primary: #d98b95;
+  --primary-foreground: #14100e;
+  --secondary: #272019;
+  --secondary-foreground: #ede5d8;
+  --muted: #272019;
+  --muted-foreground: #a99c8c;
+  --accent: #2e251e;
+  --accent-foreground: #ede5d8;
+  --destructive: #f0847a;
+  --destructive-foreground: #14100e;
+  --border: #352b23;
+  --input: #352b23;
+  --ring: #d98b95;
+  --seal: #d98b95;
+  --seal-foreground: #2a0f14;
+  --withheld: #d9a06b;
+  --withheld-foreground: #2b1a08;
+  --shadow-subtle: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-lifted: 0 8px 28px -8px rgb(0 0 0 / 0.55);
 }
 
 @layer base {
@@ -122,5 +136,56 @@
 @layer utilities {
   .font-tabular {
     font-variant-numeric: tabular-nums;
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+    font-variation-settings:
+      "SOFT" 40,
+      "WONK" 1;
+  }
+
+  .shadow-subtle {
+    box-shadow: var(--shadow-subtle);
+  }
+
+  .shadow-lifted {
+    box-shadow: var(--shadow-lifted);
+  }
+
+  /*
+   * Landing-only paper grain. `.texture-paper` stays mounted on the
+   * persistent (app)/layout.tsx <main> across a route change — only its
+   * ::before opacity moves, gated by the ancestor's [data-mode] attribute —
+   * so the grain fades in/out as a transition rather than popping in/out
+   * with the class itself. Rendered as an absolutely-positioned ::before
+   * rather than a background-image on the element, since a plain `opacity`
+   * on the element would fade its text along with the texture. Inlined
+   * feTurbulence: no image request, no external asset.
+   */
+  .texture-paper {
+    position: relative;
+  }
+
+  .texture-paper::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    opacity: 0;
+    transition: opacity 500ms ease;
+  }
+
+  [data-mode="landing"] > .texture-paper::before,
+  .texture-paper[data-mode="landing"]::before {
+    opacity: 0.035;
+  }
+
+  .dark [data-mode="landing"] > .texture-paper::before,
+  .dark .texture-paper[data-mode="landing"]::before {
+    opacity: 0.05;
   }
 }

@@ -10,6 +10,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { LogoMark } from "@/components/brand/logo";
 import { GuestComposer } from "@/components/guest-composer";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,7 +26,7 @@ export default function RootPage() {
 
   if (status === "unknown" || status === "authenticated") {
     return (
-      <div className="flex h-dvh items-center justify-center">
+      <div className="flex h-dvh items-center justify-center bg-background">
         <Skeleton className="h-8 w-8 rounded-full" />
       </div>
     );
@@ -34,7 +35,10 @@ export default function RootPage() {
   return (
     <div className="flex h-dvh flex-col">
       <header className="flex items-center justify-between border-b border-border px-4 py-3">
-        <span className="font-serif text-lg font-semibold text-foreground">TaxVerity</span>
+        <span className="flex items-center gap-2">
+          <LogoMark className="size-6 text-seal" />
+          <span className="font-display text-lg text-foreground">TaxVerity</span>
+        </span>
         <div className="flex gap-2">
           <Button asChild variant="ghost" size="sm">
             <Link href="/login">Log in</Link>
