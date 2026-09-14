@@ -95,19 +95,19 @@
 
   --background: #14100e;
   --canvas: #1a1512;
-  --foreground: #ede5d8;
+  --foreground: #f6f1e8;
   --card: #1d1815;
-  --card-foreground: #ede5d8;
+  --card-foreground: #f6f1e8;
   --popover: #1d1815;
-  --popover-foreground: #ede5d8;
+  --popover-foreground: #f6f1e8;
   --primary: #d98b95;
   --primary-foreground: #14100e;
   --secondary: #272019;
-  --secondary-foreground: #ede5d8;
+  --secondary-foreground: #f6f1e8;
   --muted: #272019;
-  --muted-foreground: #a99c8c;
+  --muted-foreground: #c3b6a4;
   --accent: #2e251e;
-  --accent-foreground: #ede5d8;
+  --accent-foreground: #f6f1e8;
   --destructive: #f0847a;
   --destructive-foreground: #14100e;
   --border: #352b23;
@@ -130,6 +130,10 @@
   }
   html {
     @apply font-sans;
+    /* A touch larger than the browser default (16px) — every rem-based
+       size in the app scales off this, so this one line is the "increase
+       font size a little" lever rather than hand-bumping each className. */
+    font-size: 17px;
   }
 }
 

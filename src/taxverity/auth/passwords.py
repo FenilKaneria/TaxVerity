@@ -15,7 +15,7 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 # Long enough to resist guessing without a composition rule (NIST SP 800-63B
 # recommends length over composition). The ceiling bounds the work one request
 # can make the hasher do.
-MIN_PASSWORD_LENGTH = 10
+MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 1_024
 
 _HASHER = PasswordHasher(type=Type.ID)

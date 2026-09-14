@@ -15,8 +15,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <LogoMark className="size-10 text-seal" />
         <span className="font-display text-2xl text-foreground">TaxVerity</span>
         <span className="max-w-xs text-sm text-muted-foreground">
-          Answers grounded in the Income-tax Act, 2025 — not a model&rsquo;s
-          memory of it.
+          Every answer traced back to the section it came from.
         </span>
       </div>
       <div className="w-full max-w-sm">{children}</div>

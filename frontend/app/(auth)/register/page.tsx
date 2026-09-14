@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { PasswordInput } from "@/components/password-input";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,12 +20,19 @@ import { ApiError } from "@/lib/errors";
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
+  const passwordsMismatched = confirmPassword.length > 0 && password !== confirmPassword;
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (password !== confirmPassword) {
+      setError("Passwords don't match.");
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
@@ -82,17 +90,31 @@ export default function RegisterPage() {
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="password">Password</Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               autoComplete="new-password"
               required
+              minLength={8}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
             <p className="text-xs text-muted-foreground">
               At least 8 characters.
             </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="confirm-password">Confirm password</Label>
+            <PasswordInput
+              id="confirm-password"
+              autoComplete="new-password"
+              required
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              aria-invalid={passwordsMismatched}
+            />
+            {passwordsMismatched && (
+              <p className="text-xs text-destructive">Passwords don&rsquo;t match.</p>
+            )}
           </div>
           {error && (
             <p role="alert" className="text-sm text-destructive">
@@ -101,7 +123,11 @@ export default function RegisterPage() {
           )}
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
-          <Button type="submit" className="w-full" disabled={submitting}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={submitting || passwordsMismatched || !confirmPassword}
+          >
             {submitting ? "Creating account…" : "Create account"}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
