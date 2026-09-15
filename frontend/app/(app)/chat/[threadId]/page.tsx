@@ -3,11 +3,10 @@
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AppTopbar } from "@/components/app-topbar";
+import { CitationDialog } from "@/components/citation-dialog";
 import { ComputationPanel } from "@/components/computation-panel";
 import { Conversation } from "@/components/conversation";
 import { ContextRail } from "@/components/context-rail";
-import { EvidencePanel } from "@/components/evidence-panel";
-import { FactsPanel } from "@/components/facts-panel";
 import { QuestionComposer } from "@/components/question-composer";
 import { useSidebarContext } from "@/components/sidebar-context";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,7 +15,7 @@ import { useThreadTurn } from "@/components/turn-composer";
 import { ApiError } from "@/lib/errors";
 import type { Citation, ComputationSummary } from "@/lib/sse";
 import { getThread, listMessages, type Message, type Thread } from "@/lib/threads";
-import { FileStack } from "lucide-react";
+import { Receipt } from "lucide-react";
 
 type LoadState =
   | { status: "loading" }
@@ -33,28 +32,19 @@ function ThreadView({ threadId }: { threadId: string }) {
   const { openSidebar } = useSidebarContext();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   // The live turn stream's side effects, lifted out of the composer so the
-  // evidence/computation panels survive after the transcript clears for the
-  // next question. `factsVersion` re-triggers FactsPanel's own fetch rather
-  // than duplicating fact-state here — the facts store, not the stream's
-  // preview, is that panel's source of truth.
-  const [pool, setPool] = useState<string[]>([]);
+  // computation panel survives after the transcript clears for the next
+  // question. `cited` is kept only to look up the quote for whichever
+  // citation the user clicked — sources are a popup now, not a panel.
   const [cited, setCited] = useState<Citation[]>([]);
   const [computation, setComputation] = useState<ComputationSummary | null>(null);
-  const [factsVersion, setFactsVersion] = useState(0);
   const [question, setQuestion] = useState("");
   const [railOpen, setRailOpen] = useState(false);
   const [highlightPath, setHighlightPath] = useState<string | null>(null);
 
   const turn = useThreadTurn(threadId, {
-    onEvidence: (nextPool, nextCited) => {
-      setPool(nextPool);
-      setCited(nextCited);
-    },
+    onEvidence: (_pool, nextCited) => setCited(nextCited),
     onComputation: setComputation,
-    onTurnComplete: () => {
-      reloadMessages();
-      setFactsVersion((v) => v + 1);
-    },
+    onTurnComplete: reloadMessages,
   });
 
   useEffect(() => {
@@ -108,8 +98,9 @@ function ThreadView({ threadId }: { threadId: string }) {
 
   function focusCitation(path: string) {
     setHighlightPath(path);
-    setRailOpen(true);
   }
+
+  const selectedCitation = cited.find((c) => c.path === highlightPath) ?? null;
 
   if (state.status === "loading") {
     return (
@@ -152,10 +143,10 @@ function ThreadView({ threadId }: { threadId: string }) {
             <Button
               size="icon"
               variant="ghost"
-              aria-label="Sources, computation and facts"
+              aria-label="Computation"
               onClick={() => setRailOpen(true)}
             >
-              <FileStack className="size-4" />
+              <Receipt className="size-4" />
             </Button>
           }
         />
@@ -186,17 +177,13 @@ function ThreadView({ threadId }: { threadId: string }) {
       <ContextRail
         open={railOpen}
         onOpenChange={setRailOpen}
-        focusToken={highlightPath}
-        evidence={
-          <EvidencePanel
-            pool={pool}
-            cited={cited}
-            selectedPath={highlightPath}
-            onClose={() => setHighlightPath(null)}
-          />
-        }
         computation={<ComputationPanel computation={computation} />}
-        facts={<FactsPanel threadId={threadId} refreshKey={factsVersion} />}
+      />
+      <CitationDialog
+        citation={selectedCitation}
+        onOpenChange={(open) => {
+          if (!open) setHighlightPath(null);
+        }}
       />
     </div>
   );

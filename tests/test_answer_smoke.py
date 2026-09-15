@@ -137,7 +137,11 @@ def test_a_run_round_trips_and_refuses_another_eval_version(tmp_path):
     store_answer_run(path, run)
     assert load_answer_run(path) == run
 
-    path.write_text(path.read_text().replace('"eval_version": 1', '"eval_version": 99'))
+    path.write_text(
+        path.read_text().replace(
+            f'"eval_version": {ANSWER_EVAL_VERSION}', '"eval_version": 99'
+        )
+    )
     with pytest.raises(ValueError, match="eval version"):
         load_answer_run(path)
 

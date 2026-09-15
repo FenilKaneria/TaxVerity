@@ -16,8 +16,8 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 from taxverity.evals.gold import QuerySlice
 from taxverity.generation.claims import ClaimEvent, ClaimType, WithheldEvent
 
-ANSWER_EVAL_VERSION = 1
-ANSWER_RUN_FILENAME = "answer_smoke_v1.json"
+ANSWER_EVAL_VERSION = 2
+ANSWER_RUN_FILENAME = "answer_smoke_v2.json"
 
 # Chosen by rule, not by reading outputs: the first three citation, four
 # paraphrase and three crossref questions of gold v2, and its first five

@@ -81,7 +81,9 @@ GROQ = Provider(
 GEMINI = Provider(
     name="gemini",
     base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-    model="gemini-2.5-flash",
+    # gemini-2.5-flash was retired for new users; the live API's own 404
+    # names gemini-3.6-flash as its replacement (confirmed 2026-09-14).
+    model="gemini-3.6-flash",
     settings_key="gemini_api_key",
 )
 
@@ -158,28 +160,33 @@ class LLMClient:
         it: an answer from one model is not an answer from another."""
         return self._primary
 
+    _PRIMARY = GROQ
+    _FALLBACK = GEMINI
+
     @classmethod
     def from_settings(cls, settings: Settings, **kwargs: Any) -> LLMClient:
         """The fallback is configured only when its key is present.
 
-        A missing Gemini key is an ordinary state, not an error — it means this
-        process has one provider and says so once, at construction.
+        A missing fallback key is an ordinary state, not an error — it means
+        this process has one provider and says so once, at construction.
         """
         fallback_key = (
             settings.gemini_api_key.get_secret_value()
-            if settings.gemini_api_key
+            if cls._FALLBACK is GEMINI and settings.gemini_api_key
+            else settings.groq_api_key.get_secret_value()
+            if cls._FALLBACK is GROQ and settings.groq_api_key
             else None
         )
         if fallback_key is None:
             logger.warning(
                 "no %s configured: %s answers with no cross-vendor fallback",
-                f"TAXVERITY_{GEMINI.settings_key.upper()}",
-                GROQ.name,
+                f"TAXVERITY_{cls._FALLBACK.settings_key.upper()}",
+                cls._PRIMARY.name,
             )
         return cls(
-            GROQ,
-            settings.require(GROQ.settings_key),
-            fallback=GEMINI if fallback_key else None,
+            cls._PRIMARY,
+            settings.require(cls._PRIMARY.settings_key),
+            fallback=cls._FALLBACK if fallback_key else None,
             fallback_key=fallback_key,
             **kwargs,
         )

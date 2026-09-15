@@ -4,9 +4,9 @@ import type { Message } from "@/lib/threads";
 
 // Step 16.3, restyled. History has less fidelity than a live stream: the
 // store keeps only joined claim text and citation *paths*, no per-claim
-// structure and no quotes (threads/store.py's payload shape). Quote
-// highlighting is live-stream only (evidence-panel.tsx) — do not fake it
-// here from a path alone.
+// structure and no quotes (threads/store.py's payload shape). The citation
+// popup (citation-dialog.tsx) can only show a quote for the live turn's own
+// citations — do not fake one here from a path alone.
 //
 // No longer its own scroll container — components/conversation.tsx owns
 // scrolling for history + the live transcript together. User messages are
