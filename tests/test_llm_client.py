@@ -461,6 +461,100 @@ def test_from_settings_wires_the_fallback_when_the_key_is_present(no_sleep):
     assert client.complete(ASK).provider == _FALLBACK.name
 
 
+KEY_2 = "test-second-key-not-real"
+
+
+def test_a_single_primary_key_still_works_exactly_as_before():
+    client = LLMClient(GROQ, KEY, http_client=httpx2.Client(transport=httpx2.MockTransport(Recorder())))
+    assert client._keys[GROQ.name] == (KEY,)
+
+
+def test_an_empty_key_pool_is_refused():
+    with pytest.raises(ValueError, match="primary_key must be non-empty"):
+        LLMClient(GROQ, [], http_client=httpx2.Client(transport=httpx2.MockTransport(Recorder())))
+    with pytest.raises(ValueError, match="primary_key must be non-empty"):
+        LLMClient(GROQ, ["", ""], http_client=httpx2.Client(transport=httpx2.MockTransport(Recorder())))
+
+
+def test_a_falsy_entry_in_a_key_pool_is_dropped_not_kept():
+    client = LLMClient(GROQ, [KEY, "", KEY_2], http_client=httpx2.Client(transport=httpx2.MockTransport(Recorder())))
+    assert client._keys[GROQ.name] == (KEY, KEY_2)
+
+
+def test_consecutive_calls_round_robin_across_the_key_pool(no_sleep):
+    handler = Recorder(ok(), ok())
+    client = LLMClient(
+        GROQ, [KEY, KEY_2],
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+        backoff_base=0.0,
+    )
+    client.complete(ASK)
+    client.complete(ASK)
+    used = [r.headers["authorization"] for r in handler.requests]
+    assert used == [f"Bearer {KEY}", f"Bearer {KEY_2}"]
+
+
+def test_a_retryable_failure_on_one_key_tries_the_other_before_any_fallback(no_sleep):
+    # 429 on key A's attempt, then key B answers — same primary provider,
+    # never touches the fallback.
+    handler = Recorder(httpx2.Response(429), ok())
+    client = LLMClient(
+        GROQ, [KEY, KEY_2],
+        fallback=GEMINI, fallback_key=FALLBACK_KEY,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+        backoff_base=0.0,
+    )
+    completion = client.complete(ASK)
+    assert completion.provider == "groq"
+    assert completion.degraded is False
+    used = [r.headers["authorization"] for r in handler.requests]
+    assert used == [f"Bearer {KEY}", f"Bearer {KEY_2}"]
+
+
+def test_both_keys_exhausted_still_falls_over_to_the_fallback_provider(no_sleep):
+    handler = Recorder(
+        httpx2.Response(429), httpx2.Response(429), httpx2.Response(429),
+        ok(model=GEMINI.model),
+    )
+    client = LLMClient(
+        GROQ, [KEY, KEY_2],
+        fallback=GEMINI, fallback_key=FALLBACK_KEY,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+        backoff_base=0.0, max_attempts=3,
+    )
+    completion = client.complete(ASK)
+    assert completion.provider == "gemini"
+    assert completion.degraded is True
+
+
+def test_from_settings_picks_up_a_second_groq_account_by_naming_convention(no_sleep):
+    if LLMClient._PRIMARY is not GROQ:
+        pytest.skip("this test targets the Groq-primary naming convention directly")
+    settings = Settings(
+        _env_file=None,
+        groq_api_key=KEY, groq_api_key_2=KEY_2, gemini_api_key=None,
+    )
+    handler = Recorder(ok(), ok())
+    http = httpx2.Client(transport=httpx2.MockTransport(handler))
+    client = LLMClient.from_settings(settings, http_client=http, backoff_base=0.0)
+    assert client._keys[GROQ.name] == (KEY, KEY_2)
+    client.complete(ASK)
+    client.complete(ASK)
+    used = [r.headers["authorization"] for r in handler.requests]
+    assert used == [f"Bearer {KEY}", f"Bearer {KEY_2}"]
+
+
+def test_from_settings_without_a_second_key_behaves_exactly_as_before(no_sleep):
+    if LLMClient._PRIMARY is not GROQ:
+        pytest.skip("this test targets the Groq-primary naming convention directly")
+    settings = Settings(_env_file=None, groq_api_key=KEY, gemini_api_key=None)
+    client = LLMClient.from_settings(
+        settings,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(Recorder())),
+    )
+    assert client._keys[GROQ.name] == (KEY,)
+
+
 def test_a_borrowed_http_client_is_left_open():
     http = httpx2.Client(transport=httpx2.MockTransport(Recorder()))
     LLMClient(GROQ, KEY, http_client=http).close()

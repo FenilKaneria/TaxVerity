@@ -226,7 +226,7 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
         state["thread_id"],
         "assistant",
         text,
-        payload={"citations": list(citations)},
+        payload={"citations": _served_citation_records(events)},
     )
     return {"final": final_event}
 
@@ -248,6 +248,24 @@ def _served_citations(events: list[ClaimEvent | WithheldEvent]) -> tuple[str, ..
             if citation.path not in seen:
                 seen.append(citation.path)
     return tuple(seen)
+
+
+def _served_citation_records(
+    events: list[ClaimEvent | WithheldEvent],
+) -> list[dict[str, str]]:
+    """First-seen (path, quote) pairs, persisted on the message so history can
+    reopen the citation dialog without a live turn's own `cited` state."""
+    seen: set[str] = set()
+    records: list[dict[str, str]] = []
+    for event in events:
+        if not isinstance(event, ClaimEvent):
+            continue
+        for citation in event.citations:
+            if citation.path in seen:
+                continue
+            seen.add(citation.path)
+            records.append({"path": citation.path, "quote": citation.quote})
+    return records
 
 
 def _computation_summary(computation: Computation) -> dict[str, str]:

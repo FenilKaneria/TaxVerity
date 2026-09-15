@@ -176,6 +176,9 @@ def test_messages_round_trip_oldest_first_with_citations(
         thread_id,
         "assistant",
         "A standard deduction of fifty thousand rupees applies.",
+        # A bare path string is the pre-quote format (still on disk for any
+        # message persisted before this change) — the route must still
+        # render it, as a path with no quote, not crash.
         payload={"citations": ["19(1)"]},
     )
 
@@ -185,5 +188,34 @@ def test_messages_round_trip_oldest_first_with_citations(
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assert messages[0]["content"] == "What is section 19(1)?"
     assert messages[0]["citations"] == []
-    assert messages[1]["citations"] == ["19(1)"]
+    assert messages[1]["citations"] == [{"path": "19(1)", "quote": None}]
     assert messages[1]["message_id"] > messages[0]["message_id"]
+
+
+def test_messages_render_citation_quotes_in_the_new_format(
+    client, schema, access_tokens, alice
+):
+    headers = _auth(access_tokens, alice)
+    thread_id = client.post(
+        "/v1/threads", json={"title": "t"}, headers=headers
+    ).json()["thread_id"]
+
+    append_message(schema, alice, thread_id, "user", "What is section 19(1)?")
+    append_message(
+        schema,
+        alice,
+        thread_id,
+        "assistant",
+        "A standard deduction of fifty thousand rupees applies.",
+        payload={
+            "citations": [
+                {"path": "19(1)", "quote": "a deduction of fifty thousand rupees"}
+            ]
+        },
+    )
+
+    response = client.get(f"/v1/threads/{thread_id}/messages", headers=headers)
+    messages = response.json()
+    assert messages[1]["citations"] == [
+        {"path": "19(1)", "quote": "a deduction of fifty thousand rupees"}
+    ]

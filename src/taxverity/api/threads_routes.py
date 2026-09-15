@@ -48,11 +48,16 @@ class ThreadOut(BaseModel):
     updated_at: datetime
 
 
+class CitationOut(BaseModel):
+    path: str
+    quote: str | None = None
+
+
 class MessageOut(BaseModel):
     message_id: int
     role: Role
     content: str
-    citations: list[str]
+    citations: list[CitationOut]
     created_at: datetime
 
 
@@ -130,8 +135,13 @@ def delete_thread_route(
         raise not_found() from None
 
 
-def _citations(payload: dict[str, Any]) -> list[str]:
-    return list(payload.get("citations", []))
+def _citations(payload: dict[str, Any]) -> list[CitationOut]:
+    """A pre-quote message (`payload["citations"]` as bare path strings) still
+    needs to render — as a path with no quote, not a crash."""
+    return [
+        CitationOut(path=entry, quote=None) if isinstance(entry, str) else CitationOut(**entry)
+        for entry in payload.get("citations", [])
+    ]
 
 
 @router.get("/{thread_id}/messages")

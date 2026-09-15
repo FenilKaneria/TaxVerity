@@ -3,7 +3,7 @@
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AppTopbar } from "@/components/app-topbar";
-import { CitationDialog } from "@/components/citation-dialog";
+import { CitationDialog, type ClickedCitation } from "@/components/citation-dialog";
 import { ComputationPanel } from "@/components/computation-panel";
 import { Conversation } from "@/components/conversation";
 import { ContextRail } from "@/components/context-rail";
@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useThreadTurn } from "@/components/turn-composer";
 import { ApiError } from "@/lib/errors";
-import type { Citation, ComputationSummary } from "@/lib/sse";
+import type { ComputationSummary } from "@/lib/sse";
 import { getThread, listMessages, type Message, type Thread } from "@/lib/threads";
 import { Receipt } from "lucide-react";
 
@@ -33,16 +33,17 @@ function ThreadView({ threadId }: { threadId: string }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   // The live turn stream's side effects, lifted out of the composer so the
   // computation panel survives after the transcript clears for the next
-  // question. `cited` is kept only to look up the quote for whichever
-  // citation the user clicked — sources are a popup now, not a panel.
-  const [cited, setCited] = useState<Citation[]>([]);
+  // question.
   const [computation, setComputation] = useState<ComputationSummary | null>(null);
   const [question, setQuestion] = useState("");
   const [railOpen, setRailOpen] = useState(false);
-  const [highlightPath, setHighlightPath] = useState<string | null>(null);
+  // The citation a user just clicked — both a live claim's own {path, quote}
+  // and a persisted message's {path, quote} (graph/nodes.py's finalize()
+  // stores both now) satisfy this directly, no lookup needed.
+  const [selectedCitation, setSelectedCitation] = useState<ClickedCitation | null>(null);
 
   const turn = useThreadTurn(threadId, {
-    onEvidence: (_pool, nextCited) => setCited(nextCited),
+    onEvidence: () => {},
     onComputation: setComputation,
     onTurnComplete: reloadMessages,
   });
@@ -96,12 +97,6 @@ function ThreadView({ threadId }: { threadId: string }) {
       });
   }
 
-  function focusCitation(path: string) {
-    setHighlightPath(path);
-  }
-
-  const selectedCitation = cited.find((c) => c.path === highlightPath) ?? null;
-
   if (state.status === "loading") {
     return (
       <div className="flex flex-1 flex-col gap-4 p-6">
@@ -134,46 +129,42 @@ function ThreadView({ threadId }: { threadId: string }) {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden xl:flex-row">
-      <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
-        <AppTopbar
-          title={state.thread.title}
-          onOpenSidebar={openSidebar}
-          trailing={
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Computation"
-              onClick={() => setRailOpen(true)}
-            >
-              <Receipt className="size-4" />
-            </Button>
-          }
-        />
-        <header className="hidden border-b border-border px-6 py-3 xl:block">
-          <h1 className="truncate font-display text-lg text-foreground">
-            {state.thread.title}
-          </h1>
-        </header>
-        <Conversation
-          messages={state.messages}
-          turn={turn}
-          onCiteClick={focusCitation}
-          composer={
-            <QuestionComposer
-              value={question}
-              onChange={setQuestion}
-              onSubmit={() => {
-                const q = question;
-                setQuestion("");
-                turn.submit(q);
-              }}
-              streaming={turn.streaming}
-              onCancel={turn.cancel}
-            />
-          }
-        />
-      </div>
+    <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
+      <AppTopbar
+        title={state.thread.title}
+        onOpenSidebar={openSidebar}
+        trailing={
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Computation"
+            onClick={() => setRailOpen(true)}
+          >
+            <Receipt className="size-4" />
+          </Button>
+        }
+      />
+      <header className="hidden border-b border-border px-6 py-3 xl:block">
+        <h1 className="truncate font-display text-lg text-foreground">{state.thread.title}</h1>
+      </header>
+      <Conversation
+        messages={state.messages}
+        turn={turn}
+        onCiteClick={setSelectedCitation}
+        composer={
+          <QuestionComposer
+            value={question}
+            onChange={setQuestion}
+            onSubmit={() => {
+              const q = question;
+              setQuestion("");
+              turn.submit(q);
+            }}
+            streaming={turn.streaming}
+            onCancel={turn.cancel}
+          />
+        }
+      />
       <ContextRail
         open={railOpen}
         onOpenChange={setRailOpen}
@@ -182,7 +173,7 @@ function ThreadView({ threadId }: { threadId: string }) {
       <CitationDialog
         citation={selectedCitation}
         onOpenChange={(open) => {
-          if (!open) setHighlightPath(null);
+          if (!open) setSelectedCitation(null);
         }}
       />
     </div>

@@ -5,6 +5,7 @@
 // components/use-turn-stream.ts for the state this renders.
 
 import { CheckCircle2, Loader2, RotateCw, ShieldAlert } from "lucide-react";
+import type { ClickedCitation } from "@/components/citation-dialog";
 import { Typewriter } from "@/components/typewriter";
 import type { ClaimEvent, Stage, WithheldEvent } from "@/lib/sse";
 
@@ -31,7 +32,7 @@ interface Props {
   searched?: string[];
   error: string | null;
   showClarify?: boolean;
-  onCiteClick?: (path: string) => void;
+  onCiteClick?: (citation: ClickedCitation) => void;
 }
 
 export function TurnStream({
@@ -100,7 +101,7 @@ export function TurnStream({
                     <button
                       key={ci}
                       type="button"
-                      onClick={() => onCiteClick?.(c.path)}
+                      onClick={() => onCiteClick?.(c)}
                       className={
                         event.type === "advice"
                           ? "inline-flex items-center gap-1 rounded-full bg-seal/20 px-2 py-0.5 font-serif text-xs text-seal hover:bg-seal/30"

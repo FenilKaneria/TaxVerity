@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     log_format: Literal["text", "json"] = "text"
 
     groq_api_key: SecretStr | None = None
+    # Optional second Groq account. Purely additive — LLMClient.from_settings()
+    # picks it up by the `<settings_key>_2` naming convention and round-robins/
+    # fails over between both before ever touching the fallback provider.
+    groq_api_key_2: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
     jina_api_key: SecretStr | None = None
     database_url: SecretStr | None = None

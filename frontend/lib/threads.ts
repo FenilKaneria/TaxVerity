@@ -11,11 +11,16 @@ export interface Thread {
   updated_at: string;
 }
 
+export interface MessageCitation {
+  path: string;
+  quote: string | null;
+}
+
 export interface Message {
   message_id: number;
   role: "user" | "assistant";
   content: string;
-  citations: string[];
+  citations: MessageCitation[];
   created_at: string;
 }
 

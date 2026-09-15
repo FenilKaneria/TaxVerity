@@ -1,12 +1,14 @@
 import { CheckCircle2 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
+import type { ClickedCitation } from "@/components/citation-dialog";
 import type { Message } from "@/lib/threads";
 
-// Step 16.3, restyled. History has less fidelity than a live stream: the
-// store keeps only joined claim text and citation *paths*, no per-claim
-// structure and no quotes (threads/store.py's payload shape). The citation
-// popup (citation-dialog.tsx) can only show a quote for the live turn's own
-// citations — do not fake one here from a path alone.
+// Step 16.3, restyled. A persisted message carries its citations as
+// {path, quote} pairs (graph/nodes.py's finalize()), so the popup
+// (citation-dialog.tsx) opens straight from what's already on the message —
+// no dependency on the live turn's own transcript state. A message
+// persisted before that change has `quote: null`; the dialog still opens,
+// just without a quote to show.
 //
 // No longer its own scroll container — components/conversation.tsx owns
 // scrolling for history + the live transcript together. User messages are
@@ -18,7 +20,7 @@ export function MessageList({
   onCiteClick,
 }: {
   messages: Message[];
-  onCiteClick?: (path: string) => void;
+  onCiteClick?: (citation: ClickedCitation) => void;
 }) {
   if (messages.length === 0) return null;
 
@@ -41,14 +43,14 @@ export function MessageList({
               {message.citations.length > 0 && (
                 <ul className="mt-0.5 flex flex-wrap gap-1.5">
                   {message.citations.map((citation) => (
-                    <li key={citation}>
+                    <li key={citation.path}>
                       <button
                         type="button"
                         onClick={() => onCiteClick?.(citation)}
                         className="inline-flex items-center gap-1 rounded-full bg-seal/10 px-2 py-0.5 font-serif text-xs text-seal hover:bg-seal/20"
                       >
                         <CheckCircle2 className="size-3" />
-                        {citation}
+                        {citation.path}
                       </button>
                     </li>
                   ))}

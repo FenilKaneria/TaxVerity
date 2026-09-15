@@ -6,13 +6,20 @@
 // carries its own close (X) button, so nothing extra is needed for that.
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { Citation } from "@/lib/sse";
+
+// Shared by the live turn's citations (lib/sse.ts's `Citation`, quote always
+// present) and a persisted message's citations (lib/threads.ts's
+// `MessageCitation`, quote null on a message from before quotes were stored).
+export interface ClickedCitation {
+  path: string;
+  quote: string | null;
+}
 
 export function CitationDialog({
   citation,
   onOpenChange,
 }: {
-  citation: Citation | null;
+  citation: ClickedCitation | null;
   onOpenChange: (open: boolean) => void;
 }) {
   return (
@@ -21,9 +28,17 @@ export function CitationDialog({
         <DialogHeader>
           <DialogTitle className="font-serif text-seal">{citation?.path}</DialogTitle>
         </DialogHeader>
-        <blockquote className="font-serif text-sm text-foreground">
-          <mark className="rounded-sm bg-seal/15 px-0.5 text-foreground">{citation?.quote}</mark>
-        </blockquote>
+        {citation?.quote ? (
+          <blockquote className="font-serif text-sm text-foreground">
+            <mark className="rounded-sm bg-seal/15 px-0.5 text-foreground">
+              {citation.quote}
+            </mark>
+          </blockquote>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No quote saved for this earlier answer — open the section in the Act to read it.
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );

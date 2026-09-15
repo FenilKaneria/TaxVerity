@@ -122,30 +122,45 @@ class Completion(BaseModel):
     degraded: bool
 
 
+def _normalize_keys(key: str | Sequence[str], *, label: str) -> tuple[str, ...]:
+    keys = (key,) if isinstance(key, str) and key else tuple(k for k in key if k)
+    if not keys:
+        raise ValueError(f"{label} must be non-empty")
+    return keys
+
+
 class LLMClient:
     def __init__(
         self,
         primary: Provider,
-        primary_key: str,
+        primary_key: str | Sequence[str],
         *,
         fallback: Provider | None = None,
-        fallback_key: str | None = None,
+        fallback_key: str | Sequence[str] | None = None,
         http_client: httpx2.Client | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         backoff_base: float = DEFAULT_BACKOFF_BASE,
     ) -> None:
-        if not primary_key:
-            raise ValueError("primary_key must be non-empty")
         if fallback is not None and not fallback_key:
             raise ValueError("a fallback provider needs a key")
         if max_attempts < 1:
             raise ValueError(f"max_attempts must be at least 1, not {max_attempts}")
         self._primary = primary
         self._fallback = fallback
-        self._keys = {primary.name: primary_key}
+        # A provider name may carry more than one key — e.g. a second Groq
+        # account, so the shared 200K-tokens/day cap is two independent
+        # buckets rather than one. `_rotation` advances once per top-level
+        # call (never per retry attempt), so consecutive requests spread
+        # across the pool instead of hammering the first key alone.
+        self._keys: dict[str, tuple[str, ...]] = {
+            primary.name: _normalize_keys(primary_key, label="primary_key")
+        }
         if fallback is not None and fallback_key is not None:
-            self._keys[fallback.name] = fallback_key
+            self._keys[fallback.name] = _normalize_keys(
+                fallback_key, label="fallback_key"
+            )
+        self._rotation: dict[str, int] = {}
         self._max_attempts = max_attempts
         self._backoff_base = backoff_base
         self._owns_client = http_client is None
@@ -153,6 +168,18 @@ class LLMClient:
         # Accounting is in tokens, not currency: both tiers are free, and a
         # price table written now would be a number nobody measured.
         self.tokens_used: dict[str, int] = {}
+
+    def _ordered_keys(self, provider: Provider) -> tuple[str, ...]:
+        """This call's key order: round-robin start, so normal traffic
+        alternates between every key in the pool; a retryable failure on the
+        first key then tries the next one before the caller ever sees a
+        fallback-provider failover."""
+        keys = self._keys[provider.name]
+        if len(keys) == 1:
+            return keys
+        start = self._rotation.get(provider.name, 0) % len(keys)
+        self._rotation[provider.name] = start + 1
+        return keys[start:] + keys[:start]
 
     @property
     def primary(self) -> Provider:
@@ -169,6 +196,12 @@ class LLMClient:
 
         A missing fallback key is an ordinary state, not an error — it means
         this process has one provider and says so once, at construction.
+
+        A second account for the primary provider is picked up by naming
+        convention — `<settings_key>_2` (e.g. `TAXVERITY_GROQ_API_KEY_2`) —
+        purely optional and additive: absent, this is unchanged from a single
+        key; present, `LLMClient` round-robins and fails over between both
+        before ever consulting the fallback provider.
         """
         fallback_key = (
             settings.gemini_api_key.get_secret_value()
@@ -183,9 +216,19 @@ class LLMClient:
                 f"TAXVERITY_{cls._FALLBACK.settings_key.upper()}",
                 cls._PRIMARY.name,
             )
+        second_key = getattr(settings, f"{cls._PRIMARY.settings_key}_2", None)
+        primary_keys = [settings.require(cls._PRIMARY.settings_key)]
+        if second_key:
+            primary_keys.append(second_key.get_secret_value())
+            logger.info(
+                "%s: a second account (%s_2) is configured; requests round-robin "
+                "between both",
+                cls._PRIMARY.name,
+                cls._PRIMARY.settings_key.upper(),
+            )
         return cls(
             cls._PRIMARY,
-            settings.require(cls._PRIMARY.settings_key),
+            primary_keys,
             fallback=cls._FALLBACK if fallback_key else None,
             fallback_key=fallback_key,
             **kwargs,
@@ -294,11 +337,13 @@ class LLMClient:
         self, provider: Provider, body: dict[str, Any], *, degraded: bool
     ) -> _OpenStream:
         payload = {**body, **provider.extras, "model": provider.model}
-        headers = {"Authorization": f"Bearer {self._keys[provider.name]}"}
+        keys = self._ordered_keys(provider)
         url = f"{provider.base_url}/chat/completions"
         last: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             delay = self._backoff_base * 2 ** (attempt - 1)
+            key = keys[(attempt - 1) % len(keys)]
+            headers = {"Authorization": f"Bearer {key}"}
             request = self._client.build_request("POST", url, json=payload, headers=headers)
             response = None
             try:
@@ -355,11 +400,12 @@ class LLMClient:
     def _post(self, provider: Provider, payload: dict[str, Any]) -> dict[str, Any]:
         # The payload carries the user's own words. It is never logged — not on
         # success, not on retry, not on failure.
-        headers = {"Authorization": f"Bearer {self._keys[provider.name]}"}
+        keys = self._ordered_keys(provider)
         url = f"{provider.base_url}/chat/completions"
         last: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             delay = self._backoff_base * 2 ** (attempt - 1)
+            headers = {"Authorization": f"Bearer {keys[(attempt - 1) % len(keys)]}"}
             try:
                 response = self._client.post(url, json=payload, headers=headers)
             except httpx2.RequestError as error:

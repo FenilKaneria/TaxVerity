@@ -6,6 +6,7 @@
 // disappear from view until the turn finished and history reloaded. This
 // merges the two so the conversation reads continuously, top to bottom.
 
+import type { ClickedCitation } from "@/components/citation-dialog";
 import type { ClaimEvent, Stage, WithheldEvent } from "@/lib/sse";
 import type { Message } from "@/lib/threads";
 import { MessageList } from "@/components/message-list";
@@ -34,7 +35,7 @@ export function Conversation({
   turn: TurnStreamState;
   composer: React.ReactNode;
   showClarify?: boolean;
-  onCiteClick?: (path: string) => void;
+  onCiteClick?: (citation: ClickedCitation) => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
