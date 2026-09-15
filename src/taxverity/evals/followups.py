@@ -20,8 +20,8 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from taxverity.evals.metrics import CreditMode, credits
 
-FOLLOWUP_EVAL_VERSION = 1
-FOLLOWUP_RUN_FILENAME = "followup_smoke_v1.json"
+FOLLOWUP_EVAL_VERSION = 2
+FOLLOWUP_RUN_FILENAME = "followup_smoke_v2.json"
 
 
 class FollowUpCase(BaseModel):
@@ -84,6 +84,10 @@ class FollowUpRecord(BaseModel):
     retrieved: tuple[str, ...]
     # A provider or retrieval failure ends the case; reported, not raised.
     error: str | None = None
+    # None when contextualized is False: the deterministic skip made no LLM
+    # call at all, so there is no model to name (rule 04's contract).
+    provider: str | None = None
+    model: str | None = None
 
     @property
     def hit(self) -> bool:
@@ -121,3 +125,15 @@ def load_followup_run(path: Path) -> FollowUpRun:
             f"{payload.get('eval_version')}, not {FOLLOWUP_EVAL_VERSION}"
         )
     return TypeAdapter(FollowUpRun).validate_python(payload)
+
+
+def distinct_models(run: FollowUpRun) -> frozenset[tuple[str, str]]:
+    """Every (provider, model) pair actually used to rewrite a query in this
+    run. A record with no rewrite (`provider is None`) made no LLM call and
+    contributes nothing — R18.3's pinning, applied to the one eval run that
+    previously recorded neither field at all."""
+    return frozenset(
+        (record.provider, record.model)
+        for record in run.records
+        if record.provider is not None and record.model is not None
+    )

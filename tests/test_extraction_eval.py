@@ -23,6 +23,7 @@ from taxverity.evals.extraction import (
     LabelledFact,
     LabelledTurn,
     TurnSlice,
+    distinct_models,
     judge_extraction,
     judge_turn,
     load_extraction_gold,
@@ -38,7 +39,7 @@ from taxverity.facts import (
     UnmappedFact,
     UserFacts,
 )
-from taxverity.llm.client import Completion, Usage
+from taxverity.llm.client import GROQ, Completion, Usage
 from taxverity.llm.extract import ExtractionResult
 from taxverity.observability import redact
 
@@ -372,7 +373,18 @@ def test_the_eval_version_is_declared():
 def measured(gold):
     if not STORED_RUN.exists():
         pytest.skip(f"no measured extraction run at {STORED_RUN}")
-    return judge_extraction(gold, load_run(STORED_RUN))
+    run = load_run(STORED_RUN)
+    # R18.3: the stored completions already carry provider/model; nothing
+    # asserted them before. FactExtractor.from_settings() calls GROQ with no
+    # override today, so a mismatch here means the floors below are about to
+    # be checked against a different model's numbers.
+    models = distinct_models(run)
+    assert models == {(GROQ.name, GROQ.model)}, (
+        f"{STORED_RUN.name} was measured against {sorted(models)}, not the "
+        f"currently configured ({GROQ.name!r}, {GROQ.model!r}) — re-measure "
+        "before trusting these floors"
+    )
+    return judge_extraction(gold, run)
 
 
 # Floors sit below the measured run (precision 1.000, recall 1.000, value

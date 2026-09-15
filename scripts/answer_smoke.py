@@ -13,7 +13,7 @@ fixed gold questions above it cannot be pre-embedded — this is the first eval
 path that calls the Jina embedding and rerank APIs directly rather than
 through a stored fixture, bounded to the 5 cases.
 
-Writes `data/answers/answer_smoke_v1.json`, `data/answers/followup_smoke_v1.json`
+Writes `data/answers/answer_smoke_v1.json`, `data/answers/followup_smoke_v2.json`
 and `reports/answer_smoke.md`.
 """
 
@@ -188,10 +188,15 @@ def run_followups(settings: Settings, gold, llm, chunks: list[Chunk]) -> FollowU
         contextualized = False
         retrieved: tuple[str, ...] = ()
         error = None
+        provider: str | None = None
+        model: str | None = None
         try:
             result = contextualizer.contextualize(case.follow_up, [prior_question])
             rewritten_query = result.query
             contextualized = result.rewritten
+            if result.completion is not None:
+                provider = result.completion.provider
+                model = result.completion.model
             pack = packer.pack(retriever.search(rewritten_query, EVIDENCE_POOL))
             retrieved = tuple(unit.citation for unit in pack.units)
         except LLMError as failure:
@@ -206,6 +211,8 @@ def run_followups(settings: Settings, gold, llm, chunks: list[Chunk]) -> FollowU
             expected=case.expected,
             retrieved=retrieved,
             error=error,
+            provider=provider,
+            model=model,
         )
         logger.info(
             "%s: contextualized=%s, %d evidence units, hit=%s",

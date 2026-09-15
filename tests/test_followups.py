@@ -19,10 +19,12 @@ from taxverity.evals.followups import (
     FOLLOWUP_RUN_FILENAME,
     FollowUpRecord,
     FollowUpRun,
+    distinct_models,
     load_followup_run,
     store_followup_run,
 )
 from taxverity.evals.metrics import CitationIndex, UnresolvedCitationError
+from taxverity.llm.client import GROQ
 
 RECORD = FollowUpRecord(
     case_id="f001",
@@ -128,7 +130,17 @@ STORED = Settings().data_dir / "answers" / FOLLOWUP_RUN_FILENAME
 def stored_followup_run():
     if not STORED.exists():
         pytest.skip("run scripts/answer_smoke.py to store a follow-up run")
-    return load_followup_run(STORED)
+    run = load_followup_run(STORED)
+    # R18.3: QueryContextualizer.from_settings() calls GROQ with no override
+    # today. A mismatch means the run below was rewritten by a different
+    # model than the one currently configured.
+    models = distinct_models(run)
+    assert models == {(GROQ.name, GROQ.model)}, (
+        f"{STORED.name} was measured against {sorted(models)}, not the "
+        f"currently configured ({GROQ.name!r}, {GROQ.model!r}) — re-measure "
+        "before trusting this run"
+    )
+    return run
 
 
 def test_the_stored_run_covers_every_case(stored_followup_run):

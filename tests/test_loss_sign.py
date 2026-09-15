@@ -16,18 +16,32 @@ from taxverity.evals.extraction import (
     LOSS_HOLDOUT_FILENAME,
     LOSS_HOLDOUT_V2_FILENAME,
     Counts,
+    ExtractionResult,
     ExtractionScore,
     TurnJudgement,
     TurnSlice,
+    distinct_models,
     judge_extraction,
     load_extraction_gold,
     load_run,
 )
 from taxverity.evals.loss_sign import judge_context_guard, judge_loss_fix, unclean
 from taxverity.facts import FactField
+from taxverity.llm.client import GROQ
 
 DATASETS = Path("evals/datasets")
 RUNS = Settings().data_dir / "extraction"
+
+
+def _assert_measured_against_the_configured_model(run: dict[str, ExtractionResult]) -> None:
+    """R18.3: FactExtractor.from_settings() calls GROQ with no override
+    today. A mismatch means the assertions below are about to compare a
+    fix's before/after clauses across two different models' answers."""
+    models = distinct_models(run)
+    assert models == {(GROQ.name, GROQ.model)}, (
+        f"run was measured against {sorted(models)}, not the currently "
+        f"configured ({GROQ.name!r}, {GROQ.model!r}) — re-measure first"
+    )
 
 
 @pytest.fixture(scope="module")
@@ -130,7 +144,9 @@ def test_the_fix_still_holds_on_the_held_out_turns(holdout):
     path = RUNS / "loss_holdout_run_v4.json"
     if not path.exists():
         pytest.skip("run scripts/measure_loss_sign.py --stage context-after")
-    score = judge_extraction(holdout, load_run(path))
+    run = load_run(path)
+    _assert_measured_against_the_configured_model(run)
+    score = judge_extraction(holdout, run)
     # No sign is ever inverted on a held-out turn; that part admits no residue.
     assert [t.turn_id for t in score.turns if t.value_wrong] == []
     # t006's span is mis-copied ("1,110,000") on every run so far, refused, and
@@ -143,9 +159,12 @@ def test_the_context_guard_verdict_is_pinned(holdout, holdout_v2):
     if not all((RUNS / name).exists() for name in names):
         pytest.skip("run scripts/measure_loss_sign.py --stage context-after")
     gold = load_extraction_gold(DATASETS, GOLD_FILENAME)
+    runs = [load_run(RUNS / name) for name in names]
+    for run in runs:
+        _assert_measured_against_the_configured_model(run)
     v1, v2, before, after = (
-        judge_extraction(turns, load_run(RUNS / name))
-        for turns, name in zip((holdout, holdout_v2, gold, gold), names, strict=True)
+        judge_extraction(turns, run)
+        for turns, run in zip((holdout, holdout_v2, gold, gold), runs, strict=True)
     )
     # REJECTED by the registered rule on two turns that are not sign errors and
     # did not change: v2 t010 invents a nil short-term gain, v1 t006 misses. The

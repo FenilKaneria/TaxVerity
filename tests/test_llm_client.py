@@ -18,6 +18,7 @@ from taxverity.llm.client import (
     DEFAULT_MAX_COMPLETION_TOKENS,
     GEMINI,
     GROQ,
+    GROQ_20B,
     LLMClient,
     LLMError,
     LLMRequestError,
@@ -283,10 +284,15 @@ def test_the_fallback_answers_when_the_primary_is_exhausted(no_sleep):
     assert handler.requests[-1].headers["authorization"] == f"Bearer {FALLBACK_KEY}"
 
 
-def test_the_fallback_is_not_sent_a_gpt_oss_only_control(no_sleep):
+def test_the_fallback_gets_its_own_extras_not_the_primarys(no_sleep):
+    """R18's live probe corrected an earlier belief that `reasoning_effort`
+    was gpt-oss-only — Gemini accepts it too, and needs it: without it, a
+    2,048-token generation cap is spent entirely on invisible reasoning
+    before a single NDJSON line completes (gemini_streaming_spike.md). Each
+    provider sends its own `extras`, never the primary's."""
     handler = Recorder(*[httpx2.Response(503)] * 3, ok(model=GEMINI.model))
     make(handler, with_fallback=True).complete(ASK)
-    assert "reasoning_effort" not in handler.bodies[-1]
+    assert handler.bodies[-1]["reasoning_effort"] == "low"
     assert handler.bodies[-1]["model"] == GEMINI.model
 
 
@@ -459,6 +465,41 @@ def test_from_settings_wires_the_fallback_when_the_key_is_present(no_sleep):
     http = httpx2.Client(transport=httpx2.MockTransport(handler))
     client = LLMClient.from_settings(settings, http_client=http, backoff_base=0.0)
     assert client.complete(ASK).provider == _FALLBACK.name
+
+
+def test_from_settings_accepts_an_explicit_provider_pair(no_sleep):
+    """R18: a caller can request a pair other than GROQ/GEMINI — e.g. the
+    small call sites' Groq 20b, or generation's reversed Gemini/Groq —
+    without subclassing LLMClient."""
+    settings = Settings(
+        _env_file=None,
+        groq_api_key=KEY,
+        gemini_api_key=FALLBACK_KEY,
+    )
+    handler = Recorder(ok(model=GROQ_20B.model))
+    http = httpx2.Client(transport=httpx2.MockTransport(handler))
+    client = LLMClient.from_settings(
+        settings, primary=GROQ_20B, fallback=GEMINI, http_client=http, backoff_base=0.0
+    )
+    assert client.primary is GROQ_20B
+    completion = client.complete(ASK)
+    assert completion.provider == GROQ_20B.name
+    assert completion.model == GROQ_20B.model
+    assert handler.urls[0].startswith(GROQ_20B.base_url)
+
+
+def test_from_settings_with_no_primary_or_fallback_override_is_unchanged(no_sleep):
+    """Every existing call site passes neither kwarg, so it must keep
+    resolving to cls._PRIMARY/_FALLBACK exactly as before this option
+    existed."""
+    settings = Settings(
+        _env_file=None,
+        **{_PRIMARY.settings_key: KEY, _FALLBACK.settings_key: FALLBACK_KEY},
+    )
+    handler = Recorder(ok(model=_PRIMARY.model))
+    http = httpx2.Client(transport=httpx2.MockTransport(handler))
+    client = LLMClient.from_settings(settings, http_client=http, backoff_base=0.0)
+    assert client.primary is _PRIMARY
 
 
 KEY_2 = "test-second-key-not-real"

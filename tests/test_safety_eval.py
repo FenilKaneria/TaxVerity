@@ -19,15 +19,17 @@ from taxverity.evals.safety import (
     SAFETY_EVAL_VERSION,
     Prediction,
     SafetyCase,
+    distinct_models,
     judge_safety,
     load_run,
     load_safety_cases,
     store_run,
 )
+from taxverity.llm.client import GROQ
 from taxverity.safety.classifier import ScopeCategory
 
 DATASETS = Path("evals/datasets")
-STORED_RUN = Settings().data_dir / "safety" / "safety_run_v2.json"
+STORED_RUN = Settings().data_dir / "safety" / "safety_run_v3.json"
 
 
 @pytest.fixture(scope="session")
@@ -124,7 +126,7 @@ def test_a_case_is_immutable():
 def test_a_correct_case_scores_a_true_positive():
     score = judge_safety(
         [case(category=ScopeCategory.PROHIBITED)],
-        {"s001": Prediction(ScopeCategory.PROHIBITED, 100)},
+        {"s001": Prediction(ScopeCategory.PROHIBITED, 100, "groq", "openai/gpt-oss-120b")},
     )
     assert score.accuracy == 1.0
     assert score.per_category[ScopeCategory.PROHIBITED].true_positives == 1
@@ -136,7 +138,7 @@ def test_an_over_refusal_is_a_false_positive_for_prohibited():
     # rule 03 weighs equally with under-refusal.
     score = judge_safety(
         [case(category=ScopeCategory.IN_SCOPE)],
-        {"s001": Prediction(ScopeCategory.PROHIBITED, 100)},
+        {"s001": Prediction(ScopeCategory.PROHIBITED, 100, "groq", "openai/gpt-oss-120b")},
     )
     assert score.refusal.false_positives == 1
     assert score.per_category[ScopeCategory.IN_SCOPE].false_negatives == 1
@@ -147,7 +149,7 @@ def test_an_under_refusal_is_a_false_negative_for_prohibited():
     # Expected prohibited, predicted in_scope: an evasion question answered.
     score = judge_safety(
         [case(category=ScopeCategory.PROHIBITED)],
-        {"s001": Prediction(ScopeCategory.IN_SCOPE, 100)},
+        {"s001": Prediction(ScopeCategory.IN_SCOPE, 100, "groq", "openai/gpt-oss-120b")},
     )
     assert score.refusal.false_negatives == 1
     assert score.per_category[ScopeCategory.IN_SCOPE].false_positives == 1
@@ -160,9 +162,9 @@ def test_scores_aggregate_across_cases():
         case("s003", ScopeCategory.ADJACENT, question="q3"),
     ]
     run = {
-        "s001": Prediction(ScopeCategory.PROHIBITED, 50),
-        "s002": Prediction(ScopeCategory.PROHIBITED, 60),
-        "s003": Prediction(ScopeCategory.ADJACENT, 40),
+        "s001": Prediction(ScopeCategory.PROHIBITED, 50, "groq", "openai/gpt-oss-120b"),
+        "s002": Prediction(ScopeCategory.PROHIBITED, 60, "groq", "openai/gpt-oss-120b"),
+        "s003": Prediction(ScopeCategory.ADJACENT, 40, "groq", "openai/gpt-oss-120b"),
     }
     score = judge_safety(cases, run)
     assert score.accuracy == 2 / 3
@@ -186,7 +188,7 @@ def test_counts_with_nothing_labelled_do_not_divide_by_zero():
 
 
 def test_a_run_round_trips_through_disk(tmp_path):
-    run = {"s001": Prediction(ScopeCategory.PROHIBITED, 123)}
+    run = {"s001": Prediction(ScopeCategory.PROHIBITED, 123, "groq", "openai/gpt-oss-120b")}
     path = tmp_path / "run.json"
     store_run(path, run)
     restored = load_run(path)
@@ -202,7 +204,7 @@ def test_a_run_from_another_eval_version_is_refused(tmp_path):
 
 
 def test_the_eval_version_is_declared():
-    assert SAFETY_EVAL_VERSION == 2
+    assert SAFETY_EVAL_VERSION == 3
 
 
 # --- floors, measured. They skip without the stored run --------------------
@@ -212,7 +214,19 @@ def test_the_eval_version_is_declared():
 def measured(gold):
     if not STORED_RUN.exists():
         pytest.skip(f"no measured safety run at {STORED_RUN}")
-    return judge_safety(gold, load_run(STORED_RUN))
+    run = load_run(STORED_RUN)
+    # R18.3: a floor is only honest about the model it was measured against.
+    # Without this, a classifier model swap (Groq 120b -> 20b, or a fallback
+    # firing throughout a run) would pass these floors silently against
+    # numbers from a different model. IntentClassifier.from_settings() calls
+    # GROQ with no override today, so that is what the stored run must show.
+    models = distinct_models(run)
+    assert models == {(GROQ.name, GROQ.model)}, (
+        f"{STORED_RUN.name} was measured against {sorted(models)}, not the "
+        f"currently configured ({GROQ.name!r}, {GROQ.model!r}) — re-measure "
+        "before trusting these floors"
+    )
+    return judge_safety(gold, run)
 
 
 # Both directions gated, per rule 03: over-refusal (precision) and

@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict
 from taxverity.evals.extraction import Counts
 from taxverity.safety.classifier import ScopeCategory
 
-SAFETY_EVAL_VERSION = 2
+SAFETY_EVAL_VERSION = 3
 GOLD_FILENAME = "safety_v1.jsonl"
 CASE_ID = re.compile(r"^s\d{3}$")
 
@@ -60,6 +60,12 @@ def load_safety_cases(
 class Prediction:
     category: ScopeCategory
     tokens: int
+    # R18.3: a floor read from disk is only honest about the model it was
+    # measured against. Without these two fields a classifier model swap
+    # could pass 0.90/0.90/0.85 silently against numbers from a different
+    # model entirely.
+    provider: str
+    model: str
 
 
 @dataclass(frozen=True)
@@ -134,7 +140,12 @@ def store_run(path: Path, run: Mapping[str, Prediction]) -> None:
     payload = {
         "eval_version": SAFETY_EVAL_VERSION,
         "cases": {
-            case_id: {"category": p.category.value, "tokens": p.tokens}
+            case_id: {
+                "category": p.category.value,
+                "tokens": p.tokens,
+                "provider": p.provider,
+                "model": p.model,
+            }
             for case_id, p in run.items()
         },
     }
@@ -153,6 +164,19 @@ def load_run(path: Path) -> dict[str, Prediction]:
             f"{payload.get('eval_version')}, not {SAFETY_EVAL_VERSION}"
         )
     return {
-        case_id: Prediction(ScopeCategory(entry["category"]), int(entry["tokens"]))
+        case_id: Prediction(
+            ScopeCategory(entry["category"]),
+            int(entry["tokens"]),
+            str(entry["provider"]),
+            str(entry["model"]),
+        )
         for case_id, entry in payload["cases"].items()
     }
+
+
+def distinct_models(run: Mapping[str, Prediction]) -> frozenset[tuple[str, str]]:
+    """Every (provider, model) pair a stored run was actually measured
+    against. A floor test compares this against whatever the classifier is
+    configured to call today, per R18.3 — a mismatch means the floor is being
+    checked against the wrong model's numbers."""
+    return frozenset((p.provider, p.model) for p in run.values())

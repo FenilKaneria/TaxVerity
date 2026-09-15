@@ -31,7 +31,7 @@ from taxverity.evals.extraction import (
     store_run,
 )
 from taxverity.facts import FactField
-from taxverity.llm.client import LLMError
+from taxverity.llm.client import GEMINI, GROQ_20B, LLMError
 from taxverity.llm.extract import FactExtractor
 from taxverity.observability import configure_logging, get_logger
 
@@ -183,12 +183,21 @@ def main() -> int:
     parser.add_argument(
         "--no-repair", action="store_true", help="measure the node without its repair"
     )
+    parser.add_argument(
+        "--model",
+        choices=("120b", "20b"),
+        default="120b",
+        help="R18: re-measure against Groq's 20b model instead of the "
+        "production default. Writes a separate _20b run file, never "
+        "overwriting the 120b baseline.",
+    )
     args = parser.parse_args()
     configure_logging()
 
     settings = Settings()
     turns = list(load_extraction_gold(settings.evals_dir / "datasets"))
-    stored = settings.data_dir / "extraction" / RUN_FILENAME
+    suffix = "" if args.model == "120b" else "_20b"
+    stored = settings.data_dir / "extraction" / RUN_FILENAME.replace(".json", f"{suffix}.json")
 
     started = time.perf_counter()
     if args.stored:
@@ -197,7 +206,10 @@ def main() -> int:
     else:
         try:
             extractor = FactExtractor.from_settings(
-                settings, repair=not args.no_repair
+                settings,
+                repair=not args.no_repair,
+                primary=GROQ_20B if args.model == "20b" else None,
+                fallback=GEMINI,
             )
         except MissingSettingError as error:
             print(f"cannot run: {error}")
@@ -211,8 +223,9 @@ def main() -> int:
     elapsed = time.perf_counter() - started
 
     score = judge_extraction(turns, run)
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(render(score, turns, elapsed), encoding="utf-8", newline="")
+    report = REPORT if suffix == "" else REPORT.with_name(REPORT.stem + suffix + REPORT.suffix)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(render(score, turns, elapsed), encoding="utf-8", newline="")
 
     print(
         f"field precision {score.counts.precision:.3f}, "
@@ -226,7 +239,7 @@ def main() -> int:
     print(f"tokens {score.tokens:,}")
     if not args.stored:
         print(f"wrote {stored}")
-    print(f"wrote {REPORT}")
+    print(f"wrote {report}")
     return 0
 
 

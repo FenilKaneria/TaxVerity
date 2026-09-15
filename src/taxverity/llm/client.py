@@ -75,9 +75,27 @@ GROQ = Provider(
     extras={"reasoning_effort": "low"},
 )
 
+# R18: the four small call sites (classify, contextualize, extract_facts,
+# respond_conversational) get their own 8K TPM / 200K TPD bucket on this
+# model, separate from generation's. Same key, same base URL as GROQ — only
+# the model differs.
+GROQ_20B = Provider(
+    name="groq",
+    base_url="https://api.groq.com/openai/v1",
+    model="openai/gpt-oss-20b",
+    settings_key="groq_api_key",
+    extras={"reasoning_effort": "low"},
+)
+
 # Google's OpenAI-compatible surface, so the fallback is a base URL, a model and
 # a key rather than a second SDK, a second request shape and a second parser.
-# `reasoning_effort` is deliberately absent: it is a gpt-oss control.
+# `reasoning_effort` was believed gpt-oss-only until R18's live probe: Gemini
+# accepts it too (a 9-token exchange billed total_tokens=100 with it absent;
+# `"low"` cut that to ~95, and `"none"` timed out at 60s — never use "none").
+# Without it, a 2,048-token generation cap is spent entirely on invisible
+# reasoning before a single NDJSON line completes (R18 gate 1 spike,
+# `reports/gemini_streaming_spike.md`: finish_reason="length" on every
+# successful run, 0 completed claims).
 GEMINI = Provider(
     name="gemini",
     base_url="https://generativelanguage.googleapis.com/v1beta/openai",
@@ -85,6 +103,7 @@ GEMINI = Provider(
     # names gemini-3.6-flash as its replacement (confirmed 2026-09-14).
     model="gemini-3.6-flash",
     settings_key="gemini_api_key",
+    extras={"reasoning_effort": "low"},
 )
 
 
@@ -187,11 +206,21 @@ class LLMClient:
         it: an answer from one model is not an answer from another."""
         return self._primary
 
+    # R18 default: unchanged from before per-node routing existed. A caller
+    # (graph/build.py) overrides one or both per node via the kwargs below;
+    # every call site that doesn't pass them keeps today's behaviour exactly.
     _PRIMARY = GROQ
     _FALLBACK = GEMINI
 
     @classmethod
-    def from_settings(cls, settings: Settings, **kwargs: Any) -> LLMClient:
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        primary: Provider | None = None,
+        fallback: Provider | None = None,
+        **kwargs: Any,
+    ) -> LLMClient:
         """The fallback is configured only when its key is present.
 
         A missing fallback key is an ordinary state, not an error — it means
@@ -202,34 +231,36 @@ class LLMClient:
         purely optional and additive: absent, this is unchanged from a single
         key; present, `LLMClient` round-robins and fails over between both
         before ever consulting the fallback provider.
+
+        `primary`/`fallback` default to `cls._PRIMARY`/`cls._FALLBACK` (Groq
+        120b / Gemini) and exist so a caller can request a different pair —
+        e.g. Gemini primary with Groq as its fallback for generation, or
+        Groq's 20b model for a small call site — without subclassing.
         """
-        fallback_key = (
-            settings.gemini_api_key.get_secret_value()
-            if cls._FALLBACK is GEMINI and settings.gemini_api_key
-            else settings.groq_api_key.get_secret_value()
-            if cls._FALLBACK is GROQ and settings.groq_api_key
-            else None
-        )
+        primary = primary or cls._PRIMARY
+        fallback = cls._FALLBACK if fallback is None else fallback
+        fallback_secret = getattr(settings, fallback.settings_key, None)
+        fallback_key = fallback_secret.get_secret_value() if fallback_secret else None
         if fallback_key is None:
             logger.warning(
                 "no %s configured: %s answers with no cross-vendor fallback",
-                f"TAXVERITY_{cls._FALLBACK.settings_key.upper()}",
-                cls._PRIMARY.name,
+                f"TAXVERITY_{fallback.settings_key.upper()}",
+                primary.name,
             )
-        second_key = getattr(settings, f"{cls._PRIMARY.settings_key}_2", None)
-        primary_keys = [settings.require(cls._PRIMARY.settings_key)]
+        second_key = getattr(settings, f"{primary.settings_key}_2", None)
+        primary_keys = [settings.require(primary.settings_key)]
         if second_key:
             primary_keys.append(second_key.get_secret_value())
             logger.info(
                 "%s: a second account (%s_2) is configured; requests round-robin "
                 "between both",
-                cls._PRIMARY.name,
-                cls._PRIMARY.settings_key.upper(),
+                primary.name,
+                primary.settings_key.upper(),
             )
         return cls(
-            cls._PRIMARY,
+            primary,
             primary_keys,
-            fallback=cls._FALLBACK if fallback_key else None,
+            fallback=fallback if fallback_key else None,
             fallback_key=fallback_key,
             **kwargs,
         )

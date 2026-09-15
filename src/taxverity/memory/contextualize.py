@@ -22,7 +22,7 @@ from typing import Any
 
 from taxverity.config import Settings
 from taxverity.llm.cache import CachedLLMClient
-from taxverity.llm.client import Completion, LLMClient, Message
+from taxverity.llm.client import Completion, LLMClient, Message, Provider
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
 from taxverity.observability import get_logger
 
@@ -89,12 +89,16 @@ class QueryContextualizer:
         *,
         cache: bool = True,
         trace: bool = True,
+        primary: Provider | None = None,
+        fallback: Provider | None = None,
         **kwargs: Any,
     ) -> QueryContextualizer:
         """Same composition as Step 7.6's `FactExtractor`: tracing outside the
         cache (ADR-095), so a cache hit is still traced as an ordinary
-        generation."""
-        client: Any = LLMClient.from_settings(settings)
+        generation. `primary`/`fallback` (R18) default to `LLMClient`'s own
+        class defaults (Groq 120b / Gemini) — pass them to run this node
+        against a different pair, e.g. Groq's 20b model."""
+        client: Any = LLMClient.from_settings(settings, primary=primary, fallback=fallback)
         if cache:
             client = CachedLLMClient(client, settings.llm_cache_dir)
         if trace:

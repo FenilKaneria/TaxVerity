@@ -44,6 +44,7 @@ from taxverity.llm.client import (
     LLMClient,
     LLMRequestError,
     Message,
+    Provider,
 )
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
 from taxverity.observability import get_logger, redact
@@ -185,6 +186,8 @@ class FactExtractor:
         *,
         cache: bool = True,
         trace: bool = True,
+        primary: Provider | None = None,
+        fallback: Provider | None = None,
         **kwargs: Any,
     ) -> FactExtractor:
         """Builds the Phase 7 stack: tracing outside the cache, per ADR-095.
@@ -192,8 +195,12 @@ class FactExtractor:
         A cache hit is traced as an ordinary generation, because a hit returns
         the stored completion and the tracer cannot tell the difference. An eval
         report reads tokens from the client, never from a count of traces.
+
+        `primary`/`fallback` (R18) default to `LLMClient`'s own class
+        defaults (Groq 120b / Gemini) — pass them to run this node against a
+        different pair, e.g. Groq's 20b model.
         """
-        client: Any = LLMClient.from_settings(settings)
+        client: Any = LLMClient.from_settings(settings, primary=primary, fallback=fallback)
         if cache:
             client = CachedLLMClient(client, settings.llm_cache_dir)
         if trace:

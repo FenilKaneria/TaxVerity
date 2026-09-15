@@ -29,14 +29,14 @@ from taxverity.evals.safety import (
     load_safety_cases,
     store_run,
 )
-from taxverity.llm.client import LLMError
+from taxverity.llm.client import GEMINI, GROQ_20B, LLMError
 from taxverity.observability import configure_logging, get_logger
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 
 logger = get_logger(__name__)
 
 REPORT = Path("reports/safety_eval.md")
-RUN_FILENAME = "safety_run_v2.json"
+RUN_FILENAME = "safety_run_v3.json"
 
 # Step 7.1 measured 8,000 tokens a minute on the free tier. A classification is
 # small (~250 tokens for the system prompt plus reasoning), but the pause stays
@@ -52,7 +52,12 @@ def measure(
         started = time.perf_counter()
         result = classifier.classify(case.question)
         elapsed = time.perf_counter() - started
-        run[case.case_id] = Prediction(result.category, result.tokens)
+        run[case.case_id] = Prediction(
+            result.category,
+            result.tokens,
+            result.completion.provider,
+            result.completion.model,
+        )
         logger.info(
             "%s (%d/%d) -> %s in %.1fs, %d tokens",
             case.case_id,
@@ -128,12 +133,21 @@ def main() -> int:
         action="store_true",
         help="judge the stored run without calling the model",
     )
+    parser.add_argument(
+        "--model",
+        choices=("120b", "20b"),
+        default="120b",
+        help="R18: re-measure against Groq's 20b model instead of the "
+        "production default. Writes a separate _20b run file, never "
+        "overwriting the 120b baseline.",
+    )
     args = parser.parse_args()
     configure_logging()
 
     settings = Settings()
     cases = list(load_safety_cases(settings.evals_dir / "datasets"))
-    stored = settings.data_dir / "safety" / RUN_FILENAME
+    suffix = "" if args.model == "120b" else "_20b"
+    stored = settings.data_dir / "safety" / RUN_FILENAME.replace(".json", f"{suffix}.json")
 
     started = time.perf_counter()
     if args.stored:
@@ -141,7 +155,11 @@ def main() -> int:
         logger.info("judging the stored run at %s", stored)
     else:
         try:
-            classifier = IntentClassifier.from_settings(settings)
+            classifier = IntentClassifier.from_settings(
+                settings,
+                primary=GROQ_20B if args.model == "20b" else None,
+                fallback=GEMINI,
+            )
         except MissingSettingError as error:
             print(f"cannot run: {error}")
             return 1
@@ -154,8 +172,9 @@ def main() -> int:
     elapsed = time.perf_counter() - started
 
     score = judge_safety(cases, run)
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(render(score, cases, elapsed), encoding="utf-8", newline="")
+    report = REPORT if suffix == "" else REPORT.with_name(REPORT.stem + suffix + REPORT.suffix)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(render(score, cases, elapsed), encoding="utf-8", newline="")
 
     print(f"accuracy {score.accuracy:.3f}")
     print(
@@ -165,7 +184,7 @@ def main() -> int:
     print(f"tokens {score.tokens:,}")
     if not args.stored:
         print(f"wrote {stored}")
-    print(f"wrote {REPORT}")
+    print(f"wrote {report}")
     return 0
 
 

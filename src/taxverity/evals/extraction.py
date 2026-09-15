@@ -379,6 +379,17 @@ def load_run(path: Path) -> dict[str, ExtractionResult]:
     }
 
 
+def distinct_models(run: Mapping[str, ExtractionResult]) -> frozenset[tuple[str, str]]:
+    """Every (provider, model) pair a stored run's completions were actually
+    answered by. `ExtractionResult.completions` has always carried this
+    (extraction and, via the same store_run/load_run, loss-sign) — R18.3 is
+    that nothing asserted it, so a model swap could pass a floor silently
+    against the wrong model's numbers."""
+    return frozenset(
+        (c.provider, c.model) for result in run.values() for c in result.completions
+    )
+
+
 def _result_json(result: ExtractionResult) -> dict[str, object]:
     return {
         "facts": [

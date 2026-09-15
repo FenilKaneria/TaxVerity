@@ -42,7 +42,7 @@ from taxverity.embedding.jina_api import JinaAPIEmbedder
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph import nodes
 from taxverity.graph.state import GraphDeps, GraphState
-from taxverity.llm.client import LLMClient
+from taxverity.llm.client import GEMINI, GROQ_20B, LLMClient
 from taxverity.llm.conversational import Conversationalist
 from taxverity.llm.extract import FactExtractor
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
@@ -112,13 +112,30 @@ def build_deps(
     llm: object = LLMClient.from_settings(settings)
     llm = TracedLLMClient(llm, LangfuseTracer.from_settings(settings))
 
+    # R18 per-node routing (ADR-118, PLAN R18): `classify` and `contextualize`
+    # moved to Groq's 20b model after clearing all three gates (streaming
+    # correctness argued from `LineBuffer.feed()` plus a partial live check —
+    # neither node streams, so gate 1 doesn't apply to them; a live two-arm
+    # answer-quality check isn't meaningful for a schema-bound classification/
+    # rewrite call the way it is for generation; the 20b eval re-run cleared
+    # each node's own floor). `extract_facts` failed its 20b strict-rate floor
+    # (0.857 < 0.88, `reports/extraction_eval_20b.md`) and stays on 120b.
+    # `respond_conversational` has no eval set to gate it — it did not exist
+    # when R18 was planned — and stays on 120b until one is built. Generation
+    # (`AnswerGenerator`'s `llm` above) stays on 120b: gate 2 (the two-arm
+    # benchmark) is blocked by exhausted Gemini free-tier quota this session,
+    # so R18 for that node is still `Proposed`, not decided.
     deps = GraphDeps(
         conn=conn,
         chunks=by_path,
         retriever=retriever,
         packer=EvidencePacker(chunks),
-        classifier=IntentClassifier.from_settings(settings, cache=False),
-        contextualizer=QueryContextualizer.from_settings(settings, cache=False),
+        classifier=IntentClassifier.from_settings(
+            settings, cache=False, primary=GROQ_20B, fallback=GEMINI
+        ),
+        contextualizer=QueryContextualizer.from_settings(
+            settings, cache=False, primary=GROQ_20B, fallback=GEMINI
+        ),
         extractor=FactExtractor.from_settings(settings, cache=False),
         generator=AnswerGenerator(llm, by_path),
         conversational=Conversationalist.from_settings(settings, cache=False),

@@ -24,7 +24,7 @@ from typing import Any
 from taxverity.config import Settings
 from taxverity.generation.verifier import canonical_path, numbers_in
 from taxverity.llm.cache import CachedLLMClient
-from taxverity.llm.client import LLMClient, LLMError, Message
+from taxverity.llm.client import LLMClient, LLMError, Message, Provider
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
 from taxverity.observability import get_logger
 
@@ -95,11 +95,15 @@ class Conversationalist:
         *,
         cache: bool = True,
         trace: bool = True,
+        primary: Provider | None = None,
+        fallback: Provider | None = None,
         **kwargs: Any,
     ) -> Conversationalist:
         """Same composition as `IntentClassifier`/`FactExtractor`: tracing
-        outside the cache (ADR-095)."""
-        client: Any = LLMClient.from_settings(settings)
+        outside the cache (ADR-095). `primary`/`fallback` (R18) default to
+        `LLMClient`'s own class defaults (Groq 120b / Gemini) — pass them to
+        run this node against a different pair, e.g. Groq's 20b model."""
+        client: Any = LLMClient.from_settings(settings, primary=primary, fallback=fallback)
         if cache:
             client = CachedLLMClient(client, settings.llm_cache_dir)
         if trace:
