@@ -1,4 +1,6 @@
-"""Step 10.5 — the grounding gate. Adversarial fixtures must all be caught."""
+"""R19 Phase B (ADR-120) — the grounding gate, marker-based. Adversarial
+fixtures must all be caught.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ from taxverity.calculator.scope import CalculatorInputs, run
 from taxverity.chunking.models import Chunk
 from taxverity.corpus.nodes import NodePath, NodeType
 from taxverity.facts import Fact, FactField, FactStatus, UserFacts
-from taxverity.generation.claims import Citation, Claim, ClaimType
+from taxverity.generation.claims import Claim, ClaimType
 from taxverity.generation.verifier import (
     Verifier,
     Violation,
@@ -38,7 +40,7 @@ S22 = (
         ("22(2)", "(2) No deduction shall be made for any other sum.", []),
     ],
 )
-S24 = ("24", "24. The deduction shall not exceed Rs. 2,00,000 in a tax year.", [])
+S24 = ("24", "24. The deduction shall not exceed Rs. 2,00,000 in a tax year.", [])
 S23 = ("23", "23. Arrears of rent received shall be charged.", [])
 
 
@@ -72,7 +74,8 @@ def build(node, root, start=0, parent_id=None):
 
 
 CHUNKS = {c.node_path: c for c in (*build(S22, "22"), *build(S24, "24"), *build(S23, "23"))}
-# Retrieved: 22(1) (with 22's lead-in as context) and 24. Not 22(2), not 23.
+# Marker [1] = 22(1) (with 22's lead-in as context), marker [2] = 24. Neither
+# 22(2) nor 23 is packed — nothing can cite them.
 PACK = EvidencePacker(CHUNKS.values()).pack(
     [ScoredChunk(chunk=CHUNKS["22(1)"], score=2.0), ScoredChunk(chunk=CHUNKS["24"], score=1.0)]
 )
@@ -91,32 +94,24 @@ FACTS = UserFacts(
 )
 
 
-def statute(text: str, *citations: tuple[str, str]) -> Claim:
-    return Claim(
-        type=ClaimType.STATUTE,
-        text=text,
-        citations=tuple(Citation(path=p, quote=q) for p, q in citations),
-    )
+def content(text: str) -> Claim:
+    return Claim(type=ClaimType.CONTENT, text=text)
 
 
-def advice(text: str, *citations: tuple[str, str]) -> Claim:
-    return Claim(
-        type=ClaimType.ADVICE,
-        text=text,
-        citations=tuple(Citation(path=p, quote=q) for p, q in citations),
-    )
+def heading(text: str) -> Claim:
+    return Claim(type=ClaimType.HEADING, text=text)
 
 
-def no_basis(text: str, *citations: tuple[str, str]) -> Claim:
-    return Claim(
-        type=ClaimType.NO_BASIS,
-        text=text,
-        citations=tuple(Citation(path=p, quote=q) for p, q in citations),
-    )
+def no_basis(text: str) -> Claim:
+    return Claim(type=ClaimType.NO_BASIS, text=text)
+
+
+def computation_claim(text: str) -> Claim:
+    return Claim(type=ClaimType.COMPUTATION, text=text)
 
 
 def violations(claim: Claim, **kwargs) -> set[Violation]:
-    verifier = Verifier(PACK, CHUNKS, question=QUESTION, facts=FACTS, **kwargs)
+    verifier = Verifier(PACK, question=QUESTION, facts=FACTS, **kwargs)
     return {finding.violation for finding in verifier.verify(claim).findings}
 
 
@@ -131,31 +126,34 @@ def test_the_pack_is_what_these_tests_assume():
 @pytest.mark.parametrize(
     "claim",
     [
-        statute(
-            "Deductions are made from the annual value.",
-            ("22(1)", "The following deductions shall be made from the annual value"),
-        ),
-        # A node inside a packed unit is in evidence (ADR-055).
-        statute("Thirty per cent is deducted.", ("22(1)(a)", "thirty per cent of the annual value")),
-        # A context line is citable for its own lead-in.
-        statute("Section 22 concerns house property.", ("22", "Deductions from income from house property")),
-        # Figures agree across Indian grouping and lakh wording.
-        statute("The cap is 2 lakh.", ("24", "shall not exceed Rs. 2,00,000")),
-        # NBSPs in source and quote, a newline in the quote: compared after normalising.
-        statute("The cap applies per tax year.", ("24", "The deduction shall\nnot exceed")),
+        content("Deductions are made from the annual value [1]."),
+        # A node inside a packed unit is grounded by the packed unit's own
+        # marker — 22(1)(a) has no marker of its own, but its text is inside
+        # unit [1] (ADR-055).
+        content("Thirty per cent is deducted [1]."),
+        # Indian grouping and lakh wording both agree with the source figure.
+        content("The cap is 2 lakh [2]."),
+        # The Act states this one only in words — a digit claim must still
+        # ground against it (R19 Phase B's word-number grounding).
+        content("The deduction shall not exceed two lakh rupees [2]."),
     ],
 )
 def test_a_grounded_claim_passes(claim):
     assert violations(claim) == set()
 
 
-def test_a_citation_is_released_in_canonical_form():
-    verifier = Verifier(PACK, CHUNKS)
-    verdict = verifier.verify(
-        statute("Thirty per cent.", ("Section 22 (1)(a)", "thirty per cent of the annual value"))
-    )
+def test_a_citation_is_resolved_to_the_units_path_and_an_excerpt():
+    verifier = Verifier(PACK)
+    verdict = verifier.verify(content("Thirty per cent [1]."))
     assert verdict.passed
-    assert verdict.claim.citations[0].path == "22(1)(a)"
+    assert verdict.claim.citations[0].marker == 1
+    assert verdict.claim.citations[0].path == "22(1)"
+    assert "thirty per cent" in verdict.claim.citations[0].quote
+
+
+def test_multiple_markers_on_one_line_both_ground():
+    claim = content("Thirty per cent is deducted, capped at 2 lakh [1][2].")
+    assert violations(claim) == set()
 
 
 # --- adversarial fixtures: every one must be caught ---------------------------
@@ -164,36 +162,33 @@ def test_a_citation_is_released_in_canonical_form():
 @pytest.mark.parametrize(
     ("claim", "expected"),
     [
-        # Fabricated path.
-        (statute("A deduction exists.", ("999(1)", "The following deductions shall be made")), Violation.CITATION_NOT_IN_EVIDENCE),
-        # Not a path at all.
-        (statute("A deduction exists.", ("the house property rules", "The following deductions shall be made")), Violation.CITATION_NOT_IN_EVIDENCE),
-        # A real provision that was not retrieved.
-        (statute("Arrears are charged.", ("23", "Arrears of rent received shall be charged")), Violation.CITATION_NOT_IN_EVIDENCE),
-        # A sibling of a context line: its ancestor's lead-in is in evidence, it is not.
-        (statute("No other deduction.", ("22(2)", "No deduction shall be made for any other sum")), Violation.CITATION_NOT_IN_EVIDENCE),
-        # A context line's citation quoting text beyond its lead-in.
-        (statute("No other deduction.", ("22", "No deduction shall be made for any other sum")), Violation.QUOTE_NOT_IN_SOURCE),
-        # Altered quote: one word changed.
-        (statute("Forty per cent.", ("22(1)(a)", "forty per cent of the annual value")), Violation.QUOTE_NOT_IN_SOURCE),
-        # Right text, wrong provision.
-        (statute("Interest is deducted.", ("22(1)(a)", "interest payable on borrowed capital")), Violation.QUOTE_NOT_IN_SOURCE),
-        # A quote too short to identify anything.
-        (statute("Annual value matters.", ("22(1)(a)", "annual value")), Violation.QUOTE_TOO_SHORT),
-        # Uncited statute claim.
-        (statute("Thirty per cent of the annual value is deducted."), Violation.NO_CITATION),
-        # Invented number, with a genuine citation beside it.
-        (statute("40 per cent is deducted.", ("22(1)(a)", "thirty per cent of the annual value")), Violation.UNSUPPORTED_NUMBER),
+        # A marker with no evidence at that position at all.
+        (content("A deduction exists [99]."), Violation.MARKER_NOT_IN_EVIDENCE),
+        (content("A deduction exists [0]."), Violation.MARKER_NOT_IN_EVIDENCE),
+        # A real provision that was never packed — the model cannot cite it,
+        # because there is no marker number for it. Only whole pack units
+        # are citable (22(2) and 23 are both real but unpacked).
+        (content("No other deduction [3]."), Violation.MARKER_NOT_IN_EVIDENCE),
+        # No marker at all — required unconditionally, no blocklist of
+        # trigger words to work around (see the check's own comment for why).
+        (content("Thirty per cent of the annual value is deducted."), Violation.NO_CITATION),
+        (content("You are entitled to this deduction."), Violation.NO_CITATION),
+        # A plain-looking sentence with no statutory vocabulary at all must
+        # still be caught uncited — an allowlist-by-absence-of-keywords is
+        # exactly the injection-resistance gap this design closes.
+        (content("No tax is ever due."), Violation.NO_CITATION),
+        # An invented number, with a genuine citation beside it.
+        (content("40 per cent is deducted [1]."), Violation.UNSUPPORTED_NUMBER),
         # A changed amount.
-        (statute("The cap is 5 lakh.", ("24", "shall not exceed Rs. 2,00,000")), Violation.UNSUPPORTED_NUMBER),
+        (content("The cap is 5 lakh [2]."), Violation.UNSUPPORTED_NUMBER),
         # A figure from the question cannot ground a statement of law.
-        (statute("The cap is 3 lakh.", ("24", "shall not exceed Rs. 2,00,000")), Violation.UNSUPPORTED_NUMBER),
+        (content("The cap is 3 lakh [2]."), Violation.UNSUPPORTED_NUMBER),
         # Nor can a stated fact.
-        (statute("The cap is 14,00,000.", ("24", "shall not exceed Rs. 2,00,000")), Violation.UNSUPPORTED_NUMBER),
-        # A number from a citation that failed does not ground the text.
-        (statute("The cap is 2,00,000.", ("23", "shall not exceed Rs. 2,00,000")), Violation.UNSUPPORTED_NUMBER),
+        (content("The cap is 14,00,000 [2]."), Violation.UNSUPPORTED_NUMBER),
+        # A number from a marker that itself failed does not ground the text.
+        (content("The cap is 2,00,000 [99]."), Violation.UNSUPPORTED_NUMBER),
         # A computation claim with no computation.
-        (Claim(type=ClaimType.COMPUTATION, text="Your tax is nil."), Violation.NO_COMPUTATION),
+        (computation_claim("Your tax is nil [calc]."), Violation.NO_COMPUTATION),
     ],
 )
 def test_an_ungrounded_claim_is_caught(claim, expected):
@@ -201,10 +196,7 @@ def test_an_ungrounded_claim_is_caught(claim, expected):
 
 
 def test_the_users_figures_ground_a_computation_claim(computation):
-    claim = Claim(
-        type=ClaimType.COMPUTATION,
-        text="On rent of 3,00,000 and a salary of 14,00,000, see the trace.",
-    )
+    claim = computation_claim("On rent of 3,00,000 and a salary of 14,00,000, see the trace [calc].")
     assert violations(claim, computation=computation) == set()
 
 
@@ -220,8 +212,8 @@ def test_a_profile_default_grounds_no_number(computation):
             ),
         )
     )
-    claim = Claim(type=ClaimType.COMPUTATION, text="A salary of 9,99,999.")
-    verifier = Verifier(PACK, CHUNKS, facts=facts, computation=computation)
+    claim = computation_claim("A salary of 9,99,999 [calc].")
+    verifier = Verifier(PACK, facts=facts, computation=computation)
     assert Violation.UNSUPPORTED_NUMBER in {f.violation for f in verifier.verify(claim).findings}
 
 
@@ -245,85 +237,62 @@ def computation():
 
 def test_a_computation_claim_restating_the_trace_passes(computation):
     payable = computation.comparison.under_202_1.payable.amount
-    claim = Claim(
-        type=ClaimType.COMPUTATION,
-        text=f"For tax year 2026-27 the income-tax payable is {payable:,}.",
-    )
+    claim = computation_claim(f"For tax year 2026-27 the income-tax payable is {payable:,} [calc].")
     assert violations(claim, computation=computation) == set()
 
 
 def test_a_computation_claim_with_an_invented_figure_is_caught(computation):
     payable = computation.comparison.under_202_1.payable.amount
-    claim = Claim(type=ClaimType.COMPUTATION, text=f"The income-tax payable is {payable + 1}.")
+    claim = computation_claim(f"The income-tax payable is {payable + 1} [calc].")
     assert violations(claim, computation=computation) == {Violation.UNSUPPORTED_NUMBER}
 
 
-def test_computation_figures_do_not_ground_a_statute_claim(computation):
+def test_computation_figures_do_not_ground_a_content_claim(computation):
     payable = computation.comparison.under_202_1.payable.amount
-    claim = statute(
-        f"The Act fixes the tax at {payable + 7}.",
-        ("22(1)", "deductions shall be made from the annual value"),
-    )
+    claim = content(f"The Act fixes the tax at {payable + 7} [1].")
     assert Violation.UNSUPPORTED_NUMBER in violations(claim, computation=computation)
 
 
-# --- advisor pivot: ADVICE claims gated like STATUTE ---------------------------
+# --- headings ------------------------------------------------------------------
 
 
-def test_a_grounded_advice_claim_passes():
-    # "shall" in 22(1)'s own text is a statutory modal, so the prescriptive
-    # "you may" is backed by a quote that actually imposes/permits something.
-    claim = advice(
-        "You may deduct thirty per cent of the annual value from your rental income.",
-        ("22(1)", "The following deductions shall be made from the annual value"),
-    )
-    assert violations(claim) == set()
+def test_a_clean_heading_passes():
+    assert violations(heading("## Deductions from house property")) == set()
 
 
-def test_an_uncited_advice_claim_is_caught():
-    assert Violation.NO_CITATION in violations(advice("You may claim this deduction."))
+def test_a_heading_carrying_a_number_is_malformed():
+    assert Violation.MALFORMED_HEADING in violations(heading("## Save up to 2 lakh"))
 
 
-def test_advice_cannot_be_grounded_by_the_users_own_figures():
-    # Same rule as a statute claim (rule 04's numbers-in-words-not-figures):
-    # the question's own 3,00,000 must not ground an advice claim's number.
-    claim = advice(
-        "You can deduct up to 3,00,000.",
-        ("24", "shall not exceed Rs. 2,00,000"),
-    )
-    assert Violation.UNSUPPORTED_NUMBER in violations(claim)
+def test_a_heading_carrying_a_marker_is_malformed():
+    assert Violation.MALFORMED_HEADING in violations(heading("## Deductions [1]"))
 
 
-def test_a_prescription_with_no_modal_quote_is_unsupported_advice():
-    # "thirty per cent of the annual value" is a bare description, not a
-    # provision imposing or permitting anything - a "you should" resting on
-    # it alone is asserted, not shown.
-    claim = advice(
-        "You should claim thirty per cent as a deduction.",
-        ("22(1)(a)", "thirty per cent of the annual value"),
-    )
-    assert Violation.UNSUPPORTED_ADVICE in violations(claim)
+# --- modal mismatch (new this phase) --------------------------------------------
 
 
-def test_a_prescription_backed_by_a_modal_quote_passes():
-    claim = advice(
-        "You must deduct interest on your borrowed capital.",
-        ("22(1)(a)", "thirty per cent of the annual value"),
-        ("22(1)", "The following deductions shall be made from the annual value"),
-    )
-    assert Violation.UNSUPPORTED_ADVICE not in violations(claim)
+def test_a_claim_affirming_what_its_source_denies_is_caught():
+    # Unit [2] (24) says the deduction "shall not exceed" 2 lakh — a genuine
+    # denial. A claim asserting entitlement to more than that, from the same
+    # source, gets the fact wrong even though its number and marker both
+    # check out.
+    claim = content("You are entitled to deduct more than 2 lakh [2].")
+    assert Violation.MODAL_MISMATCH in violations(claim)
 
 
-def test_a_non_prescriptive_advice_claim_needs_no_modal_quote():
-    # No "you should/must/can/may" language - the check does not apply.
-    claim = advice(
-        "Your annual value is reduced by thirty per cent of it.",
-        ("22(1)(a)", "thirty per cent of the annual value"),
-    )
-    assert Violation.UNSUPPORTED_ADVICE not in violations(claim)
+def test_a_claim_agreeing_with_a_denying_source_is_not_flagged():
+    claim = content("You cannot deduct more than 2 lakh [2].")
+    assert Violation.MODAL_MISMATCH not in violations(claim)
 
 
-# --- advisor pivot: NO_BASIS claims ---------------------------------------------
+def test_an_overly_cautious_claim_is_not_flagged():
+    # The reverse direction (claim denies, source affirms) is deliberately
+    # not gated — see the module's own docstring for why.
+    claim = content("You are entitled to deduct interest on borrowed capital [1].")
+    assert Violation.MODAL_MISMATCH not in violations(claim)
+
+
+# --- no_basis claims -------------------------------------------------------------
 
 
 def test_a_well_formed_no_basis_claim_passes():
@@ -340,10 +309,7 @@ def test_every_registered_opener_passes(opener):
 
 
 def test_a_no_basis_claim_citing_evidence_is_malformed():
-    claim = no_basis(
-        "The Act does not deal with this.",
-        ("22(1)", "The following deductions shall be made from the annual value"),
-    )
+    claim = no_basis("The Act does not deal with this [1].")
     assert Violation.MALFORMED_NO_BASIS in violations(claim)
 
 
@@ -354,7 +320,7 @@ def test_a_no_basis_claim_with_the_wrong_opener_is_malformed():
 
 def test_a_no_basis_claim_stating_a_number_is_unsupported():
     claim = no_basis("The Act does not deal with gifts of 500 acres.")
-    assert Violation.UNSUPPORTED_NUMBER in violations(claim)
+    assert Violation.MALFORMED_NO_BASIS in violations(claim)
 
 
 # --- helpers -----------------------------------------------------------------------
@@ -381,3 +347,19 @@ def test_numbers_in_reads_indian_grouping_and_words():
         Decimal("15000000"),
         Decimal("30"),
     }
+
+
+def test_numbers_in_reads_english_number_words():
+    assert numbers_in("fifteen lakh rupees") == {Decimal("1500000")}
+    assert numbers_in("one lakh fifty thousand") == {Decimal("150000")}
+    assert numbers_in("thirty per cent") == {Decimal("30")}
+    assert numbers_in("twenty one") == {Decimal("21")}
+
+
+def test_a_bare_one_or_zero_is_not_read_as_a_figure():
+    # Common non-numeric English usage ("one such condition") must not be
+    # treated as stating a quantity — only "one" combined with something else
+    # (a scale word, another number word) counts.
+    assert numbers_in("one such condition applies") == frozenset()
+    assert numbers_in("zero tolerance for late filing") == frozenset()
+    assert numbers_in("one lakh rupees") == {Decimal("100000")}

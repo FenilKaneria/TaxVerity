@@ -34,6 +34,7 @@ from taxverity.graph.state import (
     GraphDeps,
     GraphState,
     StageEvent,
+    TraceEntry,
 )
 from taxverity.memory.fact_state import (
     ThreadFactState,
@@ -71,7 +72,10 @@ def contextualize(state: GraphState, deps: GraphDeps, writer: Writer | None = No
 
 def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
     result = deps.classifier.classify(state["query"])
-    return {"category": result.category, "fixed_response": result.response}
+    # getattr, not result.search_query: a test double's classifier stub may
+    # predate R19 Phase B (ADR-120) and not set it.
+    search_query = getattr(result, "search_query", None) or state["query"]
+    return {"category": result.category, "fixed_response": result.response, "search_query": search_query}
 
 
 def respond_fixed(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
@@ -137,7 +141,10 @@ def _retrieve(
     state: GraphState, deps: GraphDeps, writer: Writer | None, *, k: int, expand: bool
 ) -> dict:
     emit = writer or get_stream_writer()
-    results = deps.retriever.search(state["query"], k)
+    # R19 Phase B (ADR-120): retrieval runs on the classifier's Act-vocabulary
+    # rewrite when one exists, falling back to the raw query for callers
+    # (tests, an older classifier stub) that don't set it.
+    results = deps.retriever.search(state.get("search_query") or state["query"], k)
     pack = deps.packer.pack(results, expand=expand)
     emit(
         StageEvent(
@@ -211,12 +218,14 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
         if answer_text is not None and pack is not None
         else ()
     )
+    trace = tuple(TraceEntry(**entry) for entry in state.get("trace", []))
     final_event = FinalEvent(
         route=route_label,
         computation=_computation_summary(computation) if computation is not None else None,
         citations=citations,
         text=answer_text,
         searched=searched,
+        trace=trace,
     )
     emit(final_event.model_dump())
     append_message(deps.conn, state["user_id"], state["thread_id"], "user", state["question"])
@@ -226,7 +235,19 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
         state["thread_id"],
         "assistant",
         text,
-        payload={"citations": _served_citation_records(events)},
+        payload={
+            "citations": _served_citation_records(events),
+            "withheld": _withheld_records(events),
+            "clarify_questions": list(state.get("clarify_questions", ())),
+            "trace": [entry.model_dump() for entry in trace],
+            # R19 Phase B (ADR-120): True when `text` is the generator's own
+            # markdown claim lines (frontend renders it with MarkdownAnswer);
+            # False when it is a fixed/gated plain-prose string (a refusal
+            # template, the conversational reply, or the insufficient-
+            # evidence message) — those are never run through line
+            # classification, and never bulleted.
+            "structured": answer_text is None,
+        },
     )
     return {"final": final_event}
 
@@ -236,7 +257,11 @@ def _facts_payload(state: ThreadFactState) -> dict[str, str]:
 
 
 def _served_text(events: list[ClaimEvent | WithheldEvent]) -> str:
-    return " ".join(event.text for event in events if isinstance(event, ClaimEvent))
+    # R19 Phase B (ADR-120): a newline, not a space — each claim is a whole
+    # markdown line (a heading, a bullet, a no_basis sentence), and joining
+    # with a space would run them onto one line and destroy that structure
+    # for the frontend's markdown renderer.
+    return "\n".join(event.text for event in events if isinstance(event, ClaimEvent))
 
 
 def _served_citations(events: list[ClaimEvent | WithheldEvent]) -> tuple[str, ...]:
@@ -252,20 +277,35 @@ def _served_citations(events: list[ClaimEvent | WithheldEvent]) -> tuple[str, ..
 
 def _served_citation_records(
     events: list[ClaimEvent | WithheldEvent],
-) -> list[dict[str, str]]:
-    """First-seen (path, quote) pairs, persisted on the message so history can
-    reopen the citation dialog without a live turn's own `cited` state."""
-    seen: set[str] = set()
-    records: list[dict[str, str]] = []
+) -> list[dict[str, str | int]]:
+    """First-seen (marker, path, quote) triples, persisted on the message so
+    history can both reopen the citation dialog and resolve the `[n]`
+    markers still embedded in the persisted text (R19 Phase B, ADR-120) —
+    without a live turn's own `cited` state. `marker` numbers a single
+    evidence pack (this turn's), so they never collide within one message
+    even across a corrective retry: `events` is replaced, not accumulated,
+    by whichever `generate_verify` pass actually produced what is served."""
+    seen: set[int] = set()
+    records: list[dict[str, str | int]] = []
     for event in events:
         if not isinstance(event, ClaimEvent):
             continue
         for citation in event.citations:
-            if citation.path in seen:
+            if citation.marker in seen:
                 continue
-            seen.add(citation.path)
-            records.append({"path": citation.path, "quote": citation.quote})
+            seen.add(citation.marker)
+            records.append(
+                {"marker": citation.marker, "path": citation.path, "quote": citation.quote}
+            )
     return records
+
+
+def _withheld_records(events: list[ClaimEvent | WithheldEvent]) -> list[dict[str, str]]:
+    return [
+        {"id": str(event.id), "reason": event.reason}
+        for event in events
+        if isinstance(event, WithheldEvent)
+    ]
 
 
 def _computation_summary(computation: Computation) -> dict[str, str]:

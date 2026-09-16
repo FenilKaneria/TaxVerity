@@ -2,6 +2,7 @@
 // (src/taxverity/api/threads_routes.py). Every call goes through
 // authorizedJson, so a 401 triggers one silent refresh-and-retry.
 
+import type { TraceEntry } from "./sse";
 import { authorizedJson } from "./api";
 
 export interface Thread {
@@ -12,8 +13,18 @@ export interface Thread {
 }
 
 export interface MessageCitation {
+  // R19 Phase B (ADR-120): the `[n]` marker this citation resolves, null for
+  // a message persisted before markers existed.
+  marker: number | null;
   path: string;
   quote: string | null;
+}
+
+// R19: a dropped claim's reason, persisted on the message so a reloaded turn
+// shows the same withheld line the live stream did.
+export interface MessageWithheld {
+  id: string;
+  reason: string;
 }
 
 export interface Message {
@@ -21,6 +32,12 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   citations: MessageCitation[];
+  withheld: MessageWithheld[];
+  clarify_questions: string[];
+  trace: TraceEntry[];
+  // R19 Phase B (ADR-120): true for the generator's own markdown claim
+  // lines, false for a fixed/gated plain-prose string.
+  structured: boolean;
   created_at: string;
 }
 

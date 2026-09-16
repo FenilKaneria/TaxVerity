@@ -1,19 +1,17 @@
-"""Steps 10.2 and 10.4 — the claim model and the incremental NDJSON parser."""
+"""R19 Phase B (ADR-120) — the claim model and the incremental markdown-line
+parser. Same streaming contract as the old NDJSON design (`iter_lines()`,
+`LineBuffer` unchanged); only what a line means changed.
+"""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from pydantic import ValidationError
 
 from taxverity.generation.claims import (
     DISCLAIMER,
-    Citation,
-    ClaimEvent,
     ClaimType,
     LineBuffer,
     MalformedClaim,
@@ -21,99 +19,78 @@ from taxverity.generation.claims import (
     parse_claim,
 )
 
-STATUTE = {
-    "type": "statute",
-    "text": "Thirty per cent of the annual value is deducted.",
-    "citations": [{"path": "22(1)(a)", "quote": "thirty per cent of the annual value"}],
-}
-COMPUTATION = {"type": "computation", "text": "The tax payable is 0.", "citations": []}
-NDJSON = "\n".join(json.dumps(line) for line in (STATUTE, COMPUTATION, STATUTE))
+HEADING = "## Deductions from house property"
+CONTENT = "Interest on borrowed capital is deducted [2]."
+COMPUTATION = "Your tax payable is ₹0 [calc]."
+NO_BASIS = "The Act does not deal with this."
+ANSWER = "\n".join([HEADING, CONTENT, COMPUTATION, NO_BASIS])
 
 
-def test_a_well_formed_line_parses():
-    claim = parse_claim(json.dumps(STATUTE))
-    assert claim.type is ClaimType.STATUTE
-    assert claim.citations == (
-        Citation(path="22(1)(a)", quote="thirty per cent of the annual value"),
-    )
+def test_a_heading_line_classifies_as_heading():
+    claim = parse_claim(HEADING)
+    assert claim.type is ClaimType.HEADING
+    assert claim.text == HEADING
 
 
-# --- advisor pivot: ADVICE and NO_BASIS ---------------------------------------
+def test_a_bullet_line_classifies_as_content():
+    claim = parse_claim("- " + CONTENT)
+    assert claim.type is ClaimType.CONTENT
+    assert claim.citations == ()  # filled in by the verifier, not at parse time
 
 
-def test_advice_parses_like_statute():
-    payload = {
-        "type": "advice",
-        "text": "You may deduct thirty per cent of your rental income.",
-        "citations": [{"path": "22(1)(a)", "quote": "thirty per cent of the annual value"}],
-    }
-    claim = parse_claim(json.dumps(payload))
-    assert claim.type is ClaimType.ADVICE
-    assert claim.citations == (
-        Citation(path="22(1)(a)", quote="thirty per cent of the annual value"),
-    )
+def test_a_calc_marked_line_classifies_as_computation():
+    claim = parse_claim(COMPUTATION)
+    assert claim.type is ClaimType.COMPUTATION
 
 
-def test_no_basis_parses_with_no_citations():
-    payload = {"type": "no_basis", "text": "The Act does not deal with this.", "citations": []}
-    claim = parse_claim(json.dumps(payload))
+def test_a_no_basis_opener_classifies_as_no_basis():
+    claim = parse_claim(NO_BASIS)
     assert claim.type is ClaimType.NO_BASIS
-    assert claim.citations == ()
 
 
-@pytest.mark.parametrize(
-    "line",
-    [
-        "not json",
-        '["a", "list"]',
-        '{"type": "statute", "citations": []}',
-        '{"type": "opinion", "text": "x"}',
-        '{"type": "statute", "text": "x", "id": 7}',
-        '{"type": "statute", "text": ""}',
-        '{"type": "statute", "text": "x", "citations": [{"path": "22"}]}',
-        '{"type": "statute", "text": "x", "citations": [{"path": "22", "quote": ""}]}',
-    ],
-)
-def test_anything_else_is_malformed(line):
-    with pytest.raises(MalformedClaim):
-        parse_claim(line)
+def test_an_ordinary_sentence_classifies_as_content():
+    claim = parse_claim("Here's what applies to your rental income.")
+    assert claim.type is ClaimType.CONTENT
 
 
-def test_a_released_claim_cannot_carry_verified_false():
-    with pytest.raises(ValidationError):
-        ClaimEvent(id=1, type=ClaimType.STATUTE, text="x", citations=(), verified=False)
-    assert ClaimEvent(id=1, type=ClaimType.STATUTE, text="x", citations=()).verified is True
+def test_a_line_that_is_only_a_marker_is_malformed():
+    for degenerate in ["[1]", "[calc]", "- ", "## ", "-", "#"]:
+        try:
+            parse_claim(degenerate)
+        except MalformedClaim:
+            continue
+        raise AssertionError(f"{degenerate!r} should have raised MalformedClaim")
 
 
 def test_a_line_split_across_deltas_is_yielded_once_complete():
     buffer = LineBuffer()
-    assert buffer.feed('{"type": "stat') == []
-    assert buffer.feed('ute", "text": "a"}\n{"ty') == ['{"type": "statute", "text": "a"}']
-    assert buffer.feed('pe": "computation", "text": "b"}') == []
-    assert buffer.flush() == ['{"type": "computation", "text": "b"}']
+    assert buffer.feed("## Deduc") == []
+    assert buffer.feed("tions\n- Interest is d") == ["## Deductions"]
+    assert buffer.feed("eductible [1].") == []
+    assert buffer.flush() == ["- Interest is deductible [1]."]
     assert buffer.flush() == []
 
 
 def test_the_last_line_without_a_newline_is_flushed():
-    assert list(iter_lines([NDJSON])) == NDJSON.split("\n")
+    assert list(iter_lines([ANSWER])) == ANSWER.split("\n")
 
 
 def test_blank_lines_and_code_fences_carry_no_claim():
-    text = "```json\n\n" + NDJSON + "\n\n```\n"
-    assert list(iter_lines([text])) == NDJSON.split("\n")
+    text = "```\n\n" + ANSWER + "\n\n```\n"
+    assert list(iter_lines([text])) == ANSWER.split("\n")
 
 
 def test_every_single_character_split_gives_the_same_lines():
-    assert list(iter_lines(list(NDJSON))) == NDJSON.split("\n")
+    assert list(iter_lines(list(ANSWER))) == ANSWER.split("\n")
 
 
 @settings(max_examples=60, deadline=None)
-@given(st.lists(st.integers(min_value=0, max_value=len(NDJSON)), max_size=12))
+@given(st.lists(st.integers(min_value=0, max_value=len(ANSWER)), max_size=12))
 def test_any_split_gives_the_same_claim_sequence(cuts):
     points = sorted(set(cuts))
-    pieces = [NDJSON[a:b] for a, b in zip([0, *points], [*points, len(NDJSON)], strict=True)]
+    pieces = [ANSWER[a:b] for a, b in zip([0, *points], [*points, len(ANSWER)], strict=True)]
     assert [parse_claim(line) for line in iter_lines(pieces)] == [
-        parse_claim(line) for line in NDJSON.split("\n")
+        parse_claim(line) for line in ANSWER.split("\n")
     ]
 
 
@@ -122,8 +99,8 @@ def test_closing_the_lines_closes_the_source():
 
     def source():
         try:
-            yield '{"type": "statute", "text": "a"}\n'
-            yield '{"type": "statute", "text": "b"}\n'
+            yield "- a [1].\n"
+            yield "- b [2].\n"
         finally:
             closed.append(True)
 

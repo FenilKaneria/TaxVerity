@@ -19,7 +19,7 @@ import pytest
 from conftest import register_account
 from taxverity.calculator.scope import Route
 from taxverity.facts import FactField, UserFacts
-from taxverity.generation.claims import ClaimEvent
+from taxverity.generation.claims import ClaimEvent, ClaimType
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph.build import build_graph
 from taxverity.graph.nodes import (
@@ -46,7 +46,7 @@ from taxverity.retrieval.evidence import EvidencePacker
 from taxverity.safety.classifier import FIXED_RESPONSES, ScopeCategory
 from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
 from taxverity.threads.store import append_message, create_thread, list_messages
-from test_generation import GOOD, QUESTION, FakeLLM, ndjson
+from test_generation import GOOD, QUESTION, FakeLLM, answer
 from test_scope import BASE, fact
 from test_verifier import CHUNKS, PACK
 
@@ -189,14 +189,27 @@ def test_classify_reads_the_category_and_response_off_the_classifier():
     assert result == {
         "category": ScopeCategory.PROHIBITED,
         "fixed_response": FIXED_RESPONSES[ScopeCategory.PROHIBITED],
+        "search_query": "how do I hide income?",
     }
+
+
+def test_classify_uses_the_classifiers_search_query_when_it_sets_one():
+    classifier = SimpleNamespace(
+        classify=lambda q: SimpleNamespace(
+            category=ScopeCategory.IN_SCOPE,
+            response=None,
+            search_query="interest on borrowed capital; house property",
+        )
+    )
+    result = classify({"query": "home loan tax benefit"}, deps(classifier=classifier))
+    assert result["search_query"] == "interest on borrowed capital; house property"
 
 
 # --- generate_verify + the evidence gate (no DB) ------------------------------
 
 
 def test_generate_verify_serves_a_grounded_claim_and_the_gate_stays_silent():
-    llm = FakeLLM(ndjson(GOOD))
+    llm = FakeLLM(answer(GOOD))
     d = deps(generator=AnswerGenerator(llm, CHUNKS))
     state = {"query": QUESTION, "pack": PACK, "fact_state": thread_state(), "computation": None}
     recorder = Recorder()
@@ -206,7 +219,7 @@ def test_generate_verify_serves_a_grounded_claim_and_the_gate_stays_silent():
     assert recorder.events == [result["events"][0].model_dump()]
 
 
-def test_generate_verify_gates_to_insufficient_evidence_on_zero_statute_claims():
+def test_generate_verify_gates_to_insufficient_evidence_on_zero_grounded_claims():
     llm = FakeLLM("")  # the model emits nothing
     d = deps(generator=AnswerGenerator(llm, CHUNKS))
     state = {"query": QUESTION, "pack": PACK, "fact_state": thread_state(), "computation": None}
@@ -266,7 +279,7 @@ def test_merge_facts_persists_to_the_database_and_emits_the_facts_stage(schema, 
 
 
 def test_finalize_persists_both_messages_and_composes_the_final_event(schema, alice, thread_id):
-    claim = ClaimEvent(id=1, type=GOOD["type"], text=GOOD["text"], citations=())
+    claim = ClaimEvent(id=1, type=ClaimType.CONTENT, text=GOOD, citations=())
     state = {
         "user_id": alice,
         "thread_id": thread_id,
@@ -284,7 +297,7 @@ def test_finalize_persists_both_messages_and_composes_the_final_event(schema, al
     messages = list_messages(schema, alice, thread_id)
     assert [m.role for m in messages] == ["user", "assistant"]
     assert messages[0].content == state["question"]
-    assert messages[1].content == GOOD["text"]
+    assert messages[1].content == GOOD
     assert recorder.events == [result["final"].model_dump()]
     assert result["final"].text is None
     assert result["final"].searched == ()
@@ -335,7 +348,7 @@ def _end_to_end_deps(schema: object) -> GraphDeps:
     return deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None)
+            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
         ),
         contextualizer=SimpleNamespace(
             contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
@@ -351,7 +364,7 @@ def _end_to_end_deps(schema: object) -> GraphDeps:
                 ScoredChunk(chunk=CHUNKS["24"], score=1.0),
             ]
         ),
-        generator=AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS),
+        generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
     )
 
 
@@ -363,7 +376,7 @@ def test_the_graph_answers_an_in_scope_question_end_to_end(schema, alice, thread
     assert result["category"] is ScopeCategory.IN_SCOPE
     assert [type(e) for e in result["events"]] == [ClaimEvent]
     assert result["final"].route == "compute"
-    assert result["final"].citations == ("22(1)(a)",)
+    assert result["final"].citations == ("22(1)",)
     messages = list_messages(schema, alice, thread_id)
     assert [m.role for m in messages] == ["user", "assistant"]
     assert load_fact_state(schema, alice, thread_id).get(FactField.SALARY_INCOME) is not None
@@ -408,5 +421,5 @@ def test_streaming_the_graph_emits_stage_then_claim_then_final(schema, alice, th
     ]
     stages = [e["stage"] for e in emitted if "stage" in e]
     assert stages == ["thinking", "facts", "evidence"]
-    assert any(e.get("type") == "statute" for e in emitted)
+    assert any(e.get("type") == "content" for e in emitted)
     assert emitted[-1]["disclaimer"]

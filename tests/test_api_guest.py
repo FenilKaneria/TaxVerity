@@ -23,7 +23,7 @@ from taxverity.guests.quota import GUEST_TURN_LIMIT
 from taxverity.retrieval.base import ScoredChunk
 from taxverity.safety.classifier import FIXED_RESPONSES, ScopeCategory
 from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
-from test_generation import GOOD, FakeLLM, ndjson
+from test_generation import GOOD, FakeLLM, answer
 from test_graph_nodes import deps as build_deps
 from test_verifier import CHUNKS, QUESTION
 
@@ -41,7 +41,7 @@ class FakePool:
 
 def _static_deps(category=ScopeCategory.IN_SCOPE, generator=None, conversational=None):
     if generator is None:
-        generator = AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS)
+        generator = AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS)
     response = FIXED_RESPONSES.get(category)
     kwargs = dict(
         conn=None,

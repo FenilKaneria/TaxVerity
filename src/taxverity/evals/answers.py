@@ -1,7 +1,7 @@
 """Step 10.7 — the answer smoke set: a stored run of the generator over a
 handful of gold-v2 questions (ADR-110).
 
-The only gate is that no negative question gets a served statute claim. The
+The only gate is that no negative question gets a served, cited claim. The
 rest is reported so a regression is visible, not judged against a threshold.
 """
 
@@ -14,10 +14,11 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from taxverity.evals.gold import QuerySlice
-from taxverity.generation.claims import ClaimEvent, ClaimType, WithheldEvent
+from taxverity.generation.claims import ClaimEvent, WithheldEvent
+from taxverity.safety.evidence_gate import GROUNDED_CLAIM_TYPES
 
-ANSWER_EVAL_VERSION = 2
-ANSWER_RUN_FILENAME = "answer_smoke_v2.json"
+ANSWER_EVAL_VERSION = 3
+ANSWER_RUN_FILENAME = "answer_smoke_v3.json"
 
 # Chosen by rule, not by reading outputs: the first three citation, four
 # paraphrase and three crossref questions of gold v2, and its first five
@@ -53,11 +54,18 @@ class AnswerRecord(BaseModel):
     seconds: float
 
     @property
-    def statute_claims(self) -> tuple[ClaimEvent, ...]:
-        return tuple(c for c in self.claims if c.type is ClaimType.STATUTE)
+    def grounded_claims(self) -> tuple[ClaimEvent, ...]:
+        """R19 Phase B (ADR-120): a `content` claim actually carrying a
+        resolved citation — the merged statute/advice voice, and the same
+        definition `evidence_gate.served_grounded_claims` uses."""
+        return tuple(
+            c for c in self.claims if c.type in GROUNDED_CLAIM_TYPES and c.citations
+        )
 
     def answer_text(self) -> str:
-        return " ".join(claim.text for claim in self.claims)
+        # R19 Phase B (ADR-120): a newline, matching graph/nodes.py's
+        # `_served_text` — each claim is a whole markdown line.
+        return "\n".join(claim.text for claim in self.claims)
 
 
 class AnswerRun(BaseModel):
@@ -94,7 +102,7 @@ def summarise(records: Sequence[AnswerRecord]) -> SmokeSummary:
         claims_served=sum(len(r.claims) for r in records),
         claims_withheld=sum(len(r.withheld) for r in records),
         errors=sum(1 for r in records if r.error is not None),
-        served_on_negative=tuple(r.query_id for r in negatives if r.statute_claims),
+        served_on_negative=tuple(r.query_id for r in negatives if r.grounded_claims),
         silent_answerable=tuple(r.query_id for r in answerable if not r.claims),
     )
 

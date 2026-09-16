@@ -35,7 +35,9 @@ every guest turn on the free tier for a user this project does not know yet.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Iterator
+from typing import Any
 from uuid import UUID, uuid4
 
 import psycopg
@@ -47,7 +49,7 @@ from taxverity.api.app import AppState, app_state, request_deps
 from taxverity.api.deps import get_conn
 from taxverity.api.errors import rate_limited
 from taxverity.generation.claims import ClaimEvent
-from taxverity.graph.state import FinalEvent, StageEvent
+from taxverity.graph.state import FinalEvent, StageEvent, TraceEntry
 from taxverity.guests.quota import (
     GUEST_TURN_LIMIT,
     GuestLimitReached,
@@ -152,17 +154,32 @@ def create_guest_turn_route(
         raise rate_limited() from None
 
     def event_stream() -> Iterator[str]:
+        # R19: per-stage timings for the trace panel (always visible, per user
+        # decision) — mirrors build.py's node wrapper for the authenticated
+        # graph, since this route composes its own stages rather than going
+        # through it (see module docstring).
+        trace: list[TraceEntry] = []
+
+        def timed(node: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
+            start = time.perf_counter()
+            result = fn(*args, **kwargs)
+            trace.append(TraceEntry(node=node, ms=round((time.perf_counter() - start) * 1000, 1)))
+            return result
+
         try:
             with request_deps(state) as deps:
                 yield _sse(StageEvent(stage="thinking").model_dump())
-                result = deps.classifier.classify(body.question)
+                result = timed("classify", deps.classifier.classify, body.question)
                 if result.category is ScopeCategory.CONVERSATIONAL:
-                    reply = deps.conversational.reply(body.question)
+                    reply = timed(
+                        "respond_conversational", deps.conversational.reply, body.question
+                    )
                     final = FinalEvent(
                         route=result.category.value,
                         computation=None,
                         citations=(),
                         text=reply,
+                        trace=tuple(trace),
                     )
                     yield _sse(final.model_dump())
                     return
@@ -172,23 +189,34 @@ def create_guest_turn_route(
                         computation=None,
                         citations=(),
                         text=result.response,
+                        trace=tuple(trace),
                     )
                     yield _sse(final.model_dump())
                     return
-                results = deps.retriever.search(body.question, deps.pool_k)
-                pack = deps.packer.pack(results, expand=False)
+                # getattr, not result.search_query: a test double's classifier
+                # stub may predate R19 Phase B (ADR-120) and not set it.
+                search_query = getattr(result, "search_query", None) or body.question
+                results = timed("retrieve", deps.retriever.search, search_query, deps.pool_k)
+                pack = timed("pack", deps.packer.pack, results, expand=False)
                 yield _sse(
                     StageEvent(
                         stage="evidence",
                         chunks=tuple(unit.citation for unit in pack.units),
                     ).model_dump()
                 )
+                generate_start = time.perf_counter()
                 events: list = []
                 for event in deps.generator.generate(
                     body.question, pack, facts=None, computation=None
                 ):
                     yield _sse(event.model_dump())
                     events.append(event)
+                trace.append(
+                    TraceEntry(
+                        node="generate_verify",
+                        ms=round((time.perf_counter() - generate_start) * 1000, 1),
+                    )
+                )
                 answer_text = gate(pack, events)
                 searched = (
                     tuple(unit.citation for unit in pack.units)
@@ -201,6 +229,7 @@ def create_guest_turn_route(
                     citations=_served_citations(events),
                     text=answer_text,
                     searched=searched,
+                    trace=tuple(trace),
                 )
                 yield _sse(final.model_dump())
         except Exception:

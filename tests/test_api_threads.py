@@ -188,7 +188,7 @@ def test_messages_round_trip_oldest_first_with_citations(
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assert messages[0]["content"] == "What is section 19(1)?"
     assert messages[0]["citations"] == []
-    assert messages[1]["citations"] == [{"path": "19(1)", "quote": None}]
+    assert messages[1]["citations"] == [{"marker": None, "path": "19(1)", "quote": None}]
     assert messages[1]["message_id"] > messages[0]["message_id"]
 
 
@@ -217,5 +217,5 @@ def test_messages_render_citation_quotes_in_the_new_format(
     response = client.get(f"/v1/threads/{thread_id}/messages", headers=headers)
     messages = response.json()
     assert messages[1]["citations"] == [
-        {"path": "19(1)", "quote": "a deduction of fifty thousand rupees"}
+        {"marker": None, "path": "19(1)", "quote": "a deduction of fifty thousand rupees"}
     ]

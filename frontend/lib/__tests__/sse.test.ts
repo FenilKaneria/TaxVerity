@@ -17,9 +17,9 @@ describe("SSEDecoder", () => {
     const decoder = new SSEDecoder();
     const whole = frame("claim", {
       id: 1,
-      type: "statute",
-      text: "Salary is taxed under section 19.",
-      citations: [{ path: "19", quote: "salary shall be chargeable" }],
+      type: "content",
+      text: "Salary is taxed under section 19 [1].",
+      citations: [{ marker: 1, path: "19", quote: "salary shall be chargeable" }],
       verified: true,
     });
 

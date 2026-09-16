@@ -34,8 +34,8 @@ KEY = "test-key-not-real"
 QUESTION = "What deduction can I claim for home loan interest?"
 
 
-def payload(category: str) -> str:
-    return json.dumps({"category": category})
+def payload(category: str, search_query: str = "") -> str:
+    return json.dumps({"category": category, "search_query": search_query})
 
 
 def ok(text: str) -> httpx2.Response:
@@ -93,7 +93,7 @@ def build(*responses):
 
 
 def test_stage_version_is_declared():
-    assert CLASSIFIER_STAGE_VERSION == 2
+    assert CLASSIFIER_STAGE_VERSION == 3
 
 
 def test_strict_format_names_the_scope_schema():
@@ -117,6 +117,12 @@ def test_schema_enumerates_all_five_categories():
     }
 
 
+def test_schema_requires_search_query():
+    # R19 Phase B (ADR-120): retrieval runs on this rewrite, not the raw
+    # question.
+    assert "search_query" in CLASSIFICATION_JSON_SCHEMA["required"]
+
+
 # --- classification ------------------------------------------------------
 
 
@@ -133,6 +139,22 @@ def test_each_category_round_trips(category: ScopeCategory):
     node, _ = build(ok(payload(category.value)))
     result = node.classify(QUESTION)
     assert result.category is category
+
+
+def test_search_query_round_trips():
+    rewritten = "interest on borrowed capital; house property; deduction"
+    node, _ = build(ok(payload("in_scope", rewritten)))
+    result = node.classify(QUESTION)
+    assert result.search_query == rewritten
+
+
+def test_a_missing_search_query_degrades_to_the_raw_question():
+    # The fallback json_object mode enforces nothing at the wire (Step
+    # 7.1's finding) — a completion missing the field must not fail the
+    # whole classification over something only retrieval consumes.
+    node, _ = build(ok(json.dumps({"category": "in_scope"})))
+    result = node.classify(QUESTION)
+    assert result.search_query == QUESTION
 
 
 def test_calls_with_the_strict_schema_at_temperature_zero():

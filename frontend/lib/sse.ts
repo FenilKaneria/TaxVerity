@@ -6,6 +6,9 @@
 // exercise deterministically.
 
 export interface Citation {
+  // R19 Phase B (ADR-120): the `[n]` marker embedded in the claim's own
+  // text that this citation resolves.
+  marker: number;
   path: string;
   quote: string;
 }
@@ -27,11 +30,12 @@ export interface ClarifyEvent {
 export interface ClaimEvent {
   kind: "claim";
   id: number;
-  // "advice" applies the Act to the person's own situation; "statute"
-  // describes a provision itself; "no_basis" names what the Act does not
-  // address (it carries no citations). Advisor pivot — see
+  // R19 Phase B (ADR-120): "heading" is a structural "## " line; "content"
+  // is a bullet or sentence applying or restating the Act (the old
+  // statute/advice split is now just voice, not a schema field); "no_basis"
+  // names what the Act does not address (it carries no citations). See
   // generation/claims.py's ClaimType.
-  type: "statute" | "advice" | "computation" | "no_basis";
+  type: "heading" | "content" | "computation" | "no_basis";
   text: string;
   citations: Citation[];
   // Rule 04's invariant is a type on the wire (generation/claims.py's
@@ -44,6 +48,12 @@ export interface WithheldEvent {
   kind: "withheld";
   id: number;
   reason: string;
+}
+
+// R19: one graph node's wall-clock cost, for the always-visible trace panel.
+export interface TraceEntry {
+  node: string;
+  ms: number;
 }
 
 export interface ComputationSummary {
@@ -65,6 +75,8 @@ export interface FinalEvent {
   // Provision paths the evidence pack actually held, when `text` names an
   // insufficient-evidence refusal — empty otherwise.
   searched?: string[];
+  // R19: per-node timings, for the always-visible trace panel.
+  trace?: TraceEntry[];
 }
 
 export type TurnEvent = StageEvent | ClarifyEvent | ClaimEvent | WithheldEvent | FinalEvent;

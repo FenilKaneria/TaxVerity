@@ -1,50 +1,65 @@
-"""Step 10.5 — the grounding gate (ADR-016). Plain Python, no model.
+"""R19 Phase B (ADR-120) — the grounding gate, rewritten for marker-based
+citation. Plain Python, no model.
 
 A claim is released only if every mechanical check passes:
 
-- **Citation existence.** The path names a packed unit, one of its context
-  lines, or a node inside a packed unit that exists as a chunk. A unit carries
-  its whole subtree (ADR-055), so `22(2)` is in evidence when unit `22` is. A
-  context line is only an ancestor's lead-in, so a quote from it is checked
-  against the lead-in, not the ancestor's whole text.
-- **Quote fidelity.** The quote is a verbatim substring of the cited node's
-  text, compared after `normalise()` and whitespace collapsing only.
-- **Numeric provenance.** Every number in a statute claim's text appears in one
-  of its own quotes or citation paths. A user's figure must not be able to
-  ground a statement of law: "the cap is 3 lakh" cannot pass because the
-  question mentioned 3,00,000. A computation claim may also use the calculator's
-  result, the user's question and their stated or inferred facts.
+- **Citation existence.** Every `[n]` marker in a `content` claim's text must
+  name a position in the evidence pack (`pack.units[n-1]`). Because a pack
+  unit already carries its whole subtree (ADR-055), citing unit `n` grounds
+  anything inside it — there is no separate path-parsing step anymore, and
+  no way to cite a node that was never packed.
+- **Numeric provenance.** Every number in a claim's text — digits or English
+  number words, Indian scale included ("fifteen lakh rupees" is a real
+  figure the Act states that way; see `numbers_in()`) — must appear the same
+  way in one of its cited units' own text, its context lead-ins, or its
+  citation path. A user's figure must not be able to ground a statement of
+  the Act: "the cap is 3 lakh" cannot pass because the question mentioned
+  3,00,000. A `computation` claim may also use the calculator's result, the
+  user's question and their stated or inferred facts.
+- **Modal mismatch (new this phase).** If a cited passage denies something
+  ("shall not", "is not allowed") and the claim's own text affirms it
+  anyway, the claim is caught even though every number and marker it carries
+  checks out. This is deliberately one-directional — a claim being *more*
+  cautious than its source is not gated, since that is the safer failure
+  mode. It is a targeted guard against the one failure the number/marker
+  checks cannot see, not an entailment checker: quote fidelity guaranteed
+  the old scheme could never misstate a passage's plain meaning this way; the
+  new scheme allows paraphrase, per an explicit user instruction ("the LLM
+  can modify it but should not change the original meaning"), so this is the
+  one deterministic check that stands in the fidelity check's place.
 
-What it cannot see: a claim that quotes real text and misreads it. That is the
-omission critic's territory (deferred, ADR-110), not this gate's.
+What it still cannot see: a paraphrase that drifts in some way this modal
+check doesn't cover. That is exactly the boundary DeepEval's offline sample
+exists to watch (ADR-053) — never the hot path's correctness mechanism.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
 from taxverity.calculator.scope import Computation
-from taxverity.chunking.models import Chunk
 from taxverity.corpus.loader import normalise
 from taxverity.corpus.nodes import NodePath
 from taxverity.facts import FactStatus, UserFacts
-from taxverity.generation.claims import Citation, Claim, ClaimType
-from taxverity.retrieval.evidence import EvidencePack
+from taxverity.generation.claims import (
+    CALC_MARKER,
+    MARKER,
+    NO_BASIS_OPENERS,
+    Citation,
+    Claim,
+    ClaimType,
+)
+from taxverity.retrieval.evidence import EvidencePack, EvidenceUnit
 
-VERIFIER_STAGE_VERSION = 2
-
-# A quote of one or two words ("the", "income") is in almost every provision,
-# so it proves nothing about which one the claim rests on.
-MIN_QUOTE_WORDS = 3
+VERIFIER_STAGE_VERSION = 3
 
 _CITATION_PREFIX = re.compile(r"^(?:sections?|sec\.?|s\.|u/s\.?)\s*", re.IGNORECASE)
 _SPACE_BEFORE_BRACKET = re.compile(r"\s+\(")
-_WHITESPACE = re.compile(r"\s+")
 _NUMBER = re.compile(
     r"(?<![\d.])(?P<digits>\d+(?:,\d+)*)(?:\.(?P<fraction>\d+))?"
     r"(?:\s*(?P<multiplier>lakhs?|crores?)\b)?",
@@ -52,34 +67,58 @@ _NUMBER = re.compile(
 )
 _MULTIPLIERS = {"lakh": 100_000, "crore": 10_000_000}
 
-# NO_BASIS claims (Step 1, advisor pivot) carry no citation, so they must be
-# recognisable as "the Act is silent" from their own opening words alone —
-# otherwise the one uncited claim type becomes a free-text channel.
-NO_BASIS_OPENERS = ("The Act does not", "The Act is silent on", "Nothing in the Act")
+# English number words, including the Indian scale. "one" and "zero" are
+# deliberately excluded as *single-token* triggers below — both are common
+# non-numeric English words ("one such condition"), and a false trigger here
+# would make an ordinary sentence look like it stated a figure it must then
+# ground. They still count inside a longer run ("one lakh", "twenty one").
+_ONES = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19,
+}  # fmt: skip
+_TENS = {
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90,
+}  # fmt: skip
+_SCALES = {
+    "hundred": 100, "thousand": 1_000, "lakh": 100_000, "lakhs": 100_000,
+    "crore": 10_000_000, "crores": 10_000_000, "million": 1_000_000,
+}  # fmt: skip
+_NUMBER_WORD_TOKEN = frozenset({*_ONES, *_TENS, *_SCALES, "and", "zero"})
+_WORD = re.compile(r"[a-zA-Z]+")
 
-# ADVICE claims assert a prescription; a quote must show the Act actually
-# imposing/permitting one, not merely defining a term the claim leans on.
-_PRESCRIPTIVE = re.compile(
-    r"\b(you (?:should|must|can|may|are entitled)|i recommend|it is advisable)\b",
+# Shared with conversational.py's `_looks_statutory`: a word that only
+# belongs in a statement about what the Act provides. One list, one place —
+# a divergent copy is how a guard silently stops covering what it claims to.
+STATUTORY_VOCAB = re.compile(
+    r"\b(section|schedule|deduct\w*|exempt\w*|taxable|rebate|slab|allow\w*|"
+    r"regime|shall|entitled|liable|provision|TDS|surcharge|cess)\b",
     re.IGNORECASE,
 )
-_STATUTORY_MODAL = re.compile(
-    r"\b(shall not|shall|may|is not|no deduction|entitled|allowed|required|"
-    r"liable|exempt)\b",
+
+_NEGATIVE_MODAL = re.compile(
+    r"\b(shall not|cannot|can not|is not allowed|are not allowed|"
+    r"not entitled|not permitted|no deduction|not deductible)\b",
+    re.IGNORECASE,
+)
+_AFFIRMATIVE_MODAL = re.compile(
+    r"\b(you (?:can|may|are entitled|should|must)|is allowed|is deductible|"
+    r"is permitted|shall be)\b",
     re.IGNORECASE,
 )
 
 
 class Violation(StrEnum):
     MALFORMED_CLAIM = "malformed_claim"
+    MALFORMED_HEADING = "malformed_heading"
+    MALFORMED_NO_BASIS = "malformed_no_basis"
     NO_CITATION = "no_citation"
-    CITATION_NOT_IN_EVIDENCE = "citation_not_in_evidence"
-    QUOTE_TOO_SHORT = "quote_too_short"
-    QUOTE_NOT_IN_SOURCE = "quote_not_in_source"
+    MARKER_NOT_IN_EVIDENCE = "marker_not_in_evidence"
     NO_COMPUTATION = "no_computation"
     UNSUPPORTED_NUMBER = "unsupported_number"
-    MALFORMED_NO_BASIS = "malformed_no_basis"
-    UNSUPPORTED_ADVICE = "unsupported_advice"
+    MODAL_MISMATCH = "modal_mismatch"
 
 
 @dataclass(frozen=True)
@@ -90,8 +129,8 @@ class Finding:
 
 @dataclass(frozen=True)
 class Verdict:
-    # The claim with its citation paths in canonical form, so what is released
-    # names the node exactly as the chunk store does.
+    # The claim with its citations resolved from `[n]` markers, so what is
+    # released carries the actual path/quote a viewer can inspect.
     claim: Claim
     findings: tuple[Finding, ...]
 
@@ -104,18 +143,12 @@ class Verifier:
     def __init__(
         self,
         pack: EvidencePack,
-        chunks: Mapping[str, Chunk],
         *,
         question: str = "",
         facts: UserFacts | None = None,
         computation: Computation | None = None,
     ) -> None:
-        """`chunks` maps node path to chunk: the whole corpus, not just the pack."""
-        self._units = {unit.citation: unit.chunk.text for unit in pack.units}
-        self._context = {
-            line.citation: line.text for unit in pack.units for line in unit.context
-        }
-        self._chunks = chunks
+        self._units: dict[int, EvidenceUnit] = dict(enumerate(pack.units, start=1))
         self._computation = computation
         self._user_numbers = numbers_in(question) | _fact_numbers(facts)
         self._computation_numbers = (
@@ -123,98 +156,140 @@ class Verifier:
         )
 
     def verify(self, claim: Claim) -> Verdict:
+        if claim.type is ClaimType.HEADING:
+            return self._verify_heading(claim)
+        if claim.type is ClaimType.NO_BASIS:
+            return self._verify_no_basis(claim)
+        if claim.type is ClaimType.COMPUTATION:
+            return self._verify_computation(claim)
+        return self._verify_content(claim)
+
+    def _verify_heading(self, claim: Claim) -> Verdict:
+        findings = []
+        if numbers_in(claim.text) or MARKER.search(claim.text):
+            findings.append(
+                Finding(Violation.MALFORMED_HEADING, "a heading carries a figure or citation")
+            )
+        return Verdict(claim=claim, findings=tuple(findings))
+
+    def _verify_no_basis(self, claim: Claim) -> Verdict:
+        findings = []
+        if MARKER.search(claim.text):
+            findings.append(
+                Finding(Violation.MALFORMED_NO_BASIS, "a no_basis claim cites evidence")
+            )
+        if numbers_in(claim.text):
+            findings.append(
+                Finding(Violation.MALFORMED_NO_BASIS, "a no_basis claim states a number")
+            )
+        if not claim.text.startswith(NO_BASIS_OPENERS):
+            findings.append(
+                Finding(
+                    Violation.MALFORMED_NO_BASIS,
+                    "a no_basis claim must open by naming the Act's silence",
+                )
+            )
+        return Verdict(claim=claim, findings=tuple(findings))
+
+    def _verify_computation(self, claim: Claim) -> Verdict:
+        findings = []
+        if self._computation is None:
+            findings.append(Finding(Violation.NO_COMPUTATION, "no computation was provided"))
+        allowed = self._computation_numbers | self._user_numbers
+        text = claim.text.replace(CALC_MARKER, "")
+        unsupported = sorted(numbers_in(text) - allowed)
+        if unsupported:
+            findings.append(_unsupported_finding(unsupported))
+        return Verdict(claim=claim, findings=tuple(findings))
+
+    def _verify_content(self, claim: Claim) -> Verdict:
         findings: list[Finding] = []
         citations: list[Citation] = []
         allowed: set[Decimal] = set()
+        markers = [int(m) for m in MARKER.findall(claim.text)]
 
-        if claim.type in (ClaimType.STATUTE, ClaimType.ADVICE) and not claim.citations:
-            findings.append(
-                Finding(Violation.NO_CITATION, f"a {claim.type.value} claim cites nothing")
-            )
-        if claim.type is ClaimType.COMPUTATION:
-            if self._computation is None:
-                findings.append(
-                    Finding(Violation.NO_COMPUTATION, "no computation was provided")
-                )
-            allowed |= self._computation_numbers | self._user_numbers
-        if claim.type is ClaimType.NO_BASIS:
-            if claim.citations:
-                findings.append(
-                    Finding(Violation.MALFORMED_NO_BASIS, "a no_basis claim cites evidence")
-                )
-            if not claim.text.startswith(NO_BASIS_OPENERS):
+        for marker in markers:
+            unit = self._units.get(marker)
+            if unit is None:
                 findings.append(
                     Finding(
-                        Violation.MALFORMED_NO_BASIS,
-                        "a no_basis claim must open by naming the Act's silence",
-                    )
-                )
-
-        for citation in claim.citations:
-            path = canonical_path(citation.path)
-            citations.append(Citation(path=path or citation.path, quote=citation.quote))
-            source = self._source(path) if path is not None else None
-            if source is None:
-                findings.append(
-                    Finding(
-                        Violation.CITATION_NOT_IN_EVIDENCE,
-                        f"{citation.path!r} is not in the evidence",
+                        Violation.MARKER_NOT_IN_EVIDENCE,
+                        f"[{marker}] does not name any passage shown",
                     )
                 )
                 continue
-            allowed |= numbers_in(path)
-            if len(citation.quote.split()) < MIN_QUOTE_WORDS:
-                findings.append(
-                    Finding(Violation.QUOTE_TOO_SHORT, f"the quote for {path} is too short")
-                )
-                continue
-            if _squash(citation.quote) not in _squash(source):
-                findings.append(
-                    Finding(
-                        Violation.QUOTE_NOT_IN_SOURCE,
-                        f"the quote for {path} is not in its text",
-                    )
-                )
-                continue
-            allowed |= numbers_in(citation.quote)
+            citations.append(Citation(marker=marker, path=unit.citation, quote=_excerpt(unit)))
+            allowed |= _ground_numbers(unit)
 
-        if claim.type is ClaimType.ADVICE and _PRESCRIPTIVE.search(claim.text):
-            if not any(_STATUTORY_MODAL.search(c.quote) for c in claim.citations):
-                findings.append(
-                    Finding(
-                        Violation.UNSUPPORTED_ADVICE,
-                        "no cited quote supports the prescription",
-                    )
-                )
+        # Every content line needs a citation, no exceptions — deliberately
+        # not "unless it looks connective": a blocklist of trigger words a
+        # statement must contain to require grounding can never be
+        # exhaustive, and the failure mode of getting it wrong (an
+        # ungrounded assertion served as fact) is exactly the one thing
+        # rule 03's core invariant exists to prevent. A genuinely connective
+        # line belongs in the heading, not as an uncited bullet.
+        if not markers:
+            findings.append(Finding(Violation.NO_CITATION, "cites nothing"))
 
-        unsupported = sorted(numbers_in(claim.text) - allowed)
+        # `[n]` marker brackets are citation syntax, not a stated figure — the
+        # digit inside one must never be read as a number the sentence itself
+        # asserts (and then have to "find a source" for).
+        unsupported = sorted(numbers_in(MARKER.sub("", claim.text)) - allowed)
         if unsupported:
+            findings.append(_unsupported_finding(unsupported))
+
+        cited_units = [self._units[m] for m in markers if m in self._units]
+        if cited_units and _asserts_the_opposite_of_its_source(claim.text, cited_units):
             findings.append(
                 Finding(
-                    Violation.UNSUPPORTED_NUMBER,
-                    "no source for " + ", ".join(str(number) for number in unsupported),
+                    Violation.MODAL_MISMATCH,
+                    "the cited passage says this is not allowed, but the claim asserts it is",
                 )
             )
+
         return Verdict(
             claim=claim.model_copy(update={"citations": tuple(citations)}),
             findings=tuple(findings),
         )
 
-    def _source(self, path: str) -> str | None:
-        if path in self._units:
-            return self._units[path]
-        chunk = self._chunks.get(path)
-        if chunk is not None:
-            ancestor = NodePath.parse(path).parent
-            while ancestor is not None:
-                if ancestor.render() in self._units:
-                    return chunk.text
-                ancestor = ancestor.parent
-        return self._context.get(path)
+
+def _unsupported_finding(unsupported: list[Decimal]) -> Finding:
+    return Finding(
+        Violation.UNSUPPORTED_NUMBER,
+        "no source for " + ", ".join(str(number) for number in unsupported),
+    )
+
+
+def _excerpt(unit: EvidenceUnit, limit: int = 600) -> str:
+    text = unit.chunk.text
+    return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
+def _ground_numbers(unit: EvidenceUnit) -> frozenset[Decimal]:
+    numbers = numbers_in(unit.chunk.text) | numbers_in(unit.citation)
+    for line in unit.context:
+        numbers |= numbers_in(line.text)
+    return numbers
+
+
+def _asserts_the_opposite_of_its_source(text: str, units: list[EvidenceUnit]) -> bool:
+    """One-directional: a claim affirming what a cited passage denies. See
+    this module's docstring for why the reverse (an overly cautious claim)
+    is not gated."""
+    if not (_AFFIRMATIVE_MODAL.search(text) and not _NEGATIVE_MODAL.search(text)):
+        return False
+    for unit in units:
+        source = unit.chunk.text
+        if _NEGATIVE_MODAL.search(source) and not _AFFIRMATIVE_MODAL.search(source):
+            return True
+    return False
 
 
 def canonical_path(raw: str) -> str | None:
-    """`Section 22 (2)` and `s. 22(2)` both name `22(2)`; anything else is None."""
+    """`Section 22 (2)` and `s. 22(2)` both name `22(2)`; anything else is
+    None. Used independently by `conversational.py`'s own guard, not by
+    verification here — a marker resolves by position, never by parsing a
+    path out of a claim's text."""
     text = _SPACE_BEFORE_BRACKET.sub("(", _CITATION_PREFIX.sub("", raw.strip()))
     try:
         return NodePath.parse(text).render()
@@ -223,9 +298,13 @@ def canonical_path(raw: str) -> str | None:
 
 
 def numbers_in(text: str) -> frozenset[Decimal]:
-    """Every figure a text states, as a value: `12,00,000` and `12 lakh` agree."""
+    """Every figure a text states, in digits or in English words: `12,00,000`,
+    `12 lakh` and `twelve lakh` all agree. The Act states some amounts only in
+    words ("fifteen lakh rupees"), so a digit-only reading of a claim would
+    never find that grounding — this is what closes that gap."""
     numbers = set()
-    for match in _NUMBER.finditer(normalise(text)):
+    normalised = normalise(text)
+    for match in _NUMBER.finditer(normalised):
         digits = match.group("digits").replace(",", "")
         fraction = match.group("fraction")
         try:
@@ -236,11 +315,58 @@ def numbers_in(text: str) -> frozenset[Decimal]:
         if multiplier:
             value *= _MULTIPLIERS[multiplier.lower().rstrip("s")]
         numbers.add(value.normalize())
+    numbers |= _word_numbers_in(normalised)
     return frozenset(numbers)
 
 
-def _squash(text: str) -> str:
-    return _WHITESPACE.sub(" ", normalise(text)).strip()
+def _word_numbers_in(text: str) -> frozenset[Decimal]:
+    tokens = [t.lower() for t in _WORD.findall(text)]
+    values: set[Decimal] = set()
+    i, n = 0, len(tokens)
+    while i < n:
+        if tokens[i] not in _NUMBER_WORD_TOKEN:
+            i += 1
+            continue
+        j = i
+        total = Decimal(0)
+        current = Decimal(0)
+        length = 0
+        while j < n and tokens[j] in _NUMBER_WORD_TOKEN:
+            tok = tokens[j]
+            if tok == "and":
+                j += 1
+                continue
+            length += 1
+            if tok in _ONES:
+                current += _ONES[tok]
+            elif tok in _TENS:
+                current += _TENS[tok]
+            elif tok == "zero":
+                pass
+            elif tok in _SCALES:
+                # A scale word with nothing before it in this run ("lakh" on
+                # its own, e.g. the leftover from "2 lakh" — the digit "2" is
+                # not a *word* token, so the word-scanner never saw it) states
+                # no figure by itself; only commit a contribution once a
+                # preceding word-number actually set `current`.
+                if current > 0:
+                    scale = _SCALES[tok]
+                    if scale == 100:
+                        current *= scale
+                    else:
+                        total += current * scale
+                        current = Decimal(0)
+            j += 1
+        total += current
+        # A bare "one" or "zero" is almost always the ordinary English word,
+        # not a figure ("one such condition") — only trust it as a number
+        # once it combines with something else (a scale word, another digit
+        # word).
+        if length > 1 or (length == 1 and tokens[i] not in ("one", "zero")):
+            if total > 0:
+                values.add(total.normalize())
+        i = j
+    return frozenset(values)
 
 
 def _fact_numbers(facts: UserFacts | None) -> frozenset[Decimal]:

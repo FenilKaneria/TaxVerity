@@ -1,6 +1,9 @@
-import { CheckCircle2 } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
 import type { ClickedCitation } from "@/components/citation-dialog";
+import { TracePanel } from "@/components/trace-panel";
+import { MarkdownAnswer } from "@/lib/markdown";
+import { describeWithheldReason } from "@/lib/withheld-reasons";
 import type { Message } from "@/lib/threads";
 
 // Step 16.3, restyled. A persisted message carries its citations as
@@ -37,25 +40,26 @@ export function MessageList({
           <li key={message.message_id} className="flex gap-3">
             <LogoMark className="mt-0.5 size-5 shrink-0 text-seal" />
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-foreground">
-                {message.content}
-              </p>
-              {message.citations.length > 0 && (
-                <ul className="mt-0.5 flex flex-wrap gap-1.5">
-                  {message.citations.map((citation) => (
-                    <li key={citation.path}>
-                      <button
-                        type="button"
-                        onClick={() => onCiteClick?.(citation)}
-                        className="inline-flex items-center gap-1 rounded-full bg-seal/10 px-2 py-0.5 font-serif text-xs text-seal hover:bg-seal/20"
-                      >
-                        <CheckCircle2 className="size-3" />
-                        {citation.path}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+              {message.structured ? (
+                <MarkdownAnswer
+                  content={message.content}
+                  citations={message.citations}
+                  onCiteClick={onCiteClick}
+                />
+              ) : (
+                <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-foreground">
+                  {message.content}
+                </p>
               )}
+              {message.withheld.length > 0 && (
+                <p className="flex items-center gap-1.5 text-xs text-withheld italic">
+                  <ShieldAlert className="size-3 shrink-0 not-italic" />
+                  {message.withheld.length === 1
+                    ? `1 statement was withheld — ${describeWithheldReason(message.withheld[0].reason)}.`
+                    : `${message.withheld.length} statements were withheld — couldn't be verified against the Act.`}
+                </p>
+              )}
+              <TracePanel trace={message.trace} />
             </div>
           </li>
         ),

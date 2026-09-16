@@ -29,7 +29,10 @@ counter on the node.
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from functools import partial
+from typing import Any
 
 import psycopg
 from langgraph.graph import END, START, StateGraph
@@ -58,7 +61,16 @@ from taxverity.retrieval.rerank import CachedReranker, JinaReranker, RerankRetri
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 from taxverity.safety.evidence_gate import served_grounded_claims
 
-GRAPH_BUILD_STAGE_VERSION = 3
+GRAPH_BUILD_STAGE_VERSION = 5
+
+# R19 Phase B (ADR-120): a smaller pack than `EvidencePacker`'s own
+# `EVIDENCE_BUDGET` default (4,000) — that constant stays put so every past
+# evidence-delivery report (Step 5.3 onward) stays reproducible against it.
+# This is production's own choice, made here rather than by moving the
+# module default: fewer, shorter passages read faster and cite more
+# reliably (marker numbers, not verbatim quotes, per University Assistant's
+# top-5-small-passages approach — see PLAN's R19 note).
+PRODUCTION_EVIDENCE_BUDGET = 2_500
 
 _NODES = (
     "load_thread",
@@ -129,7 +141,7 @@ def build_deps(
         conn=conn,
         chunks=by_path,
         retriever=retriever,
-        packer=EvidencePacker(chunks),
+        packer=EvidencePacker(chunks, budget=PRODUCTION_EVIDENCE_BUDGET),
         classifier=IntentClassifier.from_settings(
             settings, cache=False, primary=GROQ_20B, fallback=GEMINI
         ),
@@ -143,10 +155,27 @@ def build_deps(
     return deps, served
 
 
+def _timed(name: str, fn: Callable[..., dict]) -> Callable[..., dict]:
+    """R19 — wraps a node with wall-clock timing for the trace panel (always
+    visible, per user decision). Accepts and forwards whatever LangGraph
+    passes a node beyond `state` (it calls nodes with just `state` today, but
+    this stays defensive rather than assuming that never changes). Timing
+    only, no token counts — see `state.TraceEntry`'s docstring for why."""
+
+    def wrapper(state: GraphState, *args: Any, **kwargs: Any) -> dict:
+        start = time.perf_counter()
+        result = fn(state, *args, **kwargs)
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+        trace = [*state.get("trace", []), {"node": name, "ms": elapsed_ms}]
+        return {**result, "trace": trace}
+
+    return wrapper
+
+
 def build_graph(deps: GraphDeps) -> CompiledStateGraph:
     graph = StateGraph(GraphState)
     for name in _NODES:
-        graph.add_node(name, partial(getattr(nodes, name), deps=deps))
+        graph.add_node(name, _timed(name, partial(getattr(nodes, name), deps=deps)))
 
     graph.add_edge(START, "load_thread")
     graph.add_edge("load_thread", "contextualize")

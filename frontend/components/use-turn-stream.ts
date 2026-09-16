@@ -24,7 +24,15 @@
 
 import { useRef, useState } from "react";
 import { ApiError } from "@/lib/errors";
-import type { Citation, ClaimEvent, ComputationSummary, Stage, TurnEvent, WithheldEvent } from "@/lib/sse";
+import type {
+  Citation,
+  ClaimEvent,
+  ComputationSummary,
+  Stage,
+  TraceEntry,
+  TurnEvent,
+  WithheldEvent,
+} from "@/lib/sse";
 
 interface UseTurnStreamOptions {
   stream: (text: string, signal: AbortSignal) => AsyncGenerator<TurnEvent>;
@@ -49,6 +57,7 @@ export function useTurnStream({
   const [disclaimer, setDisclaimer] = useState<string | null>(null);
   const [finalText, setFinalText] = useState<string | null>(null);
   const [searched, setSearched] = useState<string[]>([]);
+  const [trace, setTrace] = useState<TraceEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -64,6 +73,7 @@ export function useTurnStream({
     setDisclaimer(null);
     setFinalText(null);
     setSearched([]);
+    setTrace([]);
     setError(null);
     onEvidence?.([], []);
     onComputation?.(null);
@@ -99,14 +109,26 @@ export function useTurnStream({
           setDisclaimer(event.disclaimer);
           setFinalText(event.text ?? null);
           setSearched(event.searched ?? []);
+          setTrace(event.trace ?? []);
           onComputation?.(event.computation);
           break;
       }
     }
 
+    // R19: whether the stream finished by receiving a `final` event, as
+    // opposed to erroring or being aborted mid-turn. Only a clean finish
+    // means `finalize()` ran and persisted the assistant message — only then
+    // is it safe to clear the live transcript below, because the reloaded
+    // history (`onTurnComplete`) will show the same content from here on.
+    // Clearing it unconditionally would silently drop an in-flight answer
+    // that failed before a `final` event arrived (rule 04: nothing rendered
+    // is ever retracted).
+    let completedCleanly = false;
+
     try {
       for await (const event of stream(trimmed, controller.signal)) {
         applyEvent(event);
+        if (event.kind === "final") completedCleanly = true;
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -121,6 +143,16 @@ export function useTurnStream({
       abortRef.current = null;
       setStreaming(false);
       setPending(null);
+      if (completedCleanly) {
+        // The turn is now in persisted history — drop the live copy so it
+        // doesn't render a second time alongside the reloaded message.
+        setEvents([]);
+        setClarify([]);
+        setDisclaimer(null);
+        setFinalText(null);
+        setSearched([]);
+        setTrace([]);
+      }
       onTurnComplete?.();
     }
   }
@@ -138,6 +170,7 @@ export function useTurnStream({
     disclaimer,
     finalText,
     searched,
+    trace,
     error,
     submit,
     cancel,

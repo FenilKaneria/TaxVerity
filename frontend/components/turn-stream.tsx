@@ -4,10 +4,12 @@
 // disclaimer. Consumes a `useTurnStream()` result — see
 // components/use-turn-stream.ts for the state this renders.
 
-import { CheckCircle2, Loader2, RotateCw, ShieldAlert } from "lucide-react";
+import { Loader2, RotateCw, ShieldAlert } from "lucide-react";
 import type { ClickedCitation } from "@/components/citation-dialog";
-import { Typewriter } from "@/components/typewriter";
-import type { ClaimEvent, Stage, WithheldEvent } from "@/lib/sse";
+import { TracePanel } from "@/components/trace-panel";
+import { ClaimLine } from "@/lib/markdown";
+import { describeWithheldReason } from "@/lib/withheld-reasons";
+import type { ClaimEvent, Stage, TraceEntry, WithheldEvent } from "@/lib/sse";
 
 const STAGE_LABELS: Record<Stage, string> = {
   thinking: "Thinking…",
@@ -30,6 +32,7 @@ interface Props {
   // Provision paths actually searched, shown under `finalText` only when it
   // names an insufficient-evidence refusal.
   searched?: string[];
+  trace?: TraceEntry[];
   error: string | null;
   showClarify?: boolean;
   onCiteClick?: (citation: ClickedCitation) => void;
@@ -44,6 +47,7 @@ export function TurnStream({
   disclaimer,
   finalText,
   searched = [],
+  trace = [],
   error,
   showClarify = true,
   onCiteClick,
@@ -84,41 +88,17 @@ export function TurnStream({
 
         {events.map((event, i) =>
           event.kind === "claim" ? (
-            <p
+            <ClaimLine
               key={i}
-              className={
-                event.type === "no_basis"
-                  ? "text-[15px] leading-relaxed text-muted-foreground italic"
-                  : event.type === "advice"
-                    ? "text-[15px] leading-relaxed font-medium text-foreground"
-                    : "text-[15px] leading-relaxed text-foreground"
-              }
-            >
-              <Typewriter key={event.id} text={event.text} />
-              {event.citations.length > 0 && (
-                <span className="ml-1.5 inline-flex flex-wrap items-center gap-1">
-                  {event.citations.map((c, ci) => (
-                    <button
-                      key={ci}
-                      type="button"
-                      onClick={() => onCiteClick?.(c)}
-                      className={
-                        event.type === "advice"
-                          ? "inline-flex items-center gap-1 rounded-full bg-seal/20 px-2 py-0.5 font-serif text-xs text-seal hover:bg-seal/30"
-                          : "inline-flex items-center gap-1 rounded-full bg-seal/10 px-2 py-0.5 font-serif text-xs text-seal hover:bg-seal/20"
-                      }
-                    >
-                      <CheckCircle2 className="size-3" />
-                      {c.path}
-                    </button>
-                  ))}
-                </span>
-              )}
-            </p>
+              type={event.type}
+              text={event.text}
+              citations={event.citations}
+              onCiteClick={onCiteClick}
+            />
           ) : (
             <p key={i} className="flex items-center gap-1.5 text-sm text-withheld italic">
               <ShieldAlert className="size-3.5 shrink-0 not-italic" />
-              A claim was withheld: {event.reason}
+              A statement was withheld — {describeWithheldReason(event.reason)}.
             </p>
           ),
         )}
@@ -170,6 +150,8 @@ export function TurnStream({
             {disclaimer}
           </p>
         )}
+
+        <TracePanel trace={trace} />
       </div>
     </div>
   );

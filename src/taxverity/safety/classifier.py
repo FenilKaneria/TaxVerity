@@ -34,7 +34,7 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-CLASSIFIER_STAGE_VERSION = 2
+CLASSIFIER_STAGE_VERSION = 3
 
 # The answer is one word; reasoning cannot be disabled and is billed against
 # this cap regardless (Step 7.1), so this stays small but not tight.
@@ -69,9 +69,12 @@ CLASSIFICATION_JSON_SCHEMA: dict[str, Any] = {
         "category": {
             "type": "string",
             "enum": [c.value for c in ScopeCategory],
-        }
+        },
+        # R19 Phase B (ADR-120): the question restated in the Act's own
+        # vocabulary, used for retrieval instead of the person's raw wording.
+        "search_query": {"type": "string"},
     },
-    "required": ["category"],
+    "required": ["category", "search_query"],
     "additionalProperties": False,
 }
 
@@ -116,13 +119,14 @@ FIXED_RESPONSES: dict[ScopeCategory, str] = {
 # recall on the refuse side and precision on the allow side are both required,
 # equally weighted (ADR-023).
 SYSTEM_PROMPT = """\
-You classify one person's tax question into exactly one category. You do not \
+You classify one person's message into exactly one category. You do not \
 answer it.
 
 Categories:
 - in_scope: a question about the Income-tax Act, 2025 (India).
 - conversational: a greeting, thanks, or a question about what you are and \
-what you can do. Not a tax question, and not unrelated either — do not \
+what you can do — for example "hi", "what can you help me with?", or "hello \
+what can you do?". Not a tax question, and not unrelated either — do not \
 classify small talk as out_of_scope.
 - adjacent: a real tax or business topic, but a different law — GST, company \
 registration, accounting standards.
@@ -144,12 +148,22 @@ comparing HRA exemption against home-loan-interest deduction, a comparative \
 "what if" question, and paying rent to a parent and claiming HRA on it — that \
 last one is a real transaction the Act does not bar.
 
-Return only the category, as JSON."""
+Also give "search_query": the message restated in the Income-tax Act's own \
+vocabulary, for retrieval — not an answer, and not for conversational, \
+adjacent, out_of_scope or prohibited messages, where it may just repeat the \
+message. For example "tax benefits for a home loan" becomes something like \
+"interest on borrowed capital for acquisition or construction of a house \
+property; deduction". Do not invent a section number.
+
+Return only the category and search_query, as JSON."""
 
 
 @dataclass(frozen=True)
 class ClassificationResult:
     category: ScopeCategory
+    # R19 Phase B (ADR-120): the question restated in the Act's own
+    # vocabulary, used for retrieval in place of the person's raw wording.
+    search_query: str
     completion: Completion
 
     @property
@@ -209,8 +223,8 @@ class IntentClassifier:
                 Message(role="user", content=f"<question>\n{question}\n</question>"),
             ]
         )
-        category = _parse(completion.text)
-        return ClassificationResult(category=category, completion=completion)
+        category, search_query = _parse(completion.text, question)
+        return ClassificationResult(category=category, search_query=search_query, completion=completion)
 
     def _complete(self, messages: Sequence[Message]) -> Completion:
         if self.schema_refused:
@@ -236,9 +250,17 @@ class IntentClassifier:
         )
 
 
-def _parse(text: str) -> ScopeCategory:
+def _parse(text: str, question: str) -> tuple[ScopeCategory, str]:
     try:
         payload = json.loads(text)
-        return ScopeCategory(payload["category"])
+        category = ScopeCategory(payload["category"])
     except (ValueError, TypeError, KeyError) as error:
         raise ClassificationError(f"not a valid category: {text!r}") from error
+    # A missing or blank search_query (the fallback json_object mode enforces
+    # nothing at the wire, Step 7.1's finding) degrades to the raw question
+    # rather than failing the whole classification over a field only
+    # retrieval consumes.
+    search_query = payload.get("search_query")
+    if not isinstance(search_query, str) or not search_query.strip():
+        search_query = question
+    return category, search_query

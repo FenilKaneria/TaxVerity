@@ -19,17 +19,21 @@ from taxverity.generation.claims import ClaimEvent
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph.build import build_graph
 from taxverity.graph.nodes import RETRY_POOL
-from taxverity.llm.client import LLMUnavailable
 from taxverity.llm.extract import ExtractionResult
 from taxverity.retrieval.base import ScoredChunk
 from taxverity.safety.classifier import FIXED_RESPONSES, ScopeCategory
 from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
 from taxverity.threads.store import create_thread, list_messages
-from test_generation import FABRICATED, GOOD, ndjson
+from test_generation import GOOD, answer
 from test_graph_nodes import PASSWORD, FakeLLM, deps
 from test_scope import BASE
 from test_scope import fact as make_fact
 from test_verifier import CHUNKS, QUESTION
+
+# Cites marker [1] — unresolvable on a first pass over an empty pack (nothing
+# retrieved yet), resolvable once the corrective retry's wider pool packs
+# `23` as the pack's only (and therefore first) unit.
+RESCUABLE = "- Arrears received are taxed under this provision [1]."
 
 PACK_RESULTS = [
     ScoredChunk(chunk=CHUNKS["22(1)"], score=2.0),
@@ -51,7 +55,7 @@ def _in_scope_deps(schema, **kwargs) -> object:
     base = dict(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None)
+            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
         ),
         contextualizer=SimpleNamespace(
             contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
@@ -95,7 +99,7 @@ def test_compute_path_serves_a_claim_and_a_computation(schema, alice, thread_id)
         schema,
         extractor=_extractor_for(),
         retriever=_fixed_retriever(PACK_RESULTS),
-        generator=AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS),
+        generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
     )
     result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
     assert result["scope_decision"].route is Route.COMPUTE
@@ -112,7 +116,7 @@ def test_clarify_path_asks_and_answers_text_only(schema, alice, thread_id):
         schema,
         extractor=_extractor_for(missing=(FactField.SALARY_INCOME,)),
         retriever=_fixed_retriever(PACK_RESULTS),
-        generator=AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS),
+        generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
     )
     result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
     assert result["scope_decision"].route is Route.INCOMPLETE
@@ -130,7 +134,7 @@ def test_text_only_path_answers_with_no_computation(schema, alice, thread_id):
         schema,
         extractor=_extractor_for(overrides={FactField.HOUSE_PROPERTY_INCOME: Decimal("-50000")}),
         retriever=_fixed_retriever(PACK_RESULTS),
-        generator=AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS),
+        generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
     )
     result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
     assert result["scope_decision"].route is Route.TEXT_ONLY
@@ -147,7 +151,9 @@ def test_refused_categories_short_circuit_to_the_fixed_template(schema, alice, t
     d = deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=category, response=FIXED_RESPONSES[category])
+            classify=lambda q: SimpleNamespace(
+                category=category, response=FIXED_RESPONSES[category], search_query=q
+            )
         ),
         contextualizer=SimpleNamespace(
             contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
@@ -170,7 +176,9 @@ def test_conversational_category_short_circuits_to_a_guarded_reply(schema, alice
     d = deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=ScopeCategory.CONVERSATIONAL, response=None)
+            classify=lambda q: SimpleNamespace(
+                category=ScopeCategory.CONVERSATIONAL, response=None, search_query=q
+            )
         ),
         contextualizer=SimpleNamespace(
             contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
@@ -192,9 +200,12 @@ def test_conversational_category_short_circuits_to_a_guarded_reply(schema, alice
 
 
 def test_corrective_loop_rescues_a_first_pass_with_no_evidence(schema, alice, thread_id):
-    """First pass: retriever returns nothing, pack is empty, the gate withholds.
-    Retry (k = RETRY_POOL): retriever finds `23`, whose own text carries the
-    quote FABRICATED cites, so the retried pass serves a real statute claim."""
+    """First pass: retriever returns nothing, pack is empty, marker [1] in
+    RESCUABLE resolves to nothing, the gate withholds. Retry (k =
+    RETRY_POOL): retriever finds `23`, which becomes the pack's own unit
+    [1], so the same line now resolves and the retried pass serves a real
+    claim. The LLM's streamed text can be identical both times — what
+    changes between passes is the evidence pack, not the model output."""
     retriever = SimpleNamespace(
         search=lambda query, k: (
             [ScoredChunk(chunk=CHUNKS["23"], score=1.0)] if k == RETRY_POOL else []
@@ -204,7 +215,7 @@ def test_corrective_loop_rescues_a_first_pass_with_no_evidence(schema, alice, th
         schema,
         extractor=_extractor_for(),
         retriever=retriever,
-        generator=AnswerGenerator(FakeLLM(ndjson(FABRICATED), LLMUnavailable("no repair")), CHUNKS),
+        generator=AnswerGenerator(FakeLLM(answer(RESCUABLE)), CHUNKS),
     )
     result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
     assert result["retried"] is True
@@ -219,15 +230,52 @@ def test_corrective_loop_still_withholds_when_the_retry_finds_nothing(schema, al
         schema,
         extractor=_extractor_for(),
         retriever=_fixed_retriever([]),
-        generator=AnswerGenerator(
-            FakeLLM(ndjson(FABRICATED), LLMUnavailable("no repair"), LLMUnavailable("no repair")),
-            CHUNKS,
-        ),
+        generator=AnswerGenerator(FakeLLM(answer(RESCUABLE)), CHUNKS),
     )
     result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
     assert result["retried"] is True
-    assert not any(isinstance(e, ClaimEvent) for e in result["events"])  # nothing statute-served
+    assert not any(isinstance(e, ClaimEvent) for e in result["events"])  # nothing was ever grounded
     assert result["final"].text == INSUFFICIENT_EVIDENCE_MESSAGE
     assert result["final"].searched == ()
     messages = list_messages(schema, alice, thread_id)
     assert messages[-1].content == INSUFFICIENT_EVIDENCE_MESSAGE
+
+
+# --- trace panel (R19) ------------------------------------------------------
+
+
+def test_trace_accumulates_one_entry_per_node_run(schema, alice, thread_id):
+    """The retry cycle runs `retrieve_retry` and `generate_verify` twice, and
+    the trace shows it — a duplicate node name in the trace *is* the evidence
+    the corrective loop fired, not a bug to dedupe."""
+    d = _in_scope_deps(
+        schema,
+        extractor=_extractor_for(),
+        retriever=_fixed_retriever([]),
+        generator=AnswerGenerator(FakeLLM(answer(RESCUABLE)), CHUNKS),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    names = [entry["node"] for entry in result["trace"]]
+    assert names.count("generate_verify") == 2
+    assert names.count("retrieve_retry") == 1
+    assert all(isinstance(entry["ms"], float) for entry in result["trace"])
+    # `final.trace` is built inside `finalize` from the trace accumulated so
+    # far, so it is everything but `finalize`'s own (not-yet-measured) entry.
+    assert [t.node for t in result["final"].trace] == names[:-1]
+    assert names[-1] == "finalize"
+
+
+def test_finalize_persists_trace_and_withheld_reasons_on_the_message(schema, alice, thread_id):
+    d = _in_scope_deps(
+        schema,
+        extractor=_extractor_for(missing=(FactField.SALARY_INCOME,)),
+        retriever=_fixed_retriever(PACK_RESULTS),
+        generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
+    )
+    build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    message = list_messages(schema, alice, thread_id)[-1]
+    payload = dict(message.payload)
+    assert payload["trace"]
+    assert payload["trace"][0].keys() == {"node", "ms"}
+    assert payload["clarify_questions"]  # this path asked a clarifying question
+    assert "withheld" in payload

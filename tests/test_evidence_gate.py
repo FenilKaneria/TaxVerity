@@ -1,4 +1,5 @@
-"""Step 12.3 — the evidence gate, simplified (ADR-110).
+"""Step 12.3 — the evidence gate, simplified (ADR-110). Updated for R19 Phase
+B's marker-based citation (ADR-120).
 
 Pure and deterministic: no LLM, no corpus. Chunks are built by hand with
 `Chunk.create`, which is enough to construct an `EvidencePack` without the
@@ -50,22 +51,22 @@ def make_pack(*, with_unit: bool = True) -> EvidencePack:
     return EvidencePack(units=units, budget=4_000, skipped=())
 
 
-def statute_event(claim_id: int = 1) -> ClaimEvent:
+def content_event(claim_id: int = 1) -> ClaimEvent:
     return ClaimEvent(
         id=claim_id,
-        type=ClaimType.STATUTE,
-        text="Thirty per cent of the annual value is deductible.",
-        citations=(Citation(path="22", quote="Thirty per cent of the annual value"),),
+        type=ClaimType.CONTENT,
+        text="Thirty per cent of the annual value is deductible [1].",
+        citations=(Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),),
     )
 
 
-def advice_event(claim_id: int = 1) -> ClaimEvent:
-    return ClaimEvent(
-        id=claim_id,
-        type=ClaimType.ADVICE,
-        text="You may deduct thirty per cent of the annual value.",
-        citations=(Citation(path="22", quote="Thirty per cent of the annual value"),),
-    )
+def uncited_content_event(claim_id: int = 1) -> ClaimEvent:
+    """A connective `content` line the verifier let through with no citation
+    at all — R19 Phase B removed that allowance (a safety gap found while
+    building it, ADR-120), but this shape is still worth a defensive test:
+    should any future change reopen an uncited-content path, it still must
+    not satisfy the gate on its own."""
+    return ClaimEvent(id=claim_id, type=ClaimType.CONTENT, text="Here's what applies.", citations=())
 
 
 def no_basis_event(claim_id: int = 1) -> ClaimEvent:
@@ -82,25 +83,25 @@ def computation_event(claim_id: int = 1) -> ClaimEvent:
 
 
 def withheld_event(claim_id: int = 1) -> WithheldEvent:
-    return WithheldEvent(id=claim_id, reason="citation_not_in_evidence")
+    return WithheldEvent(id=claim_id, reason="marker_not_in_evidence")
 
 
 def test_stage_version_is_declared():
-    assert EVIDENCE_GATE_STAGE_VERSION == 2
+    assert EVIDENCE_GATE_STAGE_VERSION == 3
 
 
 # --- served_grounded_claims ----------------------------------------------------
 
 
-def test_counts_statute_and_advice_but_not_computation_or_no_basis():
+def test_counts_cited_content_but_not_computation_or_no_basis_or_uncited_content():
     events = [
-        statute_event(1),
+        content_event(1),
         computation_event(2),
         withheld_event(3),
-        advice_event(4),
+        uncited_content_event(4),
         no_basis_event(5),
     ]
-    assert served_grounded_claims(events) == 2
+    assert served_grounded_claims(events) == 1
 
 
 def test_zero_for_no_events():
@@ -117,20 +118,25 @@ def test_zero_when_only_no_basis_claims_are_served():
     assert served_grounded_claims([no_basis_event(1)]) == 0
 
 
+def test_zero_when_only_an_uncited_content_claim_is_served():
+    assert served_grounded_claims([uncited_content_event(1)]) == 0
+
+
 # --- gate ----------------------------------------------------------------
 
 
 def test_an_empty_pack_gates_regardless_of_events():
     empty = make_pack(with_unit=False)
-    assert gate(empty, [statute_event()]) == INSUFFICIENT_EVIDENCE_MESSAGE
+    assert gate(empty, [content_event()]) == INSUFFICIENT_EVIDENCE_MESSAGE
 
 
-def test_a_non_empty_pack_with_a_served_statute_claim_does_not_gate():
-    assert gate(make_pack(), [statute_event()]) is None
+def test_a_non_empty_pack_with_a_served_cited_content_claim_does_not_gate():
+    assert gate(make_pack(), [content_event()]) is None
 
 
-def test_a_non_empty_pack_with_a_served_advice_claim_does_not_gate():
-    assert gate(make_pack(), [advice_event()]) is None
+def test_a_non_empty_pack_with_only_an_uncited_content_claim_still_gates():
+    pack = make_pack()
+    assert gate(pack, [uncited_content_event()]) == INSUFFICIENT_EVIDENCE_MESSAGE
 
 
 def test_a_non_empty_pack_with_only_a_no_basis_claim_still_gates():
@@ -138,16 +144,16 @@ def test_a_non_empty_pack_with_only_a_no_basis_claim_still_gates():
     assert gate(pack, [no_basis_event()]) == INSUFFICIENT_EVIDENCE_MESSAGE
 
 
-def test_a_non_empty_pack_with_zero_statute_claims_gates():
+def test_a_non_empty_pack_with_zero_content_claims_gates():
     pack = make_pack()
     assert gate(pack, [computation_event()]) == INSUFFICIENT_EVIDENCE_MESSAGE
     assert gate(pack, [withheld_event()]) == INSUFFICIENT_EVIDENCE_MESSAGE
     assert gate(pack, []) == INSUFFICIENT_EVIDENCE_MESSAGE
 
 
-def test_one_statute_claim_among_several_events_is_enough():
+def test_one_cited_content_claim_among_several_events_is_enough():
     pack = make_pack()
-    events = [withheld_event(1), statute_event(2), computation_event(3)]
+    events = [withheld_event(1), content_event(2), computation_event(3)]
     assert gate(pack, events) is None
 
 

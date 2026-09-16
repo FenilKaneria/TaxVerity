@@ -23,13 +23,12 @@ from taxverity.api.turns_routes import router as turns_router
 from taxverity.auth.tokens import AccessTokens
 from taxverity.facts import UserFacts
 from taxverity.generation.generate import AnswerGenerator
-from taxverity.llm.client import LLMUnavailable
 from taxverity.llm.extract import ExtractionResult
 from taxverity.retrieval.base import ScoredChunk
 from taxverity.safety.classifier import ScopeCategory
 from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
 from taxverity.threads.store import create_thread
-from test_generation import FABRICATED, GOOD, FakeLLM, ndjson
+from test_generation import FABRICATED, GOOD, FakeLLM, answer
 from test_graph_nodes import deps
 from test_verifier import CHUNKS, QUESTION
 
@@ -59,7 +58,7 @@ def _static_deps(generator):
     return deps(
         conn=None,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None)
+            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
         ),
         contextualizer=SimpleNamespace(
             contextualize=lambda q, prior: SimpleNamespace(
@@ -119,7 +118,7 @@ def _parse_sse(text: str) -> list[tuple[str, dict]]:
 
 
 def test_no_auth_header_is_refused(schema, access_tokens, thread_id):
-    client = _client(schema, access_tokens, AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS))
+    client = _client(schema, access_tokens, AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS))
     response = client.post(f"/v1/threads/{thread_id}/turns", json={"question": QUESTION})
     assert response.status_code == 401
 
@@ -127,7 +126,7 @@ def test_no_auth_header_is_refused(schema, access_tokens, thread_id):
 def test_a_foreign_thread_id_is_refused_before_any_stream_opens(schema, access_tokens, alice):
     bob = register_account(schema, "bob@example.com", PASSWORD)
     alice_thread = create_thread(schema, alice, "Alice only").thread_id
-    client = _client(schema, access_tokens, AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS))
+    client = _client(schema, access_tokens, AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS))
     response = client.post(
         f"/v1/threads/{alice_thread}/turns",
         json={"question": QUESTION},
@@ -137,7 +136,7 @@ def test_a_foreign_thread_id_is_refused_before_any_stream_opens(schema, access_t
 
 
 def test_event_order_is_stage_then_claims_then_final(schema, access_tokens, alice, thread_id):
-    client = _client(schema, access_tokens, AnswerGenerator(FakeLLM(ndjson(GOOD)), CHUNKS))
+    client = _client(schema, access_tokens, AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS))
     response = client.post(
         f"/v1/threads/{thread_id}/turns",
         json={"question": QUESTION},
@@ -157,7 +156,7 @@ def test_event_order_is_stage_then_claims_then_final(schema, access_tokens, alic
 
 def test_no_claim_event_ever_carries_verified_false(schema, access_tokens, alice, thread_id):
     generator = AnswerGenerator(
-        FakeLLM(ndjson(GOOD, FABRICATED), LLMUnavailable("no repair")), CHUNKS
+        FakeLLM(answer(GOOD, FABRICATED)), CHUNKS
     )
     client = _client(schema, access_tokens, generator)
     response = client.post(
@@ -175,7 +174,7 @@ def test_fault_injection_withholds_the_bad_claim_and_keeps_the_good_one_intact(
     schema, access_tokens, alice, thread_id
 ):
     generator = AnswerGenerator(
-        FakeLLM(ndjson(GOOD, FABRICATED), LLMUnavailable("no repair")), CHUNKS
+        FakeLLM(answer(GOOD, FABRICATED)), CHUNKS
     )
     client = _client(schema, access_tokens, generator)
     response = client.post(
@@ -192,7 +191,7 @@ def test_fault_injection_withholds_the_bad_claim_and_keeps_the_good_one_intact(
     assert claim_events[0]["verified"] is True
     assert len(withheld_events) == 1
     assert withheld_events[0]["id"] == 2
-    assert withheld_events[0]["reason"] == "citation_not_in_evidence"
+    assert withheld_events[0]["reason"] == "marker_not_in_evidence"
 
 
 def test_a_gated_turn_still_names_its_frame_final_and_carries_the_message(

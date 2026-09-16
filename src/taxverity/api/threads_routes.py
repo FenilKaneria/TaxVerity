@@ -49,8 +49,28 @@ class ThreadOut(BaseModel):
 
 
 class CitationOut(BaseModel):
+    # R19 Phase B (ADR-120): the `[n]` marker this citation resolves, so the
+    # frontend can map a marker still embedded in the persisted text back to
+    # its path/quote. `None` for a message persisted before this phase (a
+    # bare path string, or a {path, quote} pair with no marker) — its text
+    # carries no markers to resolve either, so there is nothing to map.
+    marker: int | None = None
     path: str
     quote: str | None = None
+
+
+class WithheldOut(BaseModel):
+    """R19: a dropped claim's reason, persisted so a reloaded turn shows the
+    same withheld line the live stream did, instead of the claim silently
+    disappearing from history."""
+
+    id: str
+    reason: str
+
+
+class TraceEntryOut(BaseModel):
+    node: str
+    ms: float
 
 
 class MessageOut(BaseModel):
@@ -58,6 +78,14 @@ class MessageOut(BaseModel):
     role: Role
     content: str
     citations: list[CitationOut]
+    withheld: list[WithheldOut] = []
+    clarify_questions: list[str] = []
+    trace: list[TraceEntryOut] = []
+    # R19 Phase B (ADR-120): whether `content` is the generator's own
+    # markdown claim lines, vs. a fixed/gated plain-prose string. False for
+    # any message persisted before this flag existed, which is also the
+    # correct rendering for it (plain paragraph, never bulleted).
+    structured: bool = False
     created_at: datetime
 
 
@@ -160,6 +188,10 @@ def list_messages_route(
             role=message.role,
             content=message.content,
             citations=_citations(dict(message.payload)),
+            withheld=[WithheldOut(**entry) for entry in dict(message.payload).get("withheld", [])],
+            clarify_questions=list(dict(message.payload).get("clarify_questions", [])),
+            trace=[TraceEntryOut(**entry) for entry in dict(message.payload).get("trace", [])],
+            structured=bool(dict(message.payload).get("structured", False)),
             created_at=message.created_at,
         )
         for message in messages

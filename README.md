@@ -1,10 +1,15 @@
 # TaxVerity
 
-Evidence-grounded question answering over the **Income-tax Act, 2025 (India)**.
+A grounded tax **advisor** for the **Income-tax Act, 2025 (India)**.
 
-A user describes a financial or tax situation in natural language; the system
-answers from the actual statutory text — not the model's memorised knowledge —
-with traceable citations and deterministic arithmetic.
+Most people don't know which lawful deductions, exemptions or regime choices
+actually apply to them, and a generic LLM will advise confidently without
+being checkable against the law. TaxVerity does the opposite: a user
+describes a financial or tax situation in natural language, and the system
+recommends what the Act actually supports — from the actual statutory text,
+not the model's memorised knowledge — with traceable citations and
+deterministic arithmetic. Where the Act doesn't address something, it says so
+plainly instead of guessing.
 
 The governing rule, from which most of the architecture follows:
 
@@ -12,12 +17,19 @@ The governing rule, from which most of the architecture follows:
 
 ## Status
 
-Phase 0 — foundations. Steps 0.1 (repo skeleton) and 0.2 (documentation
-spine) complete; Step 0.3 (config module) is next.
+Phases 0–17 built (corpus, retrieval, calculator, generation with grounding
+verification, accounts/threads, safety/scope, the LangGraph query graph, API,
+frontend, AWS deployment). Phase 18 (hardening) is in progress; see the
+in-progress R19 work below.
 
-The roadmap and the architecture decision records are maintained outside
-version control and are not part of this repository. [`docs/`](docs/) holds
-written policy; `SAFETY_POLICY.md` arrives in Step 12.1.
+The step-level roadmap and architecture decision records (`PLAN.md`,
+`DECISIONS.md`) are maintained outside version control and are not part of
+this repository. [`docs/`](docs/) holds written policy, including
+`SAFETY_POLICY.md`.
+
+**Known limit:** the calculator is corpus-only (ADR-100) — it computes only
+figures the 2025 Act itself prints, and routes to a text-only answer for
+anything outside that (old-regime slabs, surcharge, marginal relief, cess).
 
 ## Corpus
 

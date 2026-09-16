@@ -40,13 +40,13 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 STORED = Settings().data_dir / "answers" / ANSWER_RUN_FILENAME
 
 
-def statute(claim_id: int = 1) -> ClaimEvent:
+def grounded_claim(claim_id: int = 1) -> ClaimEvent:
     return ClaimEvent(
         id=claim_id,
-        type=ClaimType.STATUTE,
-        text="Thirty per cent of the annual value is deducted.",
+        type=ClaimType.CONTENT,
+        text="Thirty per cent of the annual value is deducted [1].",
         citations=(
-            Citation(path="22(1)(a)", quote="thirty per cent of the annual value"),
+            Citation(marker=1, path="22(1)", quote="thirty per cent of the annual value"),
         ),
     )
 
@@ -82,10 +82,10 @@ def test_the_smoke_set_is_ten_answerable_and_five_negative(gold):
     }
 
 
-def test_a_served_statute_claim_on_a_negative_fails_the_gate():
+def test_a_served_grounded_claim_on_a_negative_fails_the_gate():
     summary = summarise(
         [
-            record("q025", QuerySlice.NEGATIVE, claims=[statute()]),
+            record("q025", QuerySlice.NEGATIVE, claims=[grounded_claim()]),
             record("q026", QuerySlice.NEGATIVE),
         ]
     )
@@ -107,7 +107,7 @@ def test_a_withheld_claim_or_computation_on_a_negative_does_not_fail_the_gate():
 def test_the_summary_counts_and_reports_silent_answerable_questions():
     summary = summarise(
         [
-            record("q001", QuerySlice.CITATION, claims=[statute(1), statute(2)]),
+            record("q001", QuerySlice.CITATION, claims=[grounded_claim(1), grounded_claim(2)]),
             record(
                 "q009",
                 QuerySlice.PARAPHRASE,
@@ -131,7 +131,7 @@ def test_a_run_round_trips_and_refuses_another_eval_version(tmp_path):
         prompt_version=1,
         model="m",
         tokens=10,
-        records=(record("q001", QuerySlice.CITATION, claims=[statute()]),),
+        records=(record("q001", QuerySlice.CITATION, claims=[grounded_claim()]),),
     )
     path = tmp_path / "run.json"
     store_answer_run(path, run)
@@ -166,7 +166,7 @@ def test_the_stored_run_covers_the_smoke_set(stored_run):
     assert tuple(r.query_id for r in stored_run.records) == SMOKE_QUERY_IDS
 
 
-def test_no_negative_question_gets_a_served_statute_claim(stored_run):
+def test_no_negative_question_gets_a_served_grounded_claim(stored_run):
     assert summarise(stored_run.records).served_on_negative == ()
 
 
@@ -185,7 +185,7 @@ def test_every_stored_claim_re_verifies_against_its_own_evidence(
             ]
         )
         assert [u.citation for u in pack.units] == [u.citation for u in answer.evidence]
-        verifier = Verifier(pack, by_path, question=answer.question)
+        verifier = Verifier(pack, question=answer.question)
         for claim in answer.claims:
             verdict = verifier.verify(
                 Claim(type=claim.type, text=claim.text, citations=claim.citations)
