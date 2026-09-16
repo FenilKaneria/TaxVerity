@@ -15,6 +15,7 @@ retrieval and generation; the other three are never composed by the model.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -28,13 +29,14 @@ from taxverity.llm.client import (
     LLMRequestError,
     Message,
     Provider,
+    Usage,
 )
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
 from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-CLASSIFIER_STAGE_VERSION = 3
+CLASSIFIER_STAGE_VERSION = 4
 
 # The answer is one word; reasoning cannot be disabled and is billed against
 # this cap regardless (Step 7.1), so this stays small but not tight.
@@ -113,6 +115,45 @@ FIXED_RESPONSES: dict[ScopeCategory, str] = {
         "checking what you're actually entitled to claim."
     ),
 }
+
+# R19 Phase C: a deterministic short-circuit for canonical small talk, per
+# rule 01 ("prefer a deterministic check where one is possible"). ADR-117's
+# 34-case re-measure never exercised the exact combined phrasing "Hello what
+# can you do?", and Groq's model classified it out_of_scope on a live check —
+# the model prompt already names this example, but a live model call cannot
+# be trusted to honour its own instructions every time. Deliberately narrow:
+# every pattern requires the WHOLE message (after light punctuation/whitespace
+# normalisation) to match one exact small-talk shape, so a real tax question
+# cannot collide with it just for containing a greeting word.
+_GREETING = r"(?:hi|hello|hey|hiya|yo|greetings)"
+_THANKS = r"(?:thanks?|thank you|thx|ty)"
+_CAPABILITY = r"(?:what (?:can|do) you (?:do|help(?: me)? with)|who are you|what are you)"
+_SMALL_TALK_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        rf"{_GREETING}( there)?",
+        _THANKS,
+        _CAPABILITY,
+        rf"{_GREETING}[,!\s]*{_CAPABILITY}",
+    )
+)
+
+# A shortcut never touches the wire, so it carries no usage to bill.
+_SHORTCUT_COMPLETION = Completion(
+    text="",
+    provider="shortcut",
+    model="none",
+    finish_reason="stop",
+    usage=Usage(),
+    degraded=False,
+)
+
+
+def _looks_conversational(question: str) -> bool:
+    normalised = re.sub(r"[.!?]+$", "", question.strip())
+    normalised = re.sub(r"\s+", " ", normalised).strip()
+    return any(pattern.fullmatch(normalised) for pattern in _SMALL_TALK_PATTERNS)
+
 
 # The policy excerpt: condensed from docs/SAFETY_POLICY.md, not re-derived.
 # Rule 03's boundary is restated in full (must refuse / must not refuse) since
@@ -216,6 +257,12 @@ class IntentClassifier:
     def classify(self, question: str) -> ClassificationResult:
         if not question.strip():
             raise ValueError("question must be non-empty")
+        if _looks_conversational(question):
+            return ClassificationResult(
+                category=ScopeCategory.CONVERSATIONAL,
+                search_query=question,
+                completion=_SHORTCUT_COMPLETION,
+            )
         completion = self._complete(
             [
                 Message(role="system", content=self._system_prompt),

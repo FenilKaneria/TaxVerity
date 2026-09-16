@@ -93,7 +93,7 @@ def build(*responses):
 
 
 def test_stage_version_is_declared():
-    assert CLASSIFIER_STAGE_VERSION == 3
+    assert CLASSIFIER_STAGE_VERSION == 4
 
 
 def test_strict_format_names_the_scope_schema():
@@ -184,6 +184,47 @@ def test_an_empty_question_is_refused_without_a_call():
     with pytest.raises(ValueError):
         node.classify("   ")
     assert recorder.requests == []
+
+
+# --- R19 Phase C: deterministic small-talk shortcut ---------------------------
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "hi",
+        "Hello!",
+        "hey there",
+        "Thanks",
+        "thank you.",
+        "Who are you?",
+        "What can you do?",
+        "what do you help with",
+        "Hello what can you do?",
+        "hi, what can you help me with?",
+    ],
+)
+def test_canonical_small_talk_is_classified_conversational_with_no_call(question: str):
+    node, recorder = build()
+    result = node.classify(question)
+    assert result.category is ScopeCategory.CONVERSATIONAL
+    assert result.search_query == question
+    assert result.tokens == 0
+    assert recorder.requests == []  # never touched the wire
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        QUESTION,
+        "hi, what deduction can I claim for home loan interest?",
+        "hello, is rent paid to my mother deductible under HRA?",
+    ],
+)
+def test_a_real_tax_question_is_never_caught_by_the_shortcut(question: str):
+    node, recorder = build(ok(payload("in_scope")))
+    node.classify(question)
+    assert recorder.requests  # reached the wire, not shortcut
 
 
 # --- malformed completions never guess ---------------------------------------

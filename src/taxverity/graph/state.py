@@ -14,8 +14,9 @@ from one place without `nodes.py` importing `build.py` back.
 
 from __future__ import annotations
 
+import operator
 from dataclasses import dataclass, field
-from typing import Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
 from uuid import UUID
 
 import psycopg
@@ -34,7 +35,7 @@ from taxverity.retrieval.base import Retriever
 from taxverity.retrieval.evidence import EVIDENCE_POOL, EvidencePack, EvidencePacker
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 
-GRAPH_STAGE_VERSION = 5
+GRAPH_STAGE_VERSION = 6
 
 # rule 04: "a short recent-turns window (2-3 turns of text)".
 RECENT_TURNS_WINDOW = 3
@@ -146,7 +147,13 @@ class GraphState(TypedDict, total=False):
     events: list[ClaimEvent | WithheldEvent]
     answer_text: str | None
     retried: bool  # Step 13.5: set by `retrieve_retry`, bounds the corrective loop to one cycle.
-    trace: list[dict[str, str | float]]  # R19: accumulated by build.py's per-node timing wrapper.
+    # R19 Phase C: `operator.add` (list concatenation), not a plain LastValue
+    # channel — `extract_facts` and `retrieve` now run in the same superstep
+    # (parallel branches off `classify`), and each node's `_timed` wrapper in
+    # build.py writes only its own one-entry delta. A plain channel would
+    # raise `InvalidUpdateError` on two concurrent writes in one superstep;
+    # the reducer is what lets both survive.
+    trace: Annotated[list[dict[str, str | float]], operator.add]
     final: FinalEvent
 
 

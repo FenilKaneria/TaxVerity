@@ -24,6 +24,7 @@ from langgraph.config import get_stream_writer
 from taxverity.calculator.materiality import Outcome, probe
 from taxverity.calculator.scope import Computation, Route, compute, route
 from taxverity.calculator.scope import run as run_calculator
+from taxverity.facts import FIELDS, FactField, FactStatus, UserFacts, ValueKind
 from taxverity.generation.claims import ClaimEvent, WithheldEvent
 from taxverity.generation.generate import render_computation
 from taxverity.graph.state import (
@@ -50,6 +51,21 @@ Writer = Callable[[Any], None]
 # Step 13.5's corrective retry: a fixed wider pool, not `deps.pool_k * n` —
 # registered before any run, per PLAN 13.5.
 RETRY_POOL = 40
+
+# R19 Phase C: fields the materiality probe can sweep or ask about. A thread
+# with none of these stated or inferred yet has said nothing quantitative at
+# all — asking 6-7 clarify questions on that first turn is an interrogation,
+# not a conversation. `_has_amount_fact` gates the probe on there being at
+# least one such fact already in the thread before it runs.
+_AMOUNT_FIELDS = tuple(f for f in FactField if FIELDS[f].kind is ValueKind.MONEY)
+
+
+def _has_amount_fact(facts: UserFacts) -> bool:
+    return any(
+        (known := facts.get(field_)) is not None
+        and known.status in (FactStatus.STATED, FactStatus.INFERRED)
+        for field_ in _AMOUNT_FIELDS
+    )
 
 
 def load_thread(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
@@ -162,7 +178,13 @@ def route_calc(state: GraphState, deps: GraphDeps, writer: Writer | None = None)
     nothing left to ask (every unknown field is `ASSUME`/`NOT_COMPUTED`) is
     computed here exactly like a `COMPUTE` decision; one still waiting on an
     `ASK`/`DEFERRED` field emits a `clarify` event and answers text-only
-    (PLAN 13.3)."""
+    (PLAN 13.3).
+
+    R19 Phase C: an `INCOMPLETE` decision on a thread that has stated or
+    inferred no amount fact at all skips the probe entirely rather than
+    interrogating a first turn with 6-7 questions — it answers text-only,
+    same as an `INCOMPLETE` decision the probe itself resolves with nothing
+    to ask."""
     emit = writer or get_stream_writer()
     facts = state["fact_state"].as_user_facts()
     decision = route(facts)
@@ -170,7 +192,7 @@ def route_calc(state: GraphState, deps: GraphDeps, writer: Writer | None = None)
     clarify_questions: tuple[str, ...] = ()
     if decision.route is Route.COMPUTE:
         computation = compute(decision)
-    elif decision.route is Route.INCOMPLETE:
+    elif decision.route is Route.INCOMPLETE and _has_amount_fact(facts):
         found = probe(facts, decision)
         if found.inputs is not None:
             computation = run_calculator(found.inputs)

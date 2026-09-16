@@ -136,6 +136,32 @@ def test_route_calc_asks_via_deterministic_templates_never_the_llm():
     assert recorder.events == [ClarifyEvent(questions=result["clarify_questions"]).model_dump()]
 
 
+def test_route_calc_skips_the_probe_when_the_thread_has_stated_no_amount_yet():
+    """R19 Phase C: a fresh thread with no amount fact at all must not be
+    interrogated with 6-7 clarify questions on its first turn."""
+    recorder = Recorder()
+    result = route_calc({"fact_state": ThreadFactState()}, deps(), writer=recorder)
+    assert result["scope_decision"].route is Route.INCOMPLETE
+    assert result["computation"] is None
+    assert result["clarify_questions"] == ()
+    assert recorder.events == []  # no clarify event either
+
+
+def test_route_calc_probes_once_any_amount_is_stated():
+    """The skip is specific to "nothing quantitative said yet" — a thread
+    naming even one amount field still gets the full deterministic probe."""
+    state = ThreadFactState(
+        facts={FactField.SALARY_INCOME: fact(FactField.SALARY_INCOME, Decimal("1000000"))},
+        provenance={FactField.SALARY_INCOME: "stated in turn 1"},
+    )
+    recorder = Recorder()
+    result = route_calc({"fact_state": state}, deps(), writer=recorder)
+    assert result["scope_decision"].route is Route.INCOMPLETE
+    assert result["computation"] is None
+    assert result["clarify_questions"] != ()
+    assert recorder.events != []
+
+
 def test_route_calc_computes_when_incomplete_resolves_with_nothing_left_to_ask():
     values = dict(BASE)
     del values[FactField.TDS_PAID]
@@ -420,6 +446,10 @@ def test_streaming_the_graph_emits_stage_then_claim_then_final(schema, alice, th
         )
     ]
     stages = [e["stage"] for e in emitted if "stage" in e]
-    assert stages == ["thinking", "facts", "evidence"]
+    # R19 Phase C: `extract_facts`/`merge_facts` (-> "facts") and `retrieve`
+    # (-> "evidence") run in parallel branches off `classify`, so their
+    # relative order is no longer guaranteed — only that "thinking" leads.
+    assert stages[0] == "thinking"
+    assert set(stages[1:]) == {"facts", "evidence"}
     assert any(e.get("type") == "content" for e in emitted)
     assert emitted[-1]["disclaimer"]

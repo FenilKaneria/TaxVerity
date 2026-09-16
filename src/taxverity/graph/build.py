@@ -11,7 +11,11 @@ The scope branch is one conditional edge, now three-way: `prohibited |
 out_of_scope | adjacent` never reach retrieval, the calculator or the LLM
 (rule 03); `conversational` (advisor pivot, Step 5) skips retrieval and the
 calculator but does reach one small guarded LLM call
-(`llm/conversational.py`), never the generator/verifier.
+(`llm/conversational.py`), never the generator/verifier. `in_scope` fans out
+to two nodes at once (R19 Phase C): `extract_facts` (-> `merge_facts` ->
+`route_calc`) and `retrieve` run in the same superstep, since neither reads
+the other's output, and both feed `generate_verify` — the first node that
+needs `computation` and `pack` together.
 `route_calc`'s `TEXT_ONLY`/`INCOMPLETE`/`COMPUTE` split (PLAN 13.3) is not a
 graph branch — it is handled inside `nodes.route_calc` by varying what
 reaches `generate_verify`, since every route still answers through the same
@@ -61,7 +65,7 @@ from taxverity.retrieval.rerank import CachedReranker, JinaReranker, RerankRetri
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 from taxverity.safety.evidence_gate import served_grounded_claims
 
-GRAPH_BUILD_STAGE_VERSION = 5
+GRAPH_BUILD_STAGE_VERSION = 6
 
 # R19 Phase B (ADR-120): a smaller pack than `EvidencePacker`'s own
 # `EVIDENCE_BUDGET` default (4,000) — that constant stays put so every past
@@ -160,14 +164,19 @@ def _timed(name: str, fn: Callable[..., dict]) -> Callable[..., dict]:
     visible, per user decision). Accepts and forwards whatever LangGraph
     passes a node beyond `state` (it calls nodes with just `state` today, but
     this stays defensive rather than assuming that never changes). Timing
-    only, no token counts — see `state.TraceEntry`'s docstring for why."""
+    only, no token counts — see `state.TraceEntry`'s docstring for why.
+
+    Returns only this node's own entry, not the accumulated list (R19 Phase
+    C): `state.GraphState.trace` carries an `operator.add` reducer now, so
+    LangGraph does the concatenating — `extract_facts` and `retrieve` run in
+    the same superstep, and each reading+rewriting the whole list would be a
+    lost-update race."""
 
     def wrapper(state: GraphState, *args: Any, **kwargs: Any) -> dict:
         start = time.perf_counter()
         result = fn(state, *args, **kwargs)
         elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
-        trace = [*state.get("trace", []), {"node": name, "ms": elapsed_ms}]
-        return {**result, "trace": trace}
+        return {**result, "trace": [{"node": name, "ms": elapsed_ms}]}
 
     return wrapper
 
@@ -175,7 +184,16 @@ def _timed(name: str, fn: Callable[..., dict]) -> Callable[..., dict]:
 def build_graph(deps: GraphDeps) -> CompiledStateGraph:
     graph = StateGraph(GraphState)
     for name in _NODES:
-        graph.add_node(name, _timed(name, partial(getattr(nodes, name), deps=deps)))
+        # R19 Phase C: `generate_verify` joins two branches of unequal depth
+        # off `classify` — `retrieve` (1 hop) and `route_calc` (3 hops, via
+        # `extract_facts` -> `merge_facts`). A plain edge triggers on ANY
+        # predecessor's completion, so without `defer=True` `generate_verify`
+        # would fire the moment `retrieve` alone finished, reading a
+        # `computation` key `route_calc` had not written yet. `defer=True`
+        # is LangGraph's own primitive for "wait for every other pending
+        # task first" and is exactly the fan-in join this needs.
+        defer = name == "generate_verify"
+        graph.add_node(name, _timed(name, partial(getattr(nodes, name), deps=deps)), defer=defer)
 
     graph.add_edge(START, "load_thread")
     graph.add_edge("load_thread", "contextualize")
@@ -184,7 +202,8 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph:
         "classify",
         _scope_branch,
         {
-            "in_scope": "extract_facts",
+            "extract_facts": "extract_facts",
+            "retrieve": "retrieve",
             "conversational": "respond_conversational",
             "refused": "respond_fixed",
         },
@@ -192,9 +211,9 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph:
     graph.add_edge("respond_fixed", "finalize")
     graph.add_edge("respond_conversational", "finalize")
     graph.add_edge("extract_facts", "merge_facts")
-    graph.add_edge("merge_facts", "retrieve")
-    graph.add_edge("retrieve", "route_calc")
+    graph.add_edge("merge_facts", "route_calc")
     graph.add_edge("route_calc", "generate_verify")
+    graph.add_edge("retrieve", "generate_verify")
     graph.add_conditional_edges(
         "generate_verify",
         _retry_branch,
@@ -205,13 +224,18 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph:
     return graph.compile()
 
 
-def _scope_branch(state: GraphState) -> str:
+def _scope_branch(state: GraphState) -> list[str]:
+    """R19 Phase C: `in_scope` fans out to two parallel branches —
+    `extract_facts` (-> `merge_facts` -> `route_calc`) needs only the fact
+    state, `retrieve` needs only `query`/`search_query` from `classify`, and
+    neither reads the other's output. They join back up at `generate_verify`,
+    which is the first node that needs both `computation` and `pack`."""
     category = state["category"]
     if category is ScopeCategory.IN_SCOPE:
-        return "in_scope"
+        return ["extract_facts", "retrieve"]
     if category is ScopeCategory.CONVERSATIONAL:
-        return "conversational"
-    return "refused"
+        return ["conversational"]
+    return ["refused"]
 
 
 def _retry_branch(state: GraphState) -> str:

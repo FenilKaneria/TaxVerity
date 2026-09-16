@@ -17,8 +17,8 @@ from taxverity.evals.gold import QuerySlice
 from taxverity.generation.claims import ClaimEvent, WithheldEvent
 from taxverity.safety.evidence_gate import GROUNDED_CLAIM_TYPES
 
-ANSWER_EVAL_VERSION = 3
-ANSWER_RUN_FILENAME = "answer_smoke_v3.json"
+ANSWER_EVAL_VERSION = 4
+ANSWER_RUN_FILENAME = "answer_smoke_v4.json"
 
 # Chosen by rule, not by reading outputs: the first three citation, four
 # paraphrase and three crossref questions of gold v2, and its first five
@@ -52,6 +52,15 @@ class AnswerRecord(BaseModel):
     # A provider failure ends the answer; what was already released stands.
     error: str | None = None
     seconds: float
+    # R19 Phase D (ADR-120's own follow-on, no new ADR): the classifier's
+    # `ScopeCategory`, always populated by a live run. Not `"in_scope"` means
+    # retrieval and generation never ran for this query — this script now
+    # mirrors `graph/build.py`'s `_scope_branch`, which is what actually
+    # keeps an adjacent/out-of-scope/prohibited question from reaching the
+    # generator in production. `None` only for records built before this
+    # field existed (there are none on disk once `ANSWER_EVAL_VERSION` is
+    # bumped, but a hand-built test record may still omit it).
+    category: str | None = None
 
     @property
     def grounded_claims(self) -> tuple[ClaimEvent, ...]:

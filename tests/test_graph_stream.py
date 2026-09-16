@@ -75,7 +75,11 @@ def test_event_order_is_stage_then_claims_then_final(schema, alice, thread_id):
     emitted = _stream(d, alice, thread_id)
 
     stages = [e["stage"] for e in emitted if "stage" in e]
-    assert stages == ["thinking", "facts", "evidence"]
+    # R19 Phase C: `extract_facts`/`merge_facts` (-> "facts") and `retrieve`
+    # (-> "evidence") run in parallel branches off `classify`, so their
+    # relative order is no longer guaranteed — only that "thinking" leads.
+    assert stages[0] == "thinking"
+    assert set(stages[1:]) == {"facts", "evidence"}
     claim_positions = [i for i, e in enumerate(emitted) if e.get("type") == "content"]
     stage_positions = [i for i, e in enumerate(emitted) if "stage" in e]
     assert claim_positions and max(stage_positions) < min(claim_positions)
