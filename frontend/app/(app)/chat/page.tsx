@@ -26,7 +26,7 @@ function titleFrom(question: string): string {
 
 export default function ChatLandingPage() {
   const router = useRouter();
-  const { openSidebar } = useSidebarContext();
+  const { openSidebar, refreshThreads } = useSidebarContext();
   const [question, setQuestion] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +38,7 @@ export default function ChatLandingPage() {
     setError(null);
     try {
       const thread = await createThread(titleFrom(trimmed));
+      refreshThreads();
       router.push(`/chat/${thread.thread_id}?q=${encodeURIComponent(trimmed)}`);
     } catch (err) {
       setCreating(false);

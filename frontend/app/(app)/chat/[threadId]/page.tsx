@@ -29,7 +29,7 @@ type LoadState =
 function ThreadView({ threadId }: { threadId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { openSidebar } = useSidebarContext();
+  const { openSidebar, refreshThreads } = useSidebarContext();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   // The live turn stream's side effects, lifted out of the composer so the
   // computation panel survives after the transcript clears for the next
@@ -95,6 +95,10 @@ function ThreadView({ threadId }: { threadId: string }) {
         // History still shows the pre-turn state; the live transcript above
         // the composer already carries what was just said.
       });
+    // Bumps `updated_at`/reorders the sidebar's list — otherwise a thread's
+    // position (and, for the very first turn, the sidebar still showing the
+    // truncated question rather than nothing) only catches up on a reload.
+    refreshThreads();
   }
 
   if (state.status === "loading") {

@@ -19,7 +19,7 @@
 import { MoreHorizontal, PanelLeftClose, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { LogoMark } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,9 +39,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserMenu } from "@/components/user-menu";
+import { useThreadsContext } from "@/components/threads-context";
 import { cn } from "@/lib/utils";
-import { ApiError } from "@/lib/errors";
-import { deleteThread, listThreads, renameThread, type Thread } from "@/lib/threads";
+import { deleteThread, renameThread, type Thread } from "@/lib/threads";
 
 interface Props {
   open: boolean;
@@ -60,20 +60,10 @@ export function ThreadSidebar({ open, onOpenChange, collapsed, onToggleCollapse 
   const params = useParams<{ threadId?: string }>();
   const activeThreadId = params.threadId;
 
-  const [threads, setThreads] = useState<Thread[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { threads, error, setThreads } = useThreadsContext();
   const [renaming, setRenaming] = useState<Thread | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleting, setDeleting] = useState<Thread | null>(null);
-
-  useEffect(() => {
-    listThreads()
-      .then(setThreads)
-      .catch((err) => {
-        setError(err instanceof ApiError ? err.message : "Something went wrong.");
-        setThreads([]);
-      });
-  }, []);
 
   function startRename(thread: Thread) {
     setRenaming(thread);

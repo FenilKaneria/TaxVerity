@@ -43,6 +43,7 @@ export function GuestComposer() {
 
   const turn = useTurnStream({
     stream: (text, signal) => streamGuestTurn(text, signal),
+    clearOnComplete: false,
     onError: (err) => {
       if (err instanceof ApiError && err.code === "rate_limited") {
         setLimitReached(true);

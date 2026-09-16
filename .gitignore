@@ -40,3 +40,5 @@ Thumbs.db
 
 # Playwright MCP session artifacts (screenshots, console logs)
 .playwright-mcp/
+
+.vercel

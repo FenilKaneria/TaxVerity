@@ -25,12 +25,22 @@ import { useEffect, useState } from "react";
 import { useAuthStatus } from "@/components/auth-provider";
 import { SidebarContextProvider } from "@/components/sidebar-context";
 import { ThreadSidebar } from "@/components/thread-sidebar";
+import { ThreadsProvider, useThreadsContext } from "@/components/threads-context";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const COLLAPSE_KEY = "taxverity:sidebar-collapsed";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ThreadsProvider>
+      <AppLayoutInner>{children}</AppLayoutInner>
+    </ThreadsProvider>
+  );
+}
+
+function AppLayoutInner({ children }: { children: React.ReactNode }) {
+  const { refresh: refreshThreads } = useThreadsContext();
   const status = useAuthStatus();
   const router = useRouter();
   const pathname = usePathname();
@@ -110,7 +120,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <PanelLeftOpen className="size-4" />
           </Button>
         )}
-        <SidebarContextProvider openSidebar={() => setSidebarOpen(true)}>
+        <SidebarContextProvider
+          openSidebar={() => setSidebarOpen(true)}
+          refreshThreads={refreshThreads}
+        >
           {children}
         </SidebarContextProvider>
       </main>

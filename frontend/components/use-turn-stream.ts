@@ -40,6 +40,13 @@ interface UseTurnStreamOptions {
   onComputation?: (computation: ComputationSummary | null) => void;
   onTurnComplete?: () => void;
   onError?: (err: unknown) => boolean | void;
+  // Authenticated threads persist every turn and `onTurnComplete` reloads
+  // that history, so the live transcript can be cleared once a `final`
+  // event lands without losing anything. A guest turn has no persisted
+  // history at all (rule 04 — stateless by design), so clearing here would
+  // wipe the only rendering of the answer the moment it finishes. Default
+  // true; GuestComposer passes false.
+  clearOnComplete?: boolean;
 }
 
 export function useTurnStream({
@@ -48,6 +55,7 @@ export function useTurnStream({
   onComputation,
   onTurnComplete,
   onError,
+  clearOnComplete = true,
 }: UseTurnStreamOptions) {
   const [pending, setPending] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
@@ -143,7 +151,7 @@ export function useTurnStream({
       abortRef.current = null;
       setStreaming(false);
       setPending(null);
-      if (completedCleanly) {
+      if (completedCleanly && clearOnComplete) {
         // The turn is now in persisted history — drop the live copy so it
         // doesn't render a second time alongside the reloaded message.
         setEvents([]);
