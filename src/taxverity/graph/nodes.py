@@ -16,7 +16,8 @@ node is directly callable with no graph context required.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from langgraph.config import get_stream_writer
@@ -43,8 +44,14 @@ from taxverity.memory.fact_state import (
     merge_turn,
     save_fact_state,
 )
+from taxverity.observability import get_logger
+from taxverity.reasoning.validate import validate
+from taxverity.retrieval.base import ScoredChunk
+from taxverity.safety.classifier import Intent
 from taxverity.safety.evidence_gate import gate
 from taxverity.threads.store import append_message, list_messages
+
+logger = get_logger(__name__)
 
 Writer = Callable[[Any], None]
 
@@ -91,7 +98,17 @@ def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     # getattr, not result.search_query: a test double's classifier stub may
     # predate R19 Phase B (ADR-120) and not set it.
     search_query = getattr(result, "search_query", None) or state["query"]
-    return {"category": result.category, "fixed_response": result.response, "search_query": search_query}
+    # R20 Step 20.2: same getattr guard for a stub predating sub_queries.
+    sub_queries = tuple(getattr(result, "sub_queries", None) or ())
+    # R20 Step 20.3: same getattr guard for a stub predating intent.
+    intent = getattr(result, "intent", None) or Intent.EXPLANATION
+    return {
+        "category": result.category,
+        "fixed_response": result.response,
+        "search_query": search_query,
+        "sub_queries": sub_queries,
+        "intent": intent,
+    }
 
 
 def respond_fixed(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
@@ -130,7 +147,16 @@ def extract_facts(state: GraphState, deps: GraphDeps, writer: Writer | None = No
 
 def merge_facts(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
     emit = writer or get_stream_writer()
-    merged = merge_turn(state["fact_state"], state["extraction"].facts, turn=state["turn"])
+    extraction = state["extraction"]
+    # getattr, not extraction.situation_facts: a test double's ExtractionResult
+    # stub may predate R20 Step 20.4, same guard style as sub_queries/intent.
+    situation_facts = getattr(extraction, "situation_facts", None) or ()
+    merged = merge_turn(
+        state["fact_state"],
+        extraction.facts,
+        turn=state["turn"],
+        situation_facts=situation_facts,
+    )
     save_fact_state(deps.conn, state["user_id"], state["thread_id"], merged)
     emit(StageEvent(stage="facts", facts=_facts_payload(merged)).model_dump())
     return {"fact_state": merged}
@@ -153,6 +179,30 @@ def retrieve_retry(state: GraphState, deps: GraphDeps, writer: Writer | None = N
     return result
 
 
+def _merge_subquery_results(
+    per_query: Sequence[Sequence[ScoredChunk]], limit: int
+) -> list[ScoredChunk]:
+    """Round-robin interleave each sub-query's own ranking, deduplicated by
+    chunk id (first occurrence wins), so no single sub-query's pool
+    dominates the merged order the packer then walks (rule 01: the packer
+    itself is untouched — this only changes what ranking it is handed)."""
+    seen: set[str] = set()
+    merged: list[ScoredChunk] = []
+    depth = max((len(results) for results in per_query), default=0)
+    for i in range(depth):
+        for results in per_query:
+            if len(merged) >= limit:
+                return merged
+            if i >= len(results):
+                continue
+            result = results[i]
+            if result.chunk.chunk_id in seen:
+                continue
+            seen.add(result.chunk.chunk_id)
+            merged.append(result)
+    return merged
+
+
 def _retrieve(
     state: GraphState, deps: GraphDeps, writer: Writer | None, *, k: int, expand: bool
 ) -> dict:
@@ -160,14 +210,32 @@ def _retrieve(
     # R19 Phase B (ADR-120): retrieval runs on the classifier's Act-vocabulary
     # rewrite when one exists, falling back to the raw query for callers
     # (tests, an older classifier stub) that don't set it.
-    results = deps.retriever.search(state.get("search_query") or state["query"], k)
+    base_query = state.get("search_query") or state["query"]
+    sub_queries = state.get("sub_queries") or ()
+    sub_trace: list[dict[str, str | float]] = []
+    if sub_queries:
+        # R20 Step 20.2: one retrieval pass per legal sub-question for a
+        # multi-issue question, reranked independently (each pass already
+        # goes through `deps.retriever`'s own reranker) and merged before
+        # packing — a plain question still takes the single-search path
+        # below (rule 01: no extra pass where one suffices).
+        per_query = []
+        for i, sub_query in enumerate(sub_queries, start=1):
+            started = time.perf_counter()
+            per_query.append(deps.retriever.search(sub_query, k))
+            sub_trace.append(
+                {"node": f"retrieve.subquery.{i}", "ms": (time.perf_counter() - started) * 1000}
+            )
+        results = _merge_subquery_results(per_query, k)
+    else:
+        results = list(deps.retriever.search(base_query, k))
     pack = deps.packer.pack(results, expand=expand)
     emit(
         StageEvent(
             stage="evidence", chunks=tuple(unit.citation for unit in pack.units)
         ).model_dump()
     )
-    return {"pack": pack}
+    return {"pack": pack, "trace": sub_trace}
 
 
 def route_calc(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
@@ -207,6 +275,92 @@ def route_calc(state: GraphState, deps: GraphDeps, writer: Writer | None = None)
         "computation": computation,
         "clarify_questions": clarify_questions,
     }
+
+
+# R20 Step 20.5: `reason` runs only for these intents (standing decision 3,
+# `i-want-you-to-misty-pudding.md`) — a plain "what does section X say"
+# explanation question, and a procedure or single-deduction-limit question,
+# already answer directly from the pack with no condition-checking to do,
+# so a second LLM call for them is exactly the "no LLM call for a job code
+# already does" rule 01 forbids.
+_REASONING_INTENTS = frozenset(
+    {
+        Intent.ELIGIBILITY,
+        Intent.CALCULATION,
+        Intent.COMPARISON,
+        Intent.APPLICABILITY,
+        Intent.MULTI_ISSUE,
+    }
+)
+
+_NO_ANALYSIS: dict[str, Any] = {
+    "legal_rules": (),
+    "applicability": (),
+    "missing_facts": (),
+    "answer_plan": None,
+}
+
+
+def reason(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+    """Not yet wired into the compiled graph (that is Step 20.8's "graph
+    rewire") — directly callable and directly testable, the same way
+    `retrieve_retry` existed for two steps before its edge was added.
+
+    Skipped for an intent that needs no condition-checking, and skipped or
+    falling back whenever the model's own output does not survive
+    `reasoning/validate.py` — a reasoning failure must never stop a turn
+    from answering; `decide`/`generate` (20.6-20.7) treat `answer_plan is
+    None` as "reason over the pack directly", the existing path unchanged.
+    """
+    intent = state.get("intent", Intent.EXPLANATION)
+    if intent not in _REASONING_INTENTS:
+        return dict(_NO_ANALYSIS)
+
+    result = deps.reasoner.reason(
+        state["query"], state["pack"], state["fact_state"], state.get("computation")
+    )
+    if result.analysis is None:
+        return dict(_NO_ANALYSIS)
+
+    validated = validate(result.analysis, state["pack"], fact_state=state["fact_state"])
+    if not validated.has_governing_rule:
+        logger.warning("no legal rule survived reasoning validation for this turn")
+        return dict(_NO_ANALYSIS)
+
+    return {
+        "legal_rules": validated.legal_rules,
+        "applicability": validated.applicability,
+        "missing_facts": validated.missing_facts,
+        "answer_plan": validated.answer_plan,
+    }
+
+
+def decide(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+    """R20 Step 20.6: deterministic clarify | answer gate, downstream of
+    `reason` (20.5). Not yet wired into the compiled graph (Step 20.8's
+    "graph rewire") — directly callable and directly testable, the same way
+    `reason` existed for one step before its edge was added.
+
+    Calculator-sourced clarify questions (`route_calc`, Step 13.2, fixed
+    `CLARIFY_TEMPLATES`) are untouched and already emitted their own event.
+    This node adds reasoning-sourced questions: one per `missing_facts`
+    entry the model itself marked `material` (PLAN's decision 2 — "missing
+    facts that change the conclusion"). Every such question already passed
+    `reasoning/validate.py`'s gate before reaching here — grounded in the
+    linked condition's own citations, no invented legal number, pointed at
+    a condition that genuinely survived as `unknown` — so trusting
+    `material` here is exactly as safe as trusting a validated `LegalRule`;
+    the untrustworthy part of the model's output was already stripped out
+    upstream, not here."""
+    emit = writer or get_stream_writer()
+    existing = state.get("clarify_questions", ())
+    material_questions = tuple(
+        missing.question for missing in state.get("missing_facts", ()) if missing.material
+    )
+    new_questions = tuple(q for q in material_questions if q not in existing)
+    if new_questions:
+        emit(ClarifyEvent(questions=new_questions).model_dump())
+    return {"clarify_questions": existing + new_questions}
 
 
 def generate_verify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:

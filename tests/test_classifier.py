@@ -25,6 +25,7 @@ from taxverity.safety.classifier import (
     SCHEMA_NAME,
     STRICT_FORMAT,
     ClassificationError,
+    Intent,
     IntentClassifier,
     ScopeCategory,
 )
@@ -93,7 +94,7 @@ def build(*responses):
 
 
 def test_stage_version_is_declared():
-    assert CLASSIFIER_STAGE_VERSION == 4
+    assert CLASSIFIER_STAGE_VERSION == 8
 
 
 def test_strict_format_names_the_scope_schema():
@@ -121,6 +122,26 @@ def test_schema_requires_search_query():
     # R19 Phase B (ADR-120): retrieval runs on this rewrite, not the raw
     # question.
     assert "search_query" in CLASSIFICATION_JSON_SCHEMA["required"]
+
+
+def test_schema_requires_sub_queries():
+    # R20 Step 20.2: a multi-issue question's per-issue retrieval questions.
+    assert "sub_queries" in CLASSIFICATION_JSON_SCHEMA["required"]
+
+
+def test_schema_requires_intent():
+    # R20 Step 20.3: gates whether the forthcoming `reason` node runs.
+    assert "intent" in CLASSIFICATION_JSON_SCHEMA["required"]
+    assert set(CLASSIFICATION_JSON_SCHEMA["properties"]["intent"]["enum"]) == {
+        "explanation",
+        "eligibility",
+        "calculation",
+        "deduction_exemption",
+        "comparison",
+        "applicability",
+        "procedure",
+        "multi_issue",
+    }
 
 
 # --- classification ------------------------------------------------------
@@ -155,6 +176,88 @@ def test_a_missing_search_query_degrades_to_the_raw_question():
     node, _ = build(ok(json.dumps({"category": "in_scope"})))
     result = node.classify(QUESTION)
     assert result.search_query == QUESTION
+
+
+def test_sub_queries_round_trip():
+    subs = ["the slab rates for the new regime", "the standard deduction from salary"]
+    node, _ = build(
+        ok(json.dumps({"category": "in_scope", "search_query": QUESTION, "sub_queries": subs}))
+    )
+    result = node.classify(QUESTION)
+    assert result.sub_queries == tuple(subs)
+
+
+def test_a_missing_sub_queries_degrades_to_no_decomposition():
+    node, _ = build(ok(json.dumps({"category": "in_scope", "search_query": QUESTION})))
+    result = node.classify(QUESTION)
+    assert result.sub_queries == ()
+
+
+def test_intent_round_trips():
+    node, _ = build(
+        ok(
+            json.dumps(
+                {
+                    "category": "in_scope",
+                    "search_query": QUESTION,
+                    "sub_queries": [],
+                    "intent": "eligibility",
+                }
+            )
+        )
+    )
+    result = node.classify(QUESTION)
+    assert result.intent is Intent.ELIGIBILITY
+
+
+def test_a_missing_intent_degrades_to_explanation():
+    node, _ = build(
+        ok(json.dumps({"category": "in_scope", "search_query": QUESTION, "sub_queries": []}))
+    )
+    result = node.classify(QUESTION)
+    assert result.intent is Intent.EXPLANATION
+
+
+def test_an_invalid_intent_degrades_to_explanation_not_a_classification_error():
+    # Unlike category, intent is never a grounding gate (rule 01) — a bad
+    # value only misses a chance to reason, never serves anything ungrounded.
+    node, _ = build(
+        ok(
+            json.dumps(
+                {
+                    "category": "in_scope",
+                    "search_query": QUESTION,
+                    "sub_queries": [],
+                    "intent": "mostly_eligible",
+                }
+            )
+        )
+    )
+    result = node.classify(QUESTION)
+    assert result.intent is Intent.EXPLANATION
+
+
+def test_conversational_shortcut_carries_explanation_intent():
+    node, recorder = build()
+    result = node.classify("hi")
+    assert result.intent is Intent.EXPLANATION
+    assert recorder.requests == []
+
+
+def test_a_blank_sub_query_is_dropped():
+    node, _ = build(
+        ok(
+            json.dumps(
+                {
+                    "category": "in_scope",
+                    "search_query": QUESTION,
+                    "sub_queries": ["real question", "  ", ""],
+                }
+            )
+        )
+    )
+    result = node.classify(QUESTION)
+    assert result.sub_queries == ("real question",)
 
 
 def test_calls_with_the_strict_schema_at_temperature_zero():

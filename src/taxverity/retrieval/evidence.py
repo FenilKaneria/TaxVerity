@@ -49,6 +49,14 @@ EVIDENCE_POOL = 20
 # displace evidence the adopted ranking itself delivered.
 EXPANSION_HEAD = 10
 
+# R20 Step 20.2 measured a flat ancestor-promotion size-ratio guard (r009's
+# finding) and REJECTED it (ADR-122): any ratio tight enough to block r009's
+# real ~2.03x root/hit disparity (section 19 over 19(1)) also blocks several
+# legitimate multi-child promotions in the gold v2 crossref slice (q020,
+# q021, q062-q068) whose own incremental ratios during the walk run as low
+# as ~2.0x-5x. No single threshold separates the two. Left unguarded; a
+# pool-aware (not order-dependent) design is future work, not this pass.
+
 
 class EvidenceRole(StrEnum):
     RETRIEVED = "retrieved"

@@ -17,6 +17,7 @@ convention later code has to remember.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -24,7 +25,14 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
 
-from taxverity.facts import Fact, FactField, FactStatus, UserFacts, fact_value
+from taxverity.facts import (
+    Fact,
+    FactField,
+    FactStatus,
+    SituationFact,
+    UserFacts,
+    fact_value,
+)
 from taxverity.threads.store import get_thread
 
 USER_EDIT_PROVENANCE = "edited by user"
@@ -42,10 +50,29 @@ class Override:
 
 
 @dataclass(frozen=True)
+class SituationOverride:
+    """The same conflict resolution as `Override`, keyed by name rather than
+    a closed `FactField` — R20 Step 20.4's open-vocabulary facts have no enum
+    to key on, so the normalised (stripped, casefolded) name stands in."""
+
+    key: str
+    previous: SituationFact
+    previous_provenance: str
+    new: SituationFact
+    new_provenance: str
+
+
+@dataclass(frozen=True)
 class ThreadFactState:
     facts: dict[FactField, Fact] = field(default_factory=dict)
     provenance: dict[FactField, str] = field(default_factory=dict)
     overrides: tuple[Override, ...] = ()
+    # R20 Step 20.4. Never read by `as_user_facts()` or Phase 9's calculator —
+    # these are the open facts a future `reason` node (20.5) will read
+    # alongside the closed ones, not a calculator input.
+    situation: dict[str, SituationFact] = field(default_factory=dict)
+    situation_provenance: dict[str, str] = field(default_factory=dict)
+    situation_overrides: tuple[SituationOverride, ...] = ()
 
     def get(self, field_: FactField) -> Fact | None:
         return self.facts.get(field_)
@@ -58,12 +85,31 @@ class ThreadFactState:
         belief, independent of which turn or edit produced each field."""
         return UserFacts(facts=tuple(self.facts.values()))
 
+    def situation_facts(self) -> tuple[SituationFact, ...]:
+        """The thread's current open-vocabulary belief, one per name."""
+        return tuple(self.situation.values())
+
+
+def _situation_key(fact: SituationFact) -> str:
+    return fact.name.strip().casefold()
+
 
 def merge_turn(
-    state: ThreadFactState, extracted: UserFacts, *, turn: int
+    state: ThreadFactState,
+    extracted: UserFacts,
+    *,
+    turn: int,
+    situation_facts: Sequence[SituationFact] = (),
 ) -> ThreadFactState:
     """Merges one turn's extraction into `state`. `MISSING` facts are dropped —
-    silence about a field says nothing about what was known before."""
+    silence about a field says nothing about what was known before.
+
+    `situation_facts` (R20 Step 20.4) merges by the same override rule as the
+    closed fields — a newer stated fact wins, an inferred one never outranks
+    an existing stated one, and every replacement is recorded rather than
+    applied silently (rule 04) — keyed by name instead of a `FactField`, since
+    the vocabulary here is open.
+    """
     facts = dict(state.facts)
     provenance = dict(state.provenance)
     overrides = list(state.overrides)
@@ -98,7 +144,41 @@ def merge_turn(
         facts[fact.field] = fact
         provenance[fact.field] = new_provenance
 
-    return ThreadFactState(facts=facts, provenance=provenance, overrides=tuple(overrides))
+    situation = dict(state.situation)
+    situation_provenance = dict(state.situation_provenance)
+    situation_overrides = list(state.situation_overrides)
+
+    for situation_fact in situation_facts:
+        key = _situation_key(situation_fact)
+        existing_situation = situation.get(key)
+        if (
+            existing_situation is not None
+            and existing_situation.status is FactStatus.STATED
+            and situation_fact.status is FactStatus.INFERRED
+        ):
+            continue
+        new_provenance = f"{situation_fact.status.value} in turn {turn}"
+        if existing_situation is not None:
+            situation_overrides.append(
+                SituationOverride(
+                    key=key,
+                    previous=existing_situation,
+                    previous_provenance=situation_provenance[key],
+                    new=situation_fact,
+                    new_provenance=new_provenance,
+                )
+            )
+        situation[key] = situation_fact
+        situation_provenance[key] = new_provenance
+
+    return ThreadFactState(
+        facts=facts,
+        provenance=provenance,
+        overrides=tuple(overrides),
+        situation=situation,
+        situation_provenance=situation_provenance,
+        situation_overrides=tuple(situation_overrides),
+    )
 
 
 def apply_user_edit(
@@ -167,6 +247,24 @@ def _fact_from_json(data: dict[str, Any]) -> Fact:
     )
 
 
+def _situation_to_json(fact: SituationFact) -> dict[str, Any]:
+    return {
+        "name": fact.name,
+        "status": fact.status.value,
+        "raw_value": fact.raw_value,
+        "source_span": fact.source_span,
+    }
+
+
+def _situation_from_json(data: dict[str, Any]) -> SituationFact:
+    return SituationFact(
+        name=data["name"],
+        status=FactStatus(data["status"]),
+        raw_value=data["raw_value"],
+        source_span=data["source_span"],
+    )
+
+
 def to_json(state: ThreadFactState) -> dict[str, Any]:
     return {
         "facts": {
@@ -184,6 +282,20 @@ def to_json(state: ThreadFactState) -> dict[str, Any]:
                 "new_provenance": override.new_provenance,
             }
             for override in state.overrides
+        ],
+        "situation": {
+            key: _situation_to_json(fact) for key, fact in state.situation.items()
+        },
+        "situation_provenance": dict(state.situation_provenance),
+        "situation_overrides": [
+            {
+                "key": override.key,
+                "previous": _situation_to_json(override.previous),
+                "previous_provenance": override.previous_provenance,
+                "new": _situation_to_json(override.new),
+                "new_provenance": override.new_provenance,
+            }
+            for override in state.situation_overrides
         ],
     }
 
@@ -206,7 +318,31 @@ def from_json(data: dict[str, Any]) -> ThreadFactState:
         )
         for entry in data.get("overrides", [])
     )
-    return ThreadFactState(facts=facts, provenance=provenance, overrides=overrides)
+    # `.get(..., {})`/`.get(..., [])`: a row saved before R20 Step 20.4 has
+    # none of these keys, and must load as "no situation facts yet", not raise.
+    situation = {
+        key: _situation_from_json(payload)
+        for key, payload in data.get("situation", {}).items()
+    }
+    situation_provenance = dict(data.get("situation_provenance", {}))
+    situation_overrides = tuple(
+        SituationOverride(
+            key=entry["key"],
+            previous=_situation_from_json(entry["previous"]),
+            previous_provenance=entry["previous_provenance"],
+            new=_situation_from_json(entry["new"]),
+            new_provenance=entry["new_provenance"],
+        )
+        for entry in data.get("situation_overrides", [])
+    )
+    return ThreadFactState(
+        facts=facts,
+        provenance=provenance,
+        overrides=overrides,
+        situation=situation,
+        situation_provenance=situation_provenance,
+        situation_overrides=situation_overrides,
+    )
 
 
 def load_fact_state(

@@ -36,11 +36,15 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-CLASSIFIER_STAGE_VERSION = 4
+CLASSIFIER_STAGE_VERSION = 8
 
-# The answer is one word; reasoning cannot be disabled and is billed against
-# this cap regardless (Step 7.1), so this stays small but not tight.
-CLASSIFIER_MAX_COMPLETION_TOKENS = 200
+# Reasoning cannot be disabled and is billed against this cap regardless
+# (Step 7.1). R20 Step 20.2 raised this from 200: adding `sub_queries`
+# (an array field, sometimes 2-3 sentences) pushed a live Groq call past
+# 200 on at least one real question, truncating the JSON mid-generation and
+# failing both the strict schema and its json_object fallback (measured,
+# not assumed — see the R20 20.2 benchmark notes).
+CLASSIFIER_MAX_COMPLETION_TOKENS = 350
 CLASSIFIER_TEMPERATURE = 0.0
 
 SCHEMA_NAME = "scope_classification"
@@ -55,6 +59,25 @@ class ScopeCategory(StrEnum):
     ADJACENT = "adjacent"
     OUT_OF_SCOPE = "out_of_scope"
     PROHIBITED = "prohibited"
+
+
+class Intent(StrEnum):
+    """R20 Step 20.3: what kind of in_scope question this is, so the
+    forthcoming `reason`/`decide` nodes (20.5-20.6) know whether to run the
+    reasoning call at all — a plain explanation question skips it (rule 01,
+    standing decision 3). Not safety-critical: an unclassifiable value
+    degrades to EXPLANATION (skip reasoning) rather than raising, since a
+    wrong intent misses an opportunity to reason, it never serves anything
+    ungrounded."""
+
+    EXPLANATION = "explanation"
+    ELIGIBILITY = "eligibility"
+    CALCULATION = "calculation"
+    DEDUCTION_EXEMPTION = "deduction_exemption"
+    COMPARISON = "comparison"
+    APPLICABILITY = "applicability"
+    PROCEDURE = "procedure"
+    MULTI_ISSUE = "multi_issue"
 
 
 class ClassificationError(RuntimeError):
@@ -75,8 +98,18 @@ CLASSIFICATION_JSON_SCHEMA: dict[str, Any] = {
         # R19 Phase B (ADR-120): the question restated in the Act's own
         # vocabulary, used for retrieval instead of the person's raw wording.
         "search_query": {"type": "string"},
+        # R20 Step 20.2: separate retrieval questions for a question that
+        # bundles distinct legal issues or conditions. Empty for a plain
+        # single-issue question — never an extra pass where one suffices.
+        "sub_queries": {"type": "array", "items": {"type": "string"}},
+        # R20 Step 20.3: what kind of in_scope question this is, so the
+        # reasoning pipeline (20.5-20.6) knows whether to run at all.
+        "intent": {
+            "type": "string",
+            "enum": [i.value for i in Intent],
+        },
     },
-    "required": ["category", "search_query"],
+    "required": ["category", "search_query", "sub_queries", "intent"],
     "additionalProperties": False,
 }
 
@@ -196,7 +229,30 @@ message. For example "tax benefits for a home loan" becomes something like \
 "interest on borrowed capital for acquisition or construction of a house \
 property; deduction". Do not invent a section number.
 
-Return only the category and search_query, as JSON."""
+Also give "sub_queries": a list of separate retrieval questions, one per \
+distinct legal issue or condition, but only for in_scope questions that \
+bundle more than one — a tax calculation (which needs the slab rates, the \
+standard deduction and the rebate as separate provisions), an eligibility \
+or applicability question with more than one condition, a comparison, or a \
+question naming more than one issue (for example HRA and a house-property \
+loss together). Return an empty list for a plain single-issue question, and \
+for every category other than in_scope — do not split a question that does \
+not need it. Keep each sub-query close to the person's own wording for that \
+one issue — reuse their words, do not invent new phrasing or introduce a \
+word that belongs to a different issue in the question (for example, do \
+not add "flat" or "house property" to the HRA half of a question that also \
+mentions a separate house-property loss).
+
+Also give "intent", one of: explanation (what does the Act say), \
+eligibility (can the person claim/use something), calculation (compute a \
+figure), deduction_exemption (limits or conditions on a specific deduction \
+or exemption), comparison (which of two options is better/cheaper/applies), \
+applicability (does a provision apply to this person's situation), \
+procedure (how/when to file, pay or claim something), or multi_issue (more \
+than one of the above together). Pick explanation whenever the question \
+just asks what the law says, with nothing to apply to the person's own facts.
+
+Return only the category, search_query, sub_queries and intent, as JSON."""
 
 
 @dataclass(frozen=True)
@@ -205,6 +261,12 @@ class ClassificationResult:
     # R19 Phase B (ADR-120): the question restated in the Act's own
     # vocabulary, used for retrieval in place of the person's raw wording.
     search_query: str
+    # R20 Step 20.2: separate retrieval questions for a multi-issue question.
+    # Empty for a plain single-issue one.
+    sub_queries: tuple[str, ...]
+    # R20 Step 20.3: what kind of in_scope question this is (EXPLANATION for
+    # every other category, and the safe degrade on a malformed value).
+    intent: Intent
     completion: Completion
 
     @property
@@ -261,6 +323,8 @@ class IntentClassifier:
             return ClassificationResult(
                 category=ScopeCategory.CONVERSATIONAL,
                 search_query=question,
+                sub_queries=(),
+                intent=Intent.EXPLANATION,
                 completion=_SHORTCUT_COMPLETION,
             )
         completion = self._complete(
@@ -270,8 +334,14 @@ class IntentClassifier:
                 Message(role="user", content=f"<question>\n{question}\n</question>"),
             ]
         )
-        category, search_query = _parse(completion.text, question)
-        return ClassificationResult(category=category, search_query=search_query, completion=completion)
+        category, search_query, sub_queries, intent = _parse(completion.text, question)
+        return ClassificationResult(
+            category=category,
+            search_query=search_query,
+            sub_queries=sub_queries,
+            intent=intent,
+            completion=completion,
+        )
 
     def _complete(self, messages: Sequence[Message]) -> Completion:
         if self.schema_refused:
@@ -297,7 +367,7 @@ class IntentClassifier:
         )
 
 
-def _parse(text: str, question: str) -> tuple[ScopeCategory, str]:
+def _parse(text: str, question: str) -> tuple[ScopeCategory, str, tuple[str, ...], Intent]:
     try:
         payload = json.loads(text)
         category = ScopeCategory(payload["category"])
@@ -310,4 +380,21 @@ def _parse(text: str, question: str) -> tuple[ScopeCategory, str]:
     search_query = payload.get("search_query")
     if not isinstance(search_query, str) or not search_query.strip():
         search_query = question
-    return category, search_query
+    # Same degrade-don't-fail treatment as search_query: a missing or
+    # malformed sub_queries under the json_object fallback is simply no
+    # decomposition, not a classification failure.
+    raw_sub_queries = payload.get("sub_queries")
+    sub_queries: tuple[str, ...] = ()
+    if isinstance(raw_sub_queries, list):
+        sub_queries = tuple(
+            item.strip() for item in raw_sub_queries if isinstance(item, str) and item.strip()
+        )
+    # Same degrade-don't-fail treatment: intent only decides whether the
+    # forthcoming `reason` node runs (rule 01, standing decision 3), it is
+    # never a grounding gate, so a missing/invalid value defaults to
+    # EXPLANATION (skip reasoning) rather than raising ClassificationError.
+    try:
+        intent = Intent(payload.get("intent"))
+    except ValueError:
+        intent = Intent.EXPLANATION
+    return category, search_query, sub_queries, intent

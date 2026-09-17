@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from taxverity.corpus.loader import normalise
 
-FACTS_STAGE_VERSION = 5
+FACTS_STAGE_VERSION = 6
 
 
 class FactStatus(StrEnum):
@@ -229,6 +229,36 @@ class Fact(BaseModel):
         return self
 
 
+class SituationFact(BaseModel):
+    """R20 Step 20.4: an open-vocabulary fact, alongside the 15 closed fields
+    above. Never fed to the calculator — `route_calc` and the materiality
+    probe only ever read `UserFacts`. `name` is the model's own words for
+    what the fact is about (there is no enum to validate it against), so the
+    only checks left are the ones already load-bearing for the closed
+    fields: a stated fact must quote itself, and PROFILE_DEFAULT can never
+    reach here (rule 04) because it is not one of the two statuses allowed.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    status: FactStatus
+    raw_value: str
+    source_span: str
+
+    @model_validator(mode="after")
+    def _check(self) -> SituationFact:
+        if self.status not in (FactStatus.STATED, FactStatus.INFERRED):
+            raise ValueError("a situation fact must be stated or inferred")
+        if not self.name.strip():
+            raise ValueError("a situation fact needs a name")
+        if not self.raw_value.strip():
+            raise ValueError("a situation fact needs a value")
+        if self.status is FactStatus.STATED and not self.source_span:
+            raise ValueError("a stated situation fact must quote its own span")
+        return self
+
+
 class UnmappedFact(BaseModel):
     """A fact the model named outside the vocabulary, kept verbatim.
 
@@ -289,6 +319,11 @@ class Rejection:
 class Extraction:
     facts: UserFacts
     rejections: tuple[Rejection, ...]
+    # R20 Step 20.4. Kept apart from `rejections` on purpose: `llm/extract.py`'s
+    # repair pass only ever repairs the closed fields above, so a situation-fact
+    # rejection must never be mistaken for a repairable one.
+    situation_facts: tuple[SituationFact, ...] = ()
+    situation_rejections: tuple[Rejection, ...] = ()
 
 
 def parse_facts(payload: Any, turn: str) -> Extraction:
@@ -426,10 +461,80 @@ def parse_facts(payload: Any, turn: str) -> Extraction:
         facts.append(fact)
         seen.add(field)
 
+    situation_facts, situation_rejections = _parse_situation_entries(
+        payload, normalised_turn
+    )
+
     return Extraction(
         facts=UserFacts(facts=tuple(facts), unmapped=tuple(unmapped)),
         rejections=tuple(rejections),
+        situation_facts=situation_facts,
+        situation_rejections=situation_rejections,
     )
+
+
+def _parse_situation_entries(
+    payload: Any, normalised_turn: str
+) -> tuple[tuple[SituationFact, ...], tuple[Rejection, ...]]:
+    """Same span-check discipline as the closed fields above (a stated fact
+    must quote itself, and a quotation the turn does not contain is refused,
+    never trusted) — but no repair, no vocabulary and no `missing` set,
+    because there is no enum to be exhaustive over."""
+    rejections: list[Rejection] = []
+    facts: list[SituationFact] = []
+    for entry in _situation_entries(payload, rejections):
+        name = str(entry.get("name", "") or "").strip()
+        raw_value = str(entry.get("value", "") or "").strip()
+        span = str(entry.get("source_span", "") or "")
+        raw_status = str(entry.get("status", "") or "").strip().casefold()
+
+        if not name or not raw_value:
+            rejections.append(
+                Rejection(
+                    FactIssue.MALFORMED_ENTRY,
+                    "a situation fact needs both a name and a value",
+                    entry,
+                )
+            )
+            continue
+        try:
+            status = FactStatus(raw_status)
+        except ValueError:
+            rejections.append(
+                Rejection(FactIssue.BAD_STATUS, f"unknown status {raw_status!r}", entry)
+            )
+            continue
+        if status not in (FactStatus.STATED, FactStatus.INFERRED):
+            rejections.append(
+                Rejection(
+                    FactIssue.BAD_STATUS,
+                    f"a situation fact may not be {status}",
+                    entry,
+                )
+            )
+            continue
+        if status is FactStatus.STATED and not span:
+            rejections.append(
+                Rejection(
+                    FactIssue.MISSING_SPAN, f"{name!r} is stated but quotes nothing", entry
+                )
+            )
+            continue
+        if span and normalise(span) not in normalised_turn:
+            rejections.append(
+                Rejection(
+                    FactIssue.SPAN_NOT_IN_TURN, f"{span!r} is not in the turn", entry
+                )
+            )
+            continue
+        try:
+            facts.append(
+                SituationFact(name=name, status=status, raw_value=raw_value, source_span=span)
+            )
+        except ValueError as error:
+            rejections.append(Rejection(FactIssue.MALFORMED_ENTRY, str(error), entry))
+            continue
+    return tuple(facts), tuple(rejections)
 
 
 _LOSS_WORDS = re.compile(r"\b(?:loss(?:es)?|lost|minus|negative|deficit)\b", re.IGNORECASE)
@@ -598,6 +703,28 @@ def _entries(payload: Any, rejections: list[Rejection]) -> list[dict[str, Any]]:
     return entries
 
 
+def _situation_entries(payload: Any, rejections: list[Rejection]) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    raw = payload.get("situation_facts")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        rejections.append(
+            Rejection(FactIssue.MALFORMED_ENTRY, "situation_facts is not a list", {})
+        )
+        return []
+    entries: list[dict[str, Any]] = []
+    for entry in raw:
+        if isinstance(entry, dict):
+            entries.append(entry)
+        else:
+            rejections.append(
+                Rejection(FactIssue.MALFORMED_ENTRY, "situation entry is not an object", {})
+            )
+    return entries
+
+
 def _field_description() -> str:
     return " ".join(
         f"{field.value}: {FIELDS[field].description}"
@@ -614,7 +741,7 @@ FACTS_SCHEMA_NAME = "user_facts"
 FACTS_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["fields"],
+    "required": ["fields", "situation_facts"],
     "properties": {
         "fields": {
             "type": "array",
@@ -646,6 +773,48 @@ FACTS_JSON_SCHEMA: dict[str, Any] = {
                     },
                 },
             },
-        }
+        },
+        "situation_facts": {
+            "type": "array",
+            "description": (
+                "Any other fact about the person's situation that is not one "
+                "of the named fields above, but may matter to a tax answer — "
+                "for example who a payment was made to, what kind of property "
+                "is involved, or an eligibility detail. Do not report a fact "
+                "here that one of the named fields above already covers."
+            ),
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name", "value", "status", "source_span"],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "A short label for what this fact is about, in your "
+                            "own words."
+                        ),
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "The fact's value, in the person's own words.",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            s.value
+                            for s in (FactStatus.STATED, FactStatus.INFERRED)
+                        ],
+                    },
+                    "source_span": {
+                        "type": "string",
+                        "description": (
+                            "Copied verbatim from the user's own words. Empty "
+                            "unless the status is stated."
+                        ),
+                    },
+                },
+            },
+        },
     },
 }

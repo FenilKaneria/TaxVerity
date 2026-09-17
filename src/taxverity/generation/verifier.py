@@ -219,7 +219,7 @@ class Verifier:
                 )
                 continue
             citations.append(Citation(marker=marker, path=unit.citation, quote=_excerpt(unit)))
-            allowed |= _ground_numbers(unit)
+            allowed |= ground_numbers(unit)
 
         # Every content line needs a citation, no exceptions — deliberately
         # not "unless it looks connective": a blocklist of trigger words a
@@ -265,7 +265,12 @@ def _excerpt(unit: EvidenceUnit, limit: int = 600) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
 
-def _ground_numbers(unit: EvidenceUnit) -> frozenset[Decimal]:
+def ground_numbers(unit: EvidenceUnit) -> frozenset[Decimal]:
+    """Every number an evidence unit itself grounds: its own text, its
+    citation path, and its ancestor lead-in lines. R20 Step 20.5's
+    deterministic reasoning validator reuses this unchanged — a legal
+    number the model reports in a rule, condition or limit must be
+    grounded exactly the way a claim's own number already is."""
     numbers = numbers_in(unit.chunk.text) | numbers_in(unit.citation)
     for line in unit.context:
         numbers |= numbers_in(line.text)

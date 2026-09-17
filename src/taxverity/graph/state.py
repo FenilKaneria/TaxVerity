@@ -31,11 +31,18 @@ from taxverity.llm.conversational import Conversationalist
 from taxverity.llm.extract import ExtractionResult, FactExtractor
 from taxverity.memory.contextualize import QueryContextualizer
 from taxverity.memory.fact_state import ThreadFactState
+from taxverity.reasoning.models import (
+    AnswerPlan,
+    ConditionCheck,
+    LegalRule,
+    MissingFact,
+)
+from taxverity.reasoning.reason import Reasoner
 from taxverity.retrieval.base import Retriever
 from taxverity.retrieval.evidence import EVIDENCE_POOL, EvidencePack, EvidencePacker
-from taxverity.safety.classifier import IntentClassifier, ScopeCategory
+from taxverity.safety.classifier import Intent, IntentClassifier, ScopeCategory
 
-GRAPH_STAGE_VERSION = 6
+GRAPH_STAGE_VERSION = 9
 
 # rule 04: "a short recent-turns window (2-3 turns of text)".
 RECENT_TURNS_WINDOW = 3
@@ -136,6 +143,24 @@ class GraphState(TypedDict, total=False):
     # `query`, used for retrieval only — `query` itself still goes to
     # generation, so the model answers what the person actually asked.
     search_query: str
+    # R20 Step 20.2: separate retrieval questions for a multi-issue question
+    # (calculation, eligibility, comparison, ...). Empty for a plain
+    # single-issue question, which retrieves on `search_query` alone.
+    sub_queries: tuple[str, ...]
+    # R20 Step 20.3: what kind of in_scope question this is, so the
+    # forthcoming `reason`/`decide` nodes (20.5-20.6) know whether to run the
+    # reasoning call at all.
+    intent: Intent
+    # R20 Step 20.5: the `reason` node's deterministically validated
+    # output (`reasoning/validate.py`). Not yet consumed by any other node —
+    # `decide` (20.6) and `generate` (20.7) are the first real readers.
+    # Empty/`None` means either `reason` was skipped (intent=explanation) or
+    # nothing survived validation, and both cases mean the same thing
+    # downstream: fall back to plain generation over the pack.
+    legal_rules: tuple[LegalRule, ...]
+    applicability: tuple[ConditionCheck, ...]
+    missing_facts: tuple[MissingFact, ...]
+    answer_plan: AnswerPlan | None
     category: ScopeCategory
     fixed_response: str | None
     fact_state: ThreadFactState
@@ -173,4 +198,5 @@ class GraphDeps:
     extractor: FactExtractor
     generator: AnswerGenerator
     conversational: Conversationalist
+    reasoner: Reasoner
     pool_k: int = field(default=EVIDENCE_POOL)

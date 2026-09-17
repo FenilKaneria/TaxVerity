@@ -24,12 +24,15 @@ from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph.build import build_graph
 from taxverity.graph.nodes import (
     classify,
+    decide,
     finalize,
     generate_verify,
     load_thread,
     merge_facts,
+    reason,
     respond_conversational,
     respond_fixed,
+    retrieve,
     route_calc,
 )
 from taxverity.graph.state import (
@@ -39,11 +42,23 @@ from taxverity.graph.state import (
     GraphDeps,
     StageEvent,
 )
+from taxverity.llm.client import Completion, Usage
 from taxverity.llm.extract import ExtractionResult
 from taxverity.memory.fact_state import ThreadFactState, load_fact_state
+from taxverity.reasoning.models import (
+    AnswerPlan,
+    CheckStatus,
+    ConclusionKind,
+    Condition,
+    ConditionCheck,
+    LegalRule,
+    MissingFact,
+    ReasoningAnalysis,
+)
+from taxverity.reasoning.reason import ReasonResult
 from taxverity.retrieval.base import ScoredChunk
 from taxverity.retrieval.evidence import EvidencePacker
-from taxverity.safety.classifier import FIXED_RESPONSES, ScopeCategory
+from taxverity.safety.classifier import FIXED_RESPONSES, Intent, ScopeCategory
 from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
 from taxverity.threads.store import append_message, create_thread, list_messages
 from test_generation import GOOD, QUESTION, FakeLLM, answer
@@ -96,6 +111,7 @@ def deps(**kwargs: object) -> GraphDeps:
         extractor=Boom(),
         generator=AnswerGenerator(FakeLLM(""), CHUNKS),
         conversational=Boom(),
+        reasoner=Boom(),
     )
     base.update(kwargs)
     return GraphDeps(**base)  # type: ignore[arg-type]
@@ -216,6 +232,8 @@ def test_classify_reads_the_category_and_response_off_the_classifier():
         "category": ScopeCategory.PROHIBITED,
         "fixed_response": FIXED_RESPONSES[ScopeCategory.PROHIBITED],
         "search_query": "how do I hide income?",
+        "sub_queries": (),
+        "intent": Intent.EXPLANATION,
     }
 
 
@@ -229,6 +247,259 @@ def test_classify_uses_the_classifiers_search_query_when_it_sets_one():
     )
     result = classify({"query": "home loan tax benefit"}, deps(classifier=classifier))
     assert result["search_query"] == "interest on borrowed capital; house property"
+
+
+def test_classify_carries_the_classifiers_sub_queries():
+    classifier = SimpleNamespace(
+        classify=lambda q: SimpleNamespace(
+            category=ScopeCategory.IN_SCOPE,
+            response=None,
+            search_query=q,
+            sub_queries=("the slab rates", "the standard deduction"),
+        )
+    )
+    result = classify({"query": "what tax do I pay?"}, deps(classifier=classifier))
+    assert result["sub_queries"] == ("the slab rates", "the standard deduction")
+
+
+def test_classify_carries_the_classifiers_intent():
+    classifier = SimpleNamespace(
+        classify=lambda q: SimpleNamespace(
+            category=ScopeCategory.IN_SCOPE,
+            response=None,
+            search_query=q,
+            sub_queries=(),
+            intent=Intent.CALCULATION,
+        )
+    )
+    result = classify({"query": "what tax do I pay on 18L salary?"}, deps(classifier=classifier))
+    assert result["intent"] is Intent.CALCULATION
+
+
+def test_classify_intent_defaults_to_explanation_for_a_stub_predating_it():
+    classifier = SimpleNamespace(
+        classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None)
+    )
+    result = classify({"query": "what does section 19 say?"}, deps(classifier=classifier))
+    assert result["intent"] is Intent.EXPLANATION
+
+
+# --- retrieve (R20 Step 20.2: single search vs. per-sub-query merge) --------
+
+
+def test_retrieve_searches_once_on_search_query_when_there_are_no_sub_queries():
+    calls: list[str] = []
+
+    class FakeRetriever:
+        def search(self, query: str, k: int) -> list[ScoredChunk]:
+            calls.append(query)
+            return [ScoredChunk(chunk=CHUNKS["22"], score=1.0)]
+
+    result = retrieve(
+        {"query": "raw", "search_query": "rewritten", "sub_queries": ()},
+        deps(retriever=FakeRetriever(), packer=EvidencePacker(CHUNKS.values())),
+        writer=Recorder(),
+    )
+    assert calls == ["rewritten"]
+    assert result["trace"] == []
+    assert [unit.citation for unit in result["pack"].units] == ["22"]
+
+
+def test_retrieve_merges_and_dedupes_across_sub_queries():
+    """Round-robin by rank, first occurrence wins: issue a's and issue b's
+    own top hits both survive; issue b's second hit is issue a's own first
+    hit's sibling `23`, already carried, and is dropped as a duplicate."""
+    per_query = {
+        "issue a": [
+            ScoredChunk(chunk=CHUNKS["22(1)(a)"], score=2.0),
+            ScoredChunk(chunk=CHUNKS["23"], score=1.0),
+        ],
+        "issue b": [
+            ScoredChunk(chunk=CHUNKS["24"], score=2.0),
+            ScoredChunk(chunk=CHUNKS["23"], score=1.0),
+        ],
+    }
+
+    class FakeRetriever:
+        def search(self, query: str, k: int) -> list[ScoredChunk]:
+            return per_query[query]
+
+    result = retrieve(
+        {"query": "q", "search_query": "q", "sub_queries": ("issue a", "issue b")},
+        deps(retriever=FakeRetriever(), packer=EvidencePacker(CHUNKS.values())),
+        writer=Recorder(),
+    )
+    assert [unit.citation for unit in result["pack"].units] == ["22(1)(a)", "24", "23"]
+    assert [entry["node"] for entry in result["trace"]] == [
+        "retrieve.subquery.1",
+        "retrieve.subquery.2",
+    ]
+
+
+# --- reason (R20 Step 20.5, no DB, not yet wired into the compiled graph) ----
+
+
+class StubReasoner:
+    def __init__(self, result: ReasonResult) -> None:
+        self.result = result
+        self.calls: list[tuple] = []
+
+    def reason(self, question, pack, fact_state, computation):
+        self.calls.append((question, pack, fact_state, computation))
+        return self.result
+
+
+def reason_result(analysis: ReasoningAnalysis | None) -> ReasonResult:
+    return ReasonResult(
+        analysis=analysis,
+        completion=Completion(
+            text="",
+            provider="test",
+            model="test",
+            finish_reason="stop",
+            usage=Usage(),
+            degraded=False,
+        ),
+    )
+
+
+GOVERNING_RULE = LegalRule(
+    id="r1",
+    markers=(2,),
+    rule="The deduction is capped at Rs. 2,00,000.",
+    conditions=(Condition(id="c1", text="x", markers=(2,)),),
+)
+
+
+def test_reason_skips_explanation_questions_without_touching_the_reasoner():
+    state = {"intent": Intent.EXPLANATION, "query": "x", "pack": PACK, "fact_state": ThreadFactState()}
+    result = reason(state, deps(reasoner=Boom()))
+    assert result == {
+        "legal_rules": (),
+        "applicability": (),
+        "missing_facts": (),
+        "answer_plan": None,
+    }
+
+
+def test_reason_calls_the_reasoner_for_a_reasoning_intent():
+    stub = StubReasoner(reason_result(None))
+    state = {
+        "intent": Intent.ELIGIBILITY,
+        "query": QUESTION,
+        "pack": PACK,
+        "fact_state": ThreadFactState(),
+        "computation": None,
+    }
+    reason(state, deps(reasoner=stub))
+    assert stub.calls == [(QUESTION, PACK, ThreadFactState(), None)]
+
+
+def test_reason_falls_back_when_the_completion_does_not_parse():
+    stub = StubReasoner(reason_result(None))
+    state = {"intent": Intent.CALCULATION, "query": "x", "pack": PACK, "fact_state": ThreadFactState()}
+    result = reason(state, deps(reasoner=stub))
+    assert result["answer_plan"] is None
+    assert result["legal_rules"] == ()
+
+
+def test_reason_falls_back_when_nothing_survives_validation():
+    bad_analysis = ReasoningAnalysis(
+        legal_rules=(),
+        answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.NO_BASIS),
+    )
+    stub = StubReasoner(reason_result(bad_analysis))
+    state = {"intent": Intent.COMPARISON, "query": "x", "pack": PACK, "fact_state": ThreadFactState()}
+    result = reason(state, deps(reasoner=stub))
+    assert result["legal_rules"] == ()
+    assert result["answer_plan"] is None
+
+
+def test_reason_returns_the_validated_analysis_when_a_rule_survives():
+    analysis = ReasoningAnalysis(
+        legal_rules=(GOVERNING_RULE,),
+        applicability=(ConditionCheck(condition_id="c1", status=CheckStatus.UNKNOWN),),
+        answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
+    )
+    stub = StubReasoner(reason_result(analysis))
+    state = {"intent": Intent.MULTI_ISSUE, "query": "x", "pack": PACK, "fact_state": ThreadFactState()}
+    result = reason(state, deps(reasoner=stub))
+    assert [r.id for r in result["legal_rules"]] == ["r1"]
+    assert result["applicability"][0].status is CheckStatus.UNKNOWN
+    assert result["answer_plan"].conclusion_kind is ConclusionKind.CONDITIONAL
+
+
+# --- decide (R20 Step 20.6, no DB, not yet wired into the compiled graph) ----
+
+
+def test_decide_does_nothing_when_no_missing_facts_and_no_prior_clarify():
+    result = decide({}, deps(), writer=Recorder())
+    assert result == {"clarify_questions": ()}
+
+
+def test_decide_stays_silent_on_a_non_material_missing_fact():
+    state = {
+        "missing_facts": (
+            MissingFact(condition_id="c1", question="Are you a resident?", material=False),
+        )
+    }
+    recorder = Recorder()
+    result = decide(state, deps(), writer=recorder)
+    assert result["clarify_questions"] == ()
+    assert recorder.events == []
+
+
+def test_decide_emits_one_question_per_material_missing_fact():
+    state = {
+        "missing_facts": (
+            MissingFact(condition_id="c1", question="Are you a resident?", material=True),
+            MissingFact(condition_id="c2", question="Ignore me", material=False),
+            MissingFact(condition_id="c3", question="Do you own the house?", material=True),
+        )
+    }
+    recorder = Recorder()
+    result = decide(state, deps(), writer=recorder)
+    assert result["clarify_questions"] == ("Are you a resident?", "Do you own the house?")
+    assert recorder.events == [
+        ClarifyEvent(questions=("Are you a resident?", "Do you own the house?")).model_dump()
+    ]
+
+
+def test_decide_leaves_calculator_clarify_questions_untouched_when_nothing_new():
+    """route_calc already emitted its own ClarifyEvent for these — decide
+    must not re-announce them."""
+    state = {"clarify_questions": ("What is your salary income for the tax year?",)}
+    recorder = Recorder()
+    result = decide(state, deps(), writer=recorder)
+    assert result["clarify_questions"] == ("What is your salary income for the tax year?",)
+    assert recorder.events == []
+
+
+def test_decide_appends_reasoning_questions_to_calculator_ones():
+    state = {
+        "clarify_questions": ("What is your salary income for the tax year?",),
+        "missing_facts": (
+            MissingFact(condition_id="c1", question="Do you own the house?", material=True),
+        ),
+    }
+    recorder = Recorder()
+    result = decide(state, deps(), writer=recorder)
+    assert result["clarify_questions"] == (
+        "What is your salary income for the tax year?",
+        "Do you own the house?",
+    )
+    assert recorder.events == [ClarifyEvent(questions=("Do you own the house?",)).model_dump()]
+
+
+def test_decide_deduplicates_a_question_already_present():
+    state = {
+        "clarify_questions": ("Do you own the house?",),
+        "missing_facts": (
+            MissingFact(condition_id="c1", question="Do you own the house?", material=True),
+        ),
+    }
+    result = decide(state, deps(), writer=Recorder())
+    assert result["clarify_questions"] == ("Do you own the house?",)
 
 
 # --- generate_verify + the evidence gate (no DB) ------------------------------

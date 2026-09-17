@@ -34,6 +34,7 @@ from taxverity.facts import (
     FactIssue,
     FactStatus,
     Rejection,
+    SituationFact,
     UnmappedFact,
     UserFacts,
     parse_facts,
@@ -51,7 +52,7 @@ from taxverity.observability import get_logger, redact
 
 logger = get_logger(__name__)
 
-EXTRACTION_STAGE_VERSION = 3
+EXTRACTION_STAGE_VERSION = 4
 
 # Step 7.1: reasoning cannot be disabled and is billed against this cap, so a
 # cap sized for the visible JSON alone truncates it mid-object.
@@ -74,12 +75,14 @@ STRICT_FORMAT: dict[str, Any] = {
 OBJECT_FORMAT: dict[str, Any] = {"type": "json_object"}
 
 _SHAPE = FACTS_JSON_SCHEMA["properties"]["fields"]["description"]
+_SITUATION_SHAPE = FACTS_JSON_SCHEMA["properties"]["situation_facts"]["description"]
 
 SYSTEM_PROMPT = (
     "You read one message from a person describing their tax situation and "
     "report the facts it contains, as JSON.\n\n"
-    'Return an object with one key, "fields", holding an array. Each entry has '
-    '"name", "value", "status" and "source_span".\n\n'
+    'Return an object with two keys, "fields" and "situation_facts", each '
+    'holding an array. Each entry has "name", "value", "status" and '
+    '"source_span".\n\n'
     "Report only fields the message actually contains. Do not list a field the "
     "message says nothing about; a field you omit is recorded as missing.\n\n"
     'Use status "stated" when the person says the value outright, and copy '
@@ -91,7 +94,11 @@ SYSTEM_PROMPT = (
     "symbol, no words such as lakh. A field that can be negative takes a "
     "leading minus sign when the person describes the amount as a loss or as "
     'negative, for example "-50000".\n\n'
-    "The fields are: " + _SHAPE
+    "The fields are: " + _SHAPE + "\n\n"
+    'The "situation_facts" array: ' + _SITUATION_SHAPE + " It never carries "
+    "status \"missing\" — leave a situation fact out entirely rather than "
+    "reporting it as missing, since there is no fixed list to be exhaustive "
+    "over. If the message contains no such fact, return an empty array."
 )
 
 # An unknown field is a measurement of what the closed vocabulary misses (7.5),
@@ -152,6 +159,11 @@ class ExtractionResult:
     repairable: tuple[Rejection, ...]
     repaired: bool
     completions: tuple[Completion, ...]
+    # R20 Step 20.4: the open-vocabulary facts from the first pass only — the
+    # repair call, when it fires, is asked to fix the closed fields' rejected
+    # entries alone (see `extract()`), so a situation fact is never repaired.
+    situation_facts: tuple[SituationFact, ...] = ()
+    situation_rejections: tuple[Rejection, ...] = ()
 
     @property
     def tokens(self) -> int:
@@ -237,6 +249,8 @@ class FactExtractor:
                 repairable=repairable,
                 repaired=False,
                 completions=tuple(completions),
+                situation_facts=extraction.situation_facts,
+                situation_rejections=extraction.situation_rejections,
             )
 
         # A retry, which rule 01 logs without exception.
@@ -261,6 +275,8 @@ class FactExtractor:
             repairable=repairable,
             repaired=True,
             completions=tuple(completions),
+            situation_facts=extraction.situation_facts,
+            situation_rejections=extraction.situation_rejections,
         )
 
     def _ask(

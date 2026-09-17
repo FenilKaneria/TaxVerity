@@ -14,7 +14,7 @@ from uuid import uuid4
 import pytest
 
 from conftest import register_account
-from taxverity.facts import Fact, FactField, FactStatus, UserFacts
+from taxverity.facts import Fact, FactField, FactStatus, SituationFact, UserFacts
 from taxverity.memory.fact_state import (
     ThreadFactState,
     apply_user_edit,
@@ -227,3 +227,98 @@ def test_a_second_user_cannot_save_over_another_users_thread_facts(schema, alice
 def test_a_nonexistent_thread_is_refused_the_same_way(schema, alice):
     with pytest.raises(ThreadNotFound):
         load_fact_state(schema, alice, uuid4())
+
+
+# --- R20 Step 20.4: open-vocabulary situation facts ---------------------------
+
+
+def situation(name: str, raw: str, span: str, status: FactStatus = FactStatus.STATED) -> SituationFact:
+    return SituationFact(name=name, status=status, raw_value=raw, source_span=span)
+
+
+def test_a_fresh_situation_fact_is_recorded_with_no_override():
+    recipient = situation("rent recipient", "my mother", "pay rent to my mother")
+    state = merge_turn(
+        ThreadFactState(), UserFacts(), turn=1, situation_facts=(recipient,)
+    )
+    assert state.situation_facts() == (recipient,)
+    assert state.situation_provenance["rent recipient"] == "stated in turn 1"
+    assert state.situation_overrides == ()
+
+
+def test_a_newer_stated_situation_fact_overrides_an_older_one_and_it_is_recorded():
+    first = situation("rent recipient", "my mother", "pay rent to my mother")
+    second = situation("rent recipient", "my landlord", "actually to my landlord")
+    state = merge_turn(ThreadFactState(), UserFacts(), turn=1, situation_facts=(first,))
+    state = merge_turn(state, UserFacts(), turn=2, situation_facts=(second,))
+    assert state.situation_facts() == (second,)
+    assert len(state.situation_overrides) == 1
+    override = state.situation_overrides[0]
+    assert override.previous == first
+    assert override.new == second
+
+
+def test_situation_fact_keys_are_case_and_space_insensitive():
+    first = situation("Rent Recipient", "my mother", "pay rent to my mother")
+    second = situation("  rent recipient ", "my landlord", "actually to my landlord")
+    state = merge_turn(ThreadFactState(), UserFacts(), turn=1, situation_facts=(first,))
+    state = merge_turn(state, UserFacts(), turn=2, situation_facts=(second,))
+    assert len(state.situation) == 1
+    assert state.situation_facts() == (second,)
+
+
+def test_an_inferred_situation_fact_never_overrides_a_stated_one():
+    stated_fact = situation("rent recipient", "my mother", "pay rent to my mother")
+    guessed = situation(
+        "rent recipient", "a relative", "", status=FactStatus.INFERRED
+    )
+    state = merge_turn(
+        ThreadFactState(), UserFacts(), turn=1, situation_facts=(stated_fact,)
+    )
+    state = merge_turn(state, UserFacts(), turn=2, situation_facts=(guessed,))
+    assert state.situation_facts() == (stated_fact,)
+    assert state.situation_overrides == ()
+
+
+def test_situation_facts_never_reach_as_user_facts():
+    recipient = situation("rent recipient", "my mother", "pay rent to my mother")
+    state = merge_turn(
+        ThreadFactState(), UserFacts(), turn=1, situation_facts=(recipient,)
+    )
+    assert state.as_user_facts() == UserFacts()
+
+
+def test_situation_state_round_trips_through_json():
+    first = situation("rent recipient", "my mother", "pay rent to my mother")
+    second = situation("rent recipient", "my landlord", "actually to my landlord")
+    state = merge_turn(ThreadFactState(), UserFacts(), turn=1, situation_facts=(first,))
+    state = merge_turn(state, UserFacts(), turn=2, situation_facts=(second,))
+
+    restored = from_json(to_json(state))
+    assert restored.situation_facts() == (second,)
+    assert restored.situation_provenance["rent recipient"] == "stated in turn 2"
+    assert len(restored.situation_overrides) == 1
+    assert restored.situation_overrides[0].previous == first
+
+
+def test_a_row_saved_before_situation_facts_existed_loads_as_empty():
+    """`from_json` must not raise on a `thread_facts.facts` payload with no
+    `situation`/`situation_provenance`/`situation_overrides` keys."""
+    salary = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
+    state = merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1)
+    legacy = to_json(state)
+    del legacy["situation"], legacy["situation_provenance"], legacy["situation_overrides"]
+    restored = from_json(legacy)
+    assert restored.situation_facts() == ()
+    assert restored.get(FactField.SALARY_INCOME) == salary
+
+
+def test_situation_facts_persist_through_save_and_load(schema, alice):
+    thread = create_thread(schema, alice, "House property")
+    recipient = situation("rent recipient", "my mother", "pay rent to my mother")
+    state = merge_turn(
+        ThreadFactState(), UserFacts(), turn=1, situation_facts=(recipient,)
+    )
+    save_fact_state(schema, alice, thread.thread_id, state)
+    loaded = load_fact_state(schema, alice, thread.thread_id)
+    assert loaded.situation_facts() == (recipient,)

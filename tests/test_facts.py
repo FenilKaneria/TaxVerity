@@ -519,3 +519,104 @@ def test_a_figure_repeated_in_a_loss_clause_and_a_gain_clause_is_refused():
 def test_a_negative_figure_in_a_loss_clause_is_accepted():
     turn = "My business made a loss of 3,00,000 last year."
     assert sign_issues(turn, "business_income", "-300000", "3,00,000") == []
+
+
+# --- R20 Step 20.4: open-vocabulary situation facts --------------------------
+
+
+def situation_entry(
+    name: str = "rent recipient",
+    value: str = "my mother",
+    status: str = "stated",
+    span: str = "pay rent to my mother",
+) -> dict:
+    return {"name": name, "value": value, "status": status, "source_span": span}
+
+
+def situation_payload(*entries: dict) -> dict:
+    return {"fields": [], "situation_facts": list(entries or (situation_entry(),))}
+
+
+SITUATION_TURN = "I pay rent to my mother for a flat we both live in."
+
+
+def test_a_situation_fact_parses_alongside_the_closed_fields():
+    result = parse_facts(situation_payload(), SITUATION_TURN)
+    assert result.situation_rejections == ()
+    (fact,) = result.situation_facts
+    assert fact.name == "rent recipient"
+    assert fact.raw_value == "my mother"
+    assert fact.status is FactStatus.STATED
+    assert fact.source_span == "pay rent to my mother"
+
+
+def test_a_missing_situation_facts_key_is_simply_empty():
+    result = parse_facts({"fields": []}, SITUATION_TURN)
+    assert result.situation_facts == ()
+    assert result.situation_rejections == ()
+
+
+def test_a_stated_situation_fact_without_a_span_is_refused():
+    result = parse_facts(situation_payload(situation_entry(span="")), SITUATION_TURN)
+    assert result.situation_facts == ()
+    assert [r.issue for r in result.situation_rejections] == [FactIssue.MISSING_SPAN]
+
+
+def test_a_fabricated_situation_span_is_refused():
+    result = parse_facts(
+        situation_payload(situation_entry(span="invented words")), SITUATION_TURN
+    )
+    assert result.situation_facts == ()
+    assert [r.issue for r in result.situation_rejections] == [FactIssue.SPAN_NOT_IN_TURN]
+
+
+def test_an_inferred_situation_fact_needs_no_span():
+    result = parse_facts(
+        situation_payload(situation_entry(status="inferred", span="")), SITUATION_TURN
+    )
+    (fact,) = result.situation_facts
+    assert fact.status is FactStatus.INFERRED
+    assert fact.source_span == ""
+
+
+def test_a_profile_default_situation_status_is_refused():
+    result = parse_facts(
+        situation_payload(situation_entry(status="profile_default")), SITUATION_TURN
+    )
+    assert result.situation_facts == ()
+    assert [r.issue for r in result.situation_rejections] == [FactIssue.BAD_STATUS]
+
+
+def test_a_missing_situation_status_is_refused_there_is_no_missing_situation_fact():
+    result = parse_facts(
+        situation_payload(situation_entry(status="missing")), SITUATION_TURN
+    )
+    assert result.situation_facts == ()
+    assert [r.issue for r in result.situation_rejections] == [FactIssue.BAD_STATUS]
+
+
+def test_a_situation_fact_with_an_empty_name_or_value_is_refused():
+    result = parse_facts(situation_payload(situation_entry(name="  ")), SITUATION_TURN)
+    assert result.situation_facts == ()
+    assert [r.issue for r in result.situation_rejections] == [FactIssue.MALFORMED_ENTRY]
+
+
+def test_situation_facts_never_touch_the_closed_field_rejections():
+    """A bad situation entry must not be treated as repairable by
+    `llm/extract.py`'s closed-field repair pass."""
+    result = parse_facts(
+        situation_payload(situation_entry(span="")), SITUATION_TURN
+    )
+    assert result.rejections == ()
+    assert result.situation_rejections != ()
+
+
+def test_the_schema_requires_both_arrays():
+    assert set(FACTS_JSON_SCHEMA["required"]) == {"fields", "situation_facts"}
+
+
+def test_the_situation_schema_has_no_missing_status():
+    statuses = FACTS_JSON_SCHEMA["properties"]["situation_facts"]["items"]["properties"][
+        "status"
+    ]["enum"]
+    assert set(statuses) == {"stated", "inferred"}

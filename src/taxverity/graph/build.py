@@ -54,6 +54,7 @@ from taxverity.llm.conversational import Conversationalist
 from taxverity.llm.extract import FactExtractor
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
 from taxverity.memory.contextualize import QueryContextualizer
+from taxverity.reasoning.reason import Reasoner
 from taxverity.retrieval.bm25 import BM25Retriever
 from taxverity.retrieval.bridge import BridgedRetriever, TermBridge, load_bridge_map
 from taxverity.retrieval.citations import CitationRetriever, ShortcutRetriever
@@ -65,7 +66,7 @@ from taxverity.retrieval.rerank import CachedReranker, JinaReranker, RerankRetri
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 from taxverity.safety.evidence_gate import served_grounded_claims
 
-GRAPH_BUILD_STAGE_VERSION = 6
+GRAPH_BUILD_STAGE_VERSION = 8
 
 # R19 Phase B (ADR-120): a smaller pack than `EvidencePacker`'s own
 # `EVIDENCE_BUDGET` default (4,000) — that constant stays put so every past
@@ -155,6 +156,15 @@ def build_deps(
         extractor=FactExtractor.from_settings(settings, cache=False),
         generator=AnswerGenerator(llm, by_path),
         conversational=Conversationalist.from_settings(settings, cache=False),
+        # R20 Step 20.5: built here so `build_deps()` stays fully composed
+        # (every dependency it hands out is real, never `None`), but not
+        # yet reachable — `reason` isn't in `_NODES`/`build_graph()`'s edges
+        # until Step 20.8's graph rewire. Stays on the 120b/Gemini pair,
+        # same reasoning as `extract_facts` (ADR-118): a lower-recall
+        # reasoning pass fed into a claim the verifier still gates is
+        # exactly the kind of correctness-adjacent node rule 01's
+        # must-stay-rigorous list is cautious about, and R18 never gated it.
+        reasoner=Reasoner.from_settings(settings, cache=False),
     )
     return deps, served
 
@@ -166,17 +176,22 @@ def _timed(name: str, fn: Callable[..., dict]) -> Callable[..., dict]:
     this stays defensive rather than assuming that never changes). Timing
     only, no token counts — see `state.TraceEntry`'s docstring for why.
 
-    Returns only this node's own entry, not the accumulated list (R19 Phase
+    Returns only this node's own delta, not the accumulated list (R19 Phase
     C): `state.GraphState.trace` carries an `operator.add` reducer now, so
     LangGraph does the concatenating — `extract_facts` and `retrieve` run in
     the same superstep, and each reading+rewriting the whole list would be a
-    lost-update race."""
+    lost-update race. R20 Step 20.2: a node may already return its own
+    additive sub-stage entries under "trace" (e.g. `retrieve`'s
+    `retrieve.subquery.N`) — appended to, never overwritten by, this node's
+    own overall entry, so the trace panel gets finer-grained rows with no
+    redesign of the panel itself."""
 
     def wrapper(state: GraphState, *args: Any, **kwargs: Any) -> dict:
         start = time.perf_counter()
         result = fn(state, *args, **kwargs)
         elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
-        return {**result, "trace": [{"node": name, "ms": elapsed_ms}]}
+        sub_trace = result.get("trace") or []
+        return {**result, "trace": [*sub_trace, {"node": name, "ms": elapsed_ms}]}
 
     return wrapper
 

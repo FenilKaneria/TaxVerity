@@ -133,7 +133,7 @@ def capture():
 
 
 def test_stage_version_is_declared():
-    assert EXTRACTION_STAGE_VERSION == 3
+    assert EXTRACTION_STAGE_VERSION == 4
 
 
 def test_strict_format_names_the_facts_schema():
@@ -548,4 +548,73 @@ def test_a_positive_reaffirmed_in_a_loss_clause_is_dropped_never_accepted():
     assert len(recorder.requests) == 2
     assert result.facts.get(FactField.BUSINESS_INCOME).status is FactStatus.MISSING
     assert {r.issue for r in result.rejections} == {FactIssue.SIGN_CONTRADICTS_SPAN}
+
+
+# --- R20 Step 20.4: open-vocabulary situation facts --------------------------
+
+
+def situation_entry(
+    name: str,
+    value: str,
+    status: str = "stated",
+    span: str = "",
+) -> dict:
+    return {"name": name, "value": value, "status": status, "source_span": span}
+
+
+def payload_with_situation(*entries: dict, situation: tuple[dict, ...] = ()) -> str:
+    return json.dumps({"fields": list(entries), "situation_facts": list(situation)})
+
+
+def test_situation_facts_ride_alongside_the_closed_fields():
+    turn = "My salary is 14,00,000. I pay rent to my mother for a flat."
+    rent = situation_entry(
+        "rent recipient", "my mother", span="pay rent to my mother"
+    )
+    node, recorder = build(ok(payload_with_situation(SALARY, situation=(rent,))))
+    result = node.extract(turn)
+    assert len(recorder.requests) == 1
+    assert result.facts.get(FactField.SALARY_INCOME).value == Decimal("1400000")
+    (fact,) = result.situation_facts
+    assert fact.name == "rent recipient"
+    assert fact.raw_value == "my mother"
+
+
+def test_the_system_prompt_names_the_situation_facts_array():
+    assert "situation_facts" in SYSTEM_PROMPT
+
+
+def test_a_fabricated_situation_span_is_rejected_not_repaired():
+    """A situation-fact rejection must never trigger the closed-field repair
+    pass — that pass is keyed on `FactField`, and a repaired situation entry
+    has no field to re-attach to."""
+    turn = "My salary is 14,00,000."
+    bad = situation_entry("rent recipient", "my mother", span="invented words")
+    node, recorder = build(ok(payload_with_situation(SALARY, situation=(bad,))))
+    result = node.extract(turn)
+    assert len(recorder.requests) == 1  # no repair call fired
+    assert result.situation_facts == ()
+    assert result.situation_rejections != ()
+    assert result.rejections == ()
+
+
+def test_a_repair_does_not_touch_the_first_passs_situation_facts():
+    """The repair prompt is built from `repairable` (closed fields only), so a
+    repair triggered by a bad closed field must not drop the situation facts
+    the first pass already accepted."""
+    turn = "My salary is 14,00,000. I pay rent to my mother for a flat."
+    rent = situation_entry(
+        "rent recipient", "my mother", span="pay rent to my mother"
+    )
+    bad = entry("business_income", "not-a-number")
+    fixed = entry("business_income", "50000")
+    node, recorder = build(
+        ok(payload_with_situation(SALARY, bad, situation=(rent,))),
+        ok(payload_with_situation(fixed)),
+    )
+    result = node.extract(turn)
+    assert len(recorder.requests) == 2
+    assert result.repaired is True
+    (fact,) = result.situation_facts
+    assert fact.name == "rent recipient"
 
