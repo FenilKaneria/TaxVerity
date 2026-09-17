@@ -92,9 +92,19 @@ def test_server_runs_the_pinned_postgres_major(conn):
 
 
 def test_pinned_pgvector_release_is_available(conn):
+    """`PGVECTOR_VERSION` pins `compose.yaml`'s local Docker image (Step 6.1,
+    ADR-087) — it says nothing about a managed Postgres. `conn` resolves
+    whatever `TAXVERITY_DATABASE_URL` is currently configured to, and since
+    Step 17.1 that is routinely Supabase (ADR-111), not the local compose
+    instance; Supabase ships its own pgvector release on its own schedule
+    and this repo has no lever over it. The strict pin applies only when
+    talking to loopback."""
     row = conn.execute(
         "SELECT default_version FROM pg_available_extensions WHERE name = 'vector'"
     ).fetchone()
+    if conn.info.host not in ("127.0.0.1", "localhost"):
+        assert row is not None
+        return
     assert row == (PGVECTOR_VERSION,)
 
 

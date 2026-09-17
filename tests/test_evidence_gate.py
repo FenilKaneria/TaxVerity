@@ -82,12 +82,35 @@ def computation_event(claim_id: int = 1) -> ClaimEvent:
     return ClaimEvent(id=claim_id, type=ClaimType.COMPUTATION, text="Tax is 50000.", citations=())
 
 
+def application_event(claim_id: int = 1) -> ClaimEvent:
+    """R20 Step 20.7's `[fact]`-marked line, applying a cited rule to the
+    person's own facts — a genuine grounded statement about the Act, so it
+    must count exactly like a plain `content` claim."""
+    return ClaimEvent(
+        id=claim_id,
+        type=ClaimType.APPLICATION,
+        text="You can deduct thirty per cent of the annual value [1][fact].",
+        citations=(Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),),
+    )
+
+
+def unknown_event(claim_id: int = 1) -> ClaimEvent:
+    """Declines to conclude anything — same footing as `no_basis` and
+    `computation`, never enough to satisfy the gate on its own."""
+    return ClaimEvent(
+        id=claim_id,
+        type=ClaimType.UNKNOWN,
+        text="This can't yet be determined because the condition is unresolved [1].",
+        citations=(Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),),
+    )
+
+
 def withheld_event(claim_id: int = 1) -> WithheldEvent:
     return WithheldEvent(id=claim_id, reason="marker_not_in_evidence")
 
 
 def test_stage_version_is_declared():
-    assert EVIDENCE_GATE_STAGE_VERSION == 3
+    assert EVIDENCE_GATE_STAGE_VERSION == 4
 
 
 # --- served_grounded_claims ----------------------------------------------------
@@ -120,6 +143,23 @@ def test_zero_when_only_no_basis_claims_are_served():
 
 def test_zero_when_only_an_uncited_content_claim_is_served():
     assert served_grounded_claims([uncited_content_event(1)]) == 0
+
+
+def test_counts_a_cited_application_claim_same_as_content():
+    """Regression: `GROUNDED_CLAIM_TYPES` originally listed only `CONTENT`,
+    a gap left over from before R20 Step 20.7 added `APPLICATION`/`UNKNOWN`
+    — found while building 20.9's direct graph-path coverage for the
+    reasoning nodes. An `application` claim cites a real, verified passage
+    applied to the person's facts; treating it as ungrounded would gate a
+    genuinely answered question to "insufficient evidence" (rule 03:
+    over-refusal is a defect with equal weight as under-refusal)."""
+    assert served_grounded_claims([application_event(1)]) == 1
+
+
+def test_zero_when_only_an_unknown_claim_is_served():
+    # An `unknown` claim explicitly declines to conclude anything — same
+    # footing as `no_basis`/`computation`, never enough on its own.
+    assert served_grounded_claims([unknown_event(1)]) == 0
 
 
 # --- gate ----------------------------------------------------------------
@@ -155,6 +195,15 @@ def test_one_cited_content_claim_among_several_events_is_enough():
     pack = make_pack()
     events = [withheld_event(1), content_event(2), computation_event(3)]
     assert gate(pack, events) is None
+
+
+def test_a_non_empty_pack_with_a_served_application_claim_does_not_gate():
+    assert gate(make_pack(), [application_event()]) is None
+
+
+def test_a_non_empty_pack_with_only_an_unknown_claim_still_gates():
+    pack = make_pack()
+    assert gate(pack, [unknown_event()]) == INSUFFICIENT_EVIDENCE_MESSAGE
 
 
 def test_the_message_is_a_fixed_template_not_derived_from_the_pack():

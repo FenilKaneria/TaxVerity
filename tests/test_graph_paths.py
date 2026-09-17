@@ -15,17 +15,27 @@ import pytest
 from conftest import register_account
 from taxverity.calculator.scope import Route
 from taxverity.facts import FactField, UserFacts
-from taxverity.generation.claims import ClaimEvent
+from taxverity.generation.claims import ClaimEvent, ClaimType, WithheldEvent
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph.build import build_graph
 from taxverity.graph.nodes import RETRY_POOL
 from taxverity.llm.extract import ExtractionResult
+from taxverity.reasoning.models import (
+    AnswerPlan,
+    CheckStatus,
+    ConclusionKind,
+    Condition,
+    ConditionCheck,
+    LegalRule,
+    MissingFact,
+    ReasoningAnalysis,
+)
 from taxverity.retrieval.base import ScoredChunk
-from taxverity.safety.classifier import FIXED_RESPONSES, ScopeCategory
+from taxverity.safety.classifier import FIXED_RESPONSES, Intent, ScopeCategory
 from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
 from taxverity.threads.store import create_thread, list_messages
-from test_generation import GOOD, answer
-from test_graph_nodes import PASSWORD, FakeLLM, deps
+from test_generation import APPLICATION_LINE, GOOD, UNKNOWN_LINE, answer
+from test_graph_nodes import PASSWORD, FakeLLM, StubReasoner, deps, reason_result
 from test_scope import BASE
 from test_scope import fact as make_fact
 from test_verifier import CHUNKS, QUESTION
@@ -63,6 +73,22 @@ def _in_scope_deps(schema, **kwargs) -> object:
     )
     base.update(kwargs)
     return deps(**base)
+
+
+def _in_scope_deps_with_intent(schema, intent: Intent, **kwargs) -> object:
+    """R20 Step 20.9: like `_in_scope_deps`, but the classifier stub also
+    sets `intent`, so `reason` (20.5) actually runs on the path being
+    tested rather than skipping to `_NO_ANALYSIS` for the default
+    `Intent.EXPLANATION`."""
+    kwargs.setdefault(
+        "classifier",
+        SimpleNamespace(
+            classify=lambda q: SimpleNamespace(
+                category=ScopeCategory.IN_SCOPE, response=None, search_query=q, intent=intent
+            )
+        ),
+    )
+    return _in_scope_deps(schema, **kwargs)
 
 
 def _facts(missing: tuple[FactField, ...] = (), overrides: dict[FactField, object] | None = None):
@@ -215,7 +241,12 @@ def test_corrective_loop_rescues_a_first_pass_with_no_evidence(schema, alice, th
         schema,
         extractor=_extractor_for(),
         retriever=retriever,
-        generator=AnswerGenerator(FakeLLM(answer(RESCUABLE)), CHUNKS),
+        # First pass: generate + its one repair call, both against an empty
+        # pack, both still fail. Retry pass: generate against the wider
+        # pool grounds cleanly, no repair needed. 3 `complete()` calls.
+        generator=AnswerGenerator(
+            FakeLLM(answer(RESCUABLE), answer(RESCUABLE), answer(RESCUABLE)), CHUNKS
+        ),
     )
     result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
     assert result["retried"] is True
@@ -230,7 +261,11 @@ def test_corrective_loop_still_withholds_when_the_retry_finds_nothing(schema, al
         schema,
         extractor=_extractor_for(),
         retriever=_fixed_retriever([]),
-        generator=AnswerGenerator(FakeLLM(answer(RESCUABLE)), CHUNKS),
+        # Both passes run against an empty pack: generate + repair each
+        # time, all 4 still fail.
+        generator=AnswerGenerator(
+            FakeLLM(*([answer(RESCUABLE)] * 4)), CHUNKS
+        ),
     )
     result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
     assert result["retried"] is True
@@ -239,6 +274,195 @@ def test_corrective_loop_still_withholds_when_the_retry_finds_nothing(schema, al
     assert result["final"].searched == ()
     messages = list_messages(schema, alice, thread_id)
     assert messages[-1].content == INSUFFICIENT_EVIDENCE_MESSAGE
+
+
+# --- reasoning path (R20 Step 20.9: reason -> decide -> generate_verify) ----
+
+
+def test_reasoning_path_serves_a_grounded_application_claim(schema, alice, thread_id):
+    """A reasoning intent runs `reason`, a satisfied condition survives
+    validation, and `generate_verify` gets `analysis=` — an APPLICATION line
+    citing the same marker the condition is grounded on is served, not
+    withheld, proving `analysis` actually reached the verifier through the
+    graph (not just in the unit tests)."""
+    analysis = ReasoningAnalysis(
+        legal_rules=(
+            LegalRule(
+                id="r1",
+                markers=(1,),
+                rule="Thirty per cent of the annual value is deductible.",
+                conditions=(Condition(id="c1", text="x", markers=(1,)),),
+            ),
+        ),
+        applicability=(
+            ConditionCheck(
+                condition_id="c1", status=CheckStatus.SATISFIED, fact_refs=("salary_income",)
+            ),
+        ),
+        answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
+    )
+    stub = StubReasoner(reason_result(analysis))
+    d = _in_scope_deps_with_intent(
+        schema,
+        Intent.ELIGIBILITY,
+        extractor=_extractor_for(),
+        retriever=_fixed_retriever(PACK_RESULTS),
+        reasoner=stub,
+        generator=AnswerGenerator(FakeLLM(answer(APPLICATION_LINE)), CHUNKS),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert stub.calls  # `reason` actually ran, not skipped
+    assert [type(e) for e in result["events"]] == [ClaimEvent]
+    assert result["events"][0].type is ClaimType.APPLICATION
+
+
+def test_reasoning_path_withholds_an_application_claim_the_analysis_contradicts(schema, alice, thread_id):
+    """The mirror case: a condition the analysis marks unsatisfied gates an
+    APPLICATION claim that affirms it anyway (`UNSUPPORTED_APPLICATION`),
+    proving the gate reaches all the way through the compiled graph, not
+    only `Verifier` in isolation."""
+    analysis = ReasoningAnalysis(
+        legal_rules=(
+            LegalRule(
+                id="r1",
+                markers=(1,),
+                rule="Thirty per cent of the annual value is deductible.",
+                conditions=(Condition(id="c1", text="x", markers=(1,)),),
+            ),
+        ),
+        applicability=(
+            ConditionCheck(
+                condition_id="c1", status=CheckStatus.NOT_SATISFIED, fact_refs=("salary_income",)
+            ),
+        ),
+        answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
+    )
+    stub = StubReasoner(reason_result(analysis))
+    d = _in_scope_deps_with_intent(
+        schema,
+        Intent.ELIGIBILITY,
+        extractor=_extractor_for(),
+        retriever=_fixed_retriever(PACK_RESULTS),
+        reasoner=stub,
+        # A withheld-only pass grounds nothing (`served_grounded_claims`
+        # counts only a *served* content/application claim), so the
+        # corrective retry fires once — every one of both passes' generate
+        # + one repair call affirms the same unsupported conclusion, so all
+        # 4 still fail.
+        generator=AnswerGenerator(FakeLLM(*([answer(APPLICATION_LINE)] * 4)), CHUNKS),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert result["retried"] is True
+    assert len(stub.calls) == 1  # `reason` ran once, before the retry loop
+    assert [type(e) for e in result["events"]] == [WithheldEvent]
+    assert result["events"][0].reason == "unsupported_application"
+
+
+def test_reasoning_path_asks_a_material_missing_fact_and_serves_an_unknown_claim(
+    schema, alice, thread_id
+):
+    """`decide` (20.6) turns a material `MissingFact` into its own clarify
+    question, on top of whatever `route_calc`'s deterministic templates
+    already asked, and `generate_verify` serves the matching UNKNOWN claim
+    — end to end through the compiled graph, not just the two nodes in
+    isolation. An UNKNOWN claim never counts as grounded (same footing as
+    `no_basis`/`computation`, `evidence_gate.GROUNDED_CLAIM_TYPES`), so an
+    unknown-only pass still triggers the corrective retry and the final
+    text is still the fixed insufficient-evidence message — consistent
+    with how a computation-only pass already behaves (evidence_gate.py's
+    own docstring)."""
+    question = "Have you already used part of this cap earlier in the tax year?"
+    analysis = ReasoningAnalysis(
+        legal_rules=(
+            LegalRule(
+                id="r1",
+                markers=(2,),
+                rule="The deduction is capped at Rs. 2,00,000.",
+                conditions=(Condition(id="c1", text="x", markers=(2,)),),
+            ),
+        ),
+        applicability=(ConditionCheck(condition_id="c1", status=CheckStatus.UNKNOWN),),
+        missing_facts=(MissingFact(condition_id="c1", question=question, material=True),),
+        answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
+    )
+    stub = StubReasoner(reason_result(analysis))
+    d = _in_scope_deps_with_intent(
+        schema,
+        Intent.ELIGIBILITY,
+        extractor=_extractor_for(),
+        retriever=_fixed_retriever(PACK_RESULTS),
+        reasoner=stub,
+        # An UNKNOWN claim passes verification cleanly both times (no
+        # repair needed), but each pass still grounds nothing, so the
+        # retry fires once: 2 calls total.
+        generator=AnswerGenerator(FakeLLM(answer(UNKNOWN_LINE), answer(UNKNOWN_LINE)), CHUNKS),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert question in result["clarify_questions"]
+    assert result["retried"] is True
+    assert len(stub.calls) == 1  # `reason` ran once, before the retry loop
+    assert [type(e) for e in result["events"]] == [ClaimEvent]
+    assert result["events"][0].type is ClaimType.UNKNOWN
+    assert result["final"].text == INSUFFICIENT_EVIDENCE_MESSAGE
+
+
+def test_a_non_reasoning_intent_never_touches_the_reasoner(schema, alice, thread_id):
+    """The default `Intent.EXPLANATION` (every classifier stub elsewhere in
+    this file leaves `intent` unset) must reach `generate_verify` with no
+    analysis at all — `reason` skips the reasoner outright, proving the
+    graph wiring, not just the node in isolation, respects the intent gate."""
+    d = _in_scope_deps(
+        schema,
+        extractor=_extractor_for(),
+        retriever=_fixed_retriever(PACK_RESULTS),
+        reasoner=SimpleNamespace(reason=_boom_reason),
+        generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert result["legal_rules"] == ()
+    assert [type(e) for e in result["events"]] == [ClaimEvent]
+
+
+def _boom_reason(*_args: object, **_kwargs: object) -> None:
+    raise AssertionError("the reasoner must not be called for a non-reasoning intent")
+
+
+def test_the_corrective_retry_reuses_the_first_passs_analysis_without_re_reasoning(
+    schema, alice, thread_id
+):
+    """Step 13.5's retry only widens the evidence pack (ADR-033/PLAN 13.5);
+    it re-enters at `retrieve_retry -> generate_verify`, never back through
+    `reason`. An empty first-pass pack grounds no rule at all, so
+    `analysis` stays `None` through both passes — and the reasoner is
+    called exactly once, not twice, even though `generate_verify` runs
+    twice."""
+    analysis = ReasoningAnalysis(
+        legal_rules=(
+            LegalRule(id="r1", markers=(1,), rule="x", conditions=(Condition(id="c1", text="x"),)),
+        ),
+        answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
+    )
+    stub = StubReasoner(reason_result(analysis))
+    retriever = SimpleNamespace(
+        search=lambda query, k: (
+            [ScoredChunk(chunk=CHUNKS["23"], score=1.0)] if k == RETRY_POOL else []
+        )
+    )
+    d = _in_scope_deps_with_intent(
+        schema,
+        Intent.ELIGIBILITY,
+        extractor=_extractor_for(),
+        retriever=retriever,
+        reasoner=stub,
+        generator=AnswerGenerator(
+            FakeLLM(answer(RESCUABLE), answer(RESCUABLE), answer(RESCUABLE)), CHUNKS
+        ),
+    )
+    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    assert len(stub.calls) == 1  # `reason` ran once, off the first (empty) pack
+    assert result["legal_rules"] == ()  # marker 1 didn't exist in that empty pack
+    assert result["retried"] is True
+    assert [type(e) for e in result["events"]] == [ClaimEvent]
 
 
 # --- trace panel (R19) ------------------------------------------------------
@@ -252,7 +476,7 @@ def test_trace_accumulates_one_entry_per_node_run(schema, alice, thread_id):
         schema,
         extractor=_extractor_for(),
         retriever=_fixed_retriever([]),
-        generator=AnswerGenerator(FakeLLM(answer(RESCUABLE)), CHUNKS),
+        generator=AnswerGenerator(FakeLLM(*([answer(RESCUABLE)] * 4)), CHUNKS),
     )
     result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
     names = [entry["node"] for entry in result["trace"]]

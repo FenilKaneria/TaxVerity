@@ -14,12 +14,14 @@ calculator but does reach one small guarded LLM call
 (`llm/conversational.py`), never the generator/verifier. `in_scope` fans out
 to two nodes at once (R19 Phase C): `extract_facts` (-> `merge_facts` ->
 `route_calc`) and `retrieve` run in the same superstep, since neither reads
-the other's output, and both feed `generate_verify` — the first node that
-needs `computation` and `pack` together.
+the other's output, and both feed `reason` (R20 Step 20.8) — the first node
+that needs `computation` and `pack` together. `reason` (20.5) -> `decide`
+(20.6) -> `generate_verify` (20.7) is a straight-line chain from there: each
+has exactly one predecessor.
 `route_calc`'s `TEXT_ONLY`/`INCOMPLETE`/`COMPUTE` split (PLAN 13.3) is not a
 graph branch — it is handled inside `nodes.route_calc` by varying what
-reaches `generate_verify`, since every route still answers through the same
-generation-and-verification step.
+reaches `generate_verify` downstream, since every route still answers
+through the same generation-and-verification step.
 
 The other conditional edge is Step 13.5's minimal corrective loop (ADR-033 as
 amended by ADR-110): after `generate_verify`, `_retry_branch` sends the run
@@ -66,7 +68,7 @@ from taxverity.retrieval.rerank import CachedReranker, JinaReranker, RerankRetri
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 from taxverity.safety.evidence_gate import served_grounded_claims
 
-GRAPH_BUILD_STAGE_VERSION = 8
+GRAPH_BUILD_STAGE_VERSION = 9
 
 # R19 Phase B (ADR-120): a smaller pack than `EvidencePacker`'s own
 # `EVIDENCE_BUDGET` default (4,000) — that constant stays put so every past
@@ -87,6 +89,8 @@ _NODES = (
     "merge_facts",
     "retrieve",
     "route_calc",
+    "reason",
+    "decide",
     "generate_verify",
     "retrieve_retry",
     "finalize",
@@ -199,15 +203,18 @@ def _timed(name: str, fn: Callable[..., dict]) -> Callable[..., dict]:
 def build_graph(deps: GraphDeps) -> CompiledStateGraph:
     graph = StateGraph(GraphState)
     for name in _NODES:
-        # R19 Phase C: `generate_verify` joins two branches of unequal depth
-        # off `classify` — `retrieve` (1 hop) and `route_calc` (3 hops, via
-        # `extract_facts` -> `merge_facts`). A plain edge triggers on ANY
-        # predecessor's completion, so without `defer=True` `generate_verify`
-        # would fire the moment `retrieve` alone finished, reading a
-        # `computation` key `route_calc` had not written yet. `defer=True`
-        # is LangGraph's own primitive for "wait for every other pending
-        # task first" and is exactly the fan-in join this needs.
-        defer = name == "generate_verify"
+        # R19 Phase C / R20 Step 20.8: `reason` is now the join point for the
+        # two branches of unequal depth off `classify` — `retrieve` (1 hop)
+        # and `route_calc` (3 hops, via `extract_facts` -> `merge_facts`) —
+        # since `reason` needs both `pack` and `computation`/`fact_state`
+        # together. A plain edge triggers on ANY predecessor's completion, so
+        # without `defer=True` `reason` would fire the moment `retrieve`
+        # alone finished, reading a `computation` key `route_calc` had not
+        # written yet. `defer=True` is LangGraph's own primitive for "wait
+        # for every other pending task first" and is exactly the fan-in join
+        # this needs. `decide` and `generate_verify` each have exactly one
+        # predecessor now, so neither needs it.
+        defer = name == "reason"
         graph.add_node(name, _timed(name, partial(getattr(nodes, name), deps=deps)), defer=defer)
 
     graph.add_edge(START, "load_thread")
@@ -227,8 +234,10 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph:
     graph.add_edge("respond_conversational", "finalize")
     graph.add_edge("extract_facts", "merge_facts")
     graph.add_edge("merge_facts", "route_calc")
-    graph.add_edge("route_calc", "generate_verify")
-    graph.add_edge("retrieve", "generate_verify")
+    graph.add_edge("route_calc", "reason")
+    graph.add_edge("retrieve", "reason")
+    graph.add_edge("reason", "decide")
+    graph.add_edge("decide", "generate_verify")
     graph.add_conditional_edges(
         "generate_verify",
         _retry_branch,

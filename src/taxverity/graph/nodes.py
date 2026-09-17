@@ -45,7 +45,7 @@ from taxverity.memory.fact_state import (
     save_fact_state,
 )
 from taxverity.observability import get_logger
-from taxverity.reasoning.validate import validate
+from taxverity.reasoning.validate import ValidatedAnalysis, validate
 from taxverity.retrieval.base import ScoredChunk
 from taxverity.safety.classifier import Intent
 from taxverity.safety.evidence_gate import gate
@@ -363,12 +363,32 @@ def decide(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> 
     return {"clarify_questions": existing + new_questions}
 
 
+def _analysis_from_state(state: GraphState) -> ValidatedAnalysis | None:
+    """Step 20.8: rebuilds R20's validated reasoning output from the state
+    fields `reason` (20.5) wrote, or `None` when `reason` was skipped or
+    nothing survived validation — `AnswerGenerator.generate()` treats `None`
+    exactly like the pre-R20 path, no fallback logic needed here."""
+    legal_rules = state.get("legal_rules") or ()
+    if not legal_rules:
+        return None
+    return ValidatedAnalysis(
+        legal_rules=legal_rules,
+        applicability=state.get("applicability") or (),
+        missing_facts=state.get("missing_facts") or (),
+        answer_plan=state["answer_plan"],
+    )
+
+
 def generate_verify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
     emit = writer or get_stream_writer()
     facts = state["fact_state"].as_user_facts()
     events: list[ClaimEvent | WithheldEvent] = []
     for event in deps.generator.generate(
-        state["query"], state["pack"], facts=facts, computation=state["computation"]
+        state["query"],
+        state["pack"],
+        facts=facts,
+        computation=state["computation"],
+        analysis=_analysis_from_state(state),
     ):
         emit(event.model_dump())
         events.append(event)

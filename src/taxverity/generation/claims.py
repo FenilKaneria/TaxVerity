@@ -33,7 +33,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CLAIMS_STAGE_VERSION = 3
+CLAIMS_STAGE_VERSION = 4
 
 # "The Act does not ...", "The Act is silent on ...", "Nothing in the Act
 # ...": the one claim type carrying no citation, recognisable only by its own
@@ -41,8 +41,18 @@ CLAIMS_STAGE_VERSION = 3
 # a line by its text is this module's job.
 NO_BASIS_OPENERS = ("The Act does not", "The Act is silent on", "Nothing in the Act")
 
+# R20 Step 20.7: a line the `reason` pipeline couldn't yet decide — distinct
+# from NO_BASIS (nothing in the Act answers it at all). Must name, by citing
+# its `[n]`, the specific condition the analysis marked `unknown`.
+UNKNOWN_OPENERS = ("This can't yet be determined", "This cannot yet be determined")
+
 _HEADING = re.compile(r"^#{1,6}\s+\S")
 CALC_MARKER = "[calc]"
+# R20 Step 20.7: an APPLICATION line applies a cited rule to the person's own
+# stated/inferred facts, so its numbers may come from either — this literal
+# marker is what tells the verifier a line is doing that, the same way
+# CALC_MARKER tells it a line restates the computation.
+FACT_MARKER = "[fact]"
 MARKER = re.compile(r"\[(\d+)\]")
 
 
@@ -61,9 +71,20 @@ class ClaimType(StrEnum):
     # numeric citation. Its numbers must come from the computation, not a
     # passage.
     COMPUTATION = "computation"
+    # A line applying a cited rule to the person's own facts, marked
+    # `[fact]` alongside its `[n]` citation(s). Its numbers may come from the
+    # cited unit or from the person's stated/inferred facts — unlike CONTENT,
+    # which may never use a user figure. Gated against the reasoning
+    # analysis: it cannot state a positive conclusion when the condition it
+    # cites is `unknown`, `not_satisfied` or `ambiguous` (verifier.py).
+    APPLICATION = "application"
     # "The Act does not deal with X." Carries no citation at all — gated
     # harder for exactly that reason (see verifier.py).
     NO_BASIS = "no_basis"
+    # "This can't yet be determined because …" — unlike NO_BASIS, this cites
+    # the `[n]` of the specific condition the reasoning analysis marked
+    # `unknown` (verifier.py).
+    UNKNOWN = "unknown"
 
 
 class Citation(BaseModel):
@@ -131,14 +152,18 @@ def classify_line(text: str) -> ClaimType:
         return ClaimType.HEADING
     if text.startswith(NO_BASIS_OPENERS):
         return ClaimType.NO_BASIS
+    if text.startswith(UNKNOWN_OPENERS):
+        return ClaimType.UNKNOWN
     if CALC_MARKER in text:
         return ClaimType.COMPUTATION
+    if FACT_MARKER in text:
+        return ClaimType.APPLICATION
     return ClaimType.CONTENT
 
 
 def parse_claim(line: str) -> Claim:
     text = line.strip()
-    without_markers = MARKER.sub("", text.replace(CALC_MARKER, ""))
+    without_markers = MARKER.sub("", text.replace(CALC_MARKER, "").replace(FACT_MARKER, ""))
     if not without_markers.lstrip("#-* ").strip():
         raise MalformedClaim("no content once markers and markdown punctuation are stripped")
     return Claim(type=classify_line(text), text=text)
@@ -159,6 +184,13 @@ class LineBuffer:
         # The last line of a stream has no trailing newline (Step 7.1).
         line, self._partial = _clean(self._partial), ""
         return [line] if line else []
+
+
+def split_lines(text: str) -> list[str]:
+    """Same cleaning `iter_lines` applies to a stream, over one whole
+    completion at once — R20 Step 20.7's `generate` is non-streamed."""
+    buffer = LineBuffer()
+    return buffer.feed(text) + buffer.flush()
 
 
 def iter_lines(deltas: Iterable[str]) -> Iterator[str]:

@@ -41,6 +41,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from taxverity.calculator.scope import Computation
 from taxverity.corpus.loader import normalise
@@ -48,15 +49,25 @@ from taxverity.corpus.nodes import NodePath
 from taxverity.facts import FactStatus, UserFacts
 from taxverity.generation.claims import (
     CALC_MARKER,
+    FACT_MARKER,
     MARKER,
     NO_BASIS_OPENERS,
+    UNKNOWN_OPENERS,
     Citation,
     Claim,
     ClaimType,
 )
+from taxverity.reasoning.models import CheckStatus
 from taxverity.retrieval.evidence import EvidencePack, EvidenceUnit
 
-VERIFIER_STAGE_VERSION = 3
+# `reasoning/validate.py` imports this module (`ground_numbers`), so importing
+# `ValidatedAnalysis` here at runtime would be circular — it is used only for
+# the type hint below, which `from __future__ import annotations` (this
+# module's first import) already makes a deferred string.
+if TYPE_CHECKING:
+    from taxverity.reasoning.validate import ValidatedAnalysis
+
+VERIFIER_STAGE_VERSION = 4
 
 _CITATION_PREFIX = re.compile(r"^(?:sections?|sec\.?|s\.|u/s\.?)\s*", re.IGNORECASE)
 _SPACE_BEFORE_BRACKET = re.compile(r"\s+\(")
@@ -114,11 +125,17 @@ class Violation(StrEnum):
     MALFORMED_CLAIM = "malformed_claim"
     MALFORMED_HEADING = "malformed_heading"
     MALFORMED_NO_BASIS = "malformed_no_basis"
+    MALFORMED_UNKNOWN = "malformed_unknown"
     NO_CITATION = "no_citation"
     MARKER_NOT_IN_EVIDENCE = "marker_not_in_evidence"
     NO_COMPUTATION = "no_computation"
     UNSUPPORTED_NUMBER = "unsupported_number"
     MODAL_MISMATCH = "modal_mismatch"
+    # R20 Step 20.7: an APPLICATION line affirms a positive conclusion
+    # ("you can claim X") while the analysis has the condition it cites as
+    # `unknown`, `not_satisfied` or `ambiguous` — not a text-vs-text
+    # mismatch like MODAL_MISMATCH, a claim-vs-analysis one.
+    UNSUPPORTED_APPLICATION = "unsupported_application"
 
 
 @dataclass(frozen=True)
@@ -147,6 +164,7 @@ class Verifier:
         question: str = "",
         facts: UserFacts | None = None,
         computation: Computation | None = None,
+        analysis: ValidatedAnalysis | None = None,
     ) -> None:
         self._units: dict[int, EvidenceUnit] = dict(enumerate(pack.units, start=1))
         self._computation = computation
@@ -154,14 +172,30 @@ class Verifier:
         self._computation_numbers = (
             _computation_numbers(computation) if computation is not None else frozenset()
         )
+        # R20 Step 20.7: which condition each pack marker speaks to, and that
+        # condition's checked status — an APPLICATION or UNKNOWN claim is
+        # gated against these, never against the model's own prose.
+        self._condition_status: dict[str, CheckStatus] = {}
+        self._condition_ids_by_marker: dict[int, set[str]] = {}
+        if analysis is not None:
+            for rule in analysis.legal_rules:
+                for condition in rule.conditions:
+                    for marker in condition.markers or rule.markers:
+                        self._condition_ids_by_marker.setdefault(marker, set()).add(condition.id)
+            for check in analysis.applicability:
+                self._condition_status[check.condition_id] = check.status
 
     def verify(self, claim: Claim) -> Verdict:
         if claim.type is ClaimType.HEADING:
             return self._verify_heading(claim)
         if claim.type is ClaimType.NO_BASIS:
             return self._verify_no_basis(claim)
+        if claim.type is ClaimType.UNKNOWN:
+            return self._verify_unknown(claim)
         if claim.type is ClaimType.COMPUTATION:
             return self._verify_computation(claim)
+        if claim.type is ClaimType.APPLICATION:
+            return self._verify_application(claim)
         return self._verify_content(claim)
 
     def _verify_heading(self, claim: Claim) -> Verdict:
@@ -252,6 +286,125 @@ class Verifier:
             findings=tuple(findings),
         )
 
+    def _verify_application(self, claim: Claim) -> Verdict:
+        findings: list[Finding] = []
+        citations: list[Citation] = []
+        allowed: set[Decimal] = set(self._user_numbers)
+        markers = [int(m) for m in MARKER.findall(claim.text)]
+
+        for marker in markers:
+            unit = self._units.get(marker)
+            if unit is None:
+                findings.append(
+                    Finding(
+                        Violation.MARKER_NOT_IN_EVIDENCE,
+                        f"[{marker}] does not name any passage shown",
+                    )
+                )
+                continue
+            citations.append(Citation(marker=marker, path=unit.citation, quote=_excerpt(unit)))
+            allowed |= ground_numbers(unit)
+
+        if not markers:
+            findings.append(Finding(Violation.NO_CITATION, "cites nothing"))
+
+        text = MARKER.sub("", claim.text.replace(FACT_MARKER, ""))
+        unsupported = sorted(numbers_in(text) - allowed)
+        if unsupported:
+            findings.append(_unsupported_finding(unsupported))
+
+        cited_units = [self._units[m] for m in markers if m in self._units]
+        if cited_units and _asserts_the_opposite_of_its_source(claim.text, cited_units):
+            findings.append(
+                Finding(
+                    Violation.MODAL_MISMATCH,
+                    "the cited passage says this is not allowed, but the claim asserts it is",
+                )
+            )
+
+        if _affirms(claim.text):
+            unresolved = {
+                condition_id
+                for marker in markers
+                for condition_id in self._condition_ids_by_marker.get(marker, ())
+                if self._condition_status.get(condition_id)
+                in (CheckStatus.UNKNOWN, CheckStatus.NOT_SATISFIED, CheckStatus.AMBIGUOUS)
+            }
+            if unresolved:
+                findings.append(
+                    Finding(
+                        Violation.UNSUPPORTED_APPLICATION,
+                        "condition(s) "
+                        + ", ".join(sorted(unresolved))
+                        + " are not satisfied, so this cannot state a positive conclusion",
+                    )
+                )
+
+        return Verdict(
+            claim=claim.model_copy(update={"citations": tuple(citations)}),
+            findings=tuple(findings),
+        )
+
+    def _verify_unknown(self, claim: Claim) -> Verdict:
+        findings: list[Finding] = []
+        if not claim.text.startswith(UNKNOWN_OPENERS):
+            findings.append(
+                Finding(
+                    Violation.MALFORMED_UNKNOWN,
+                    "an unknown claim must open by naming what can't yet be determined",
+                )
+            )
+        if numbers_in(MARKER.sub("", claim.text)):
+            findings.append(Finding(Violation.MALFORMED_UNKNOWN, "an unknown claim states a number"))
+
+        markers = [int(m) for m in MARKER.findall(claim.text)]
+        citations: list[Citation] = []
+        names_unknown_condition = False
+        for marker in markers:
+            unit = self._units.get(marker)
+            if unit is None:
+                findings.append(
+                    Finding(
+                        Violation.MARKER_NOT_IN_EVIDENCE,
+                        f"[{marker}] does not name any passage shown",
+                    )
+                )
+                continue
+            citations.append(Citation(marker=marker, path=unit.citation, quote=_excerpt(unit)))
+            if any(
+                self._condition_status.get(condition_id) is CheckStatus.UNKNOWN
+                for condition_id in self._condition_ids_by_marker.get(marker, ())
+            ):
+                names_unknown_condition = True
+
+        if not markers:
+            findings.append(
+                Finding(
+                    Violation.MALFORMED_UNKNOWN,
+                    "an unknown claim must cite the condition it can't yet determine",
+                )
+            )
+        elif not names_unknown_condition:
+            findings.append(
+                Finding(
+                    Violation.MALFORMED_UNKNOWN,
+                    "no cited passage names a condition the analysis marked unknown",
+                )
+            )
+
+        return Verdict(
+            claim=claim.model_copy(update={"citations": tuple(citations)}),
+            findings=tuple(findings),
+        )
+
+
+def _affirms(text: str) -> bool:
+    """An affirmative modal with no negative one alongside it — shared by the
+    content/application modal-mismatch check and the application-vs-analysis
+    check, so a line reading e.g. "you can claim X, but not Y" is not
+    mistaken for a bare affirmation."""
+    return bool(_AFFIRMATIVE_MODAL.search(text)) and not _NEGATIVE_MODAL.search(text)
+
 
 def _unsupported_finding(unsupported: list[Decimal]) -> Finding:
     return Finding(
@@ -281,7 +434,7 @@ def _asserts_the_opposite_of_its_source(text: str, units: list[EvidenceUnit]) ->
     """One-directional: a claim affirming what a cited passage denies. See
     this module's docstring for why the reverse (an overly cautious claim)
     is not gated."""
-    if not (_AFFIRMATIVE_MODAL.search(text) and not _NEGATIVE_MODAL.search(text)):
+    if not _affirms(text):
         return False
     for unit in units:
         source = unit.chunk.text

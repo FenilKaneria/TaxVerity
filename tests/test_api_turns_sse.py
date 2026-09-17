@@ -156,7 +156,7 @@ def test_event_order_is_stage_then_claims_then_final(schema, access_tokens, alic
 
 def test_no_claim_event_ever_carries_verified_false(schema, access_tokens, alice, thread_id):
     generator = AnswerGenerator(
-        FakeLLM(answer(GOOD, FABRICATED)), CHUNKS
+        FakeLLM(answer(GOOD, FABRICATED), answer(FABRICATED)), CHUNKS
     )
     client = _client(schema, access_tokens, generator)
     response = client.post(
@@ -174,7 +174,7 @@ def test_fault_injection_withholds_the_bad_claim_and_keeps_the_good_one_intact(
     schema, access_tokens, alice, thread_id
 ):
     generator = AnswerGenerator(
-        FakeLLM(answer(GOOD, FABRICATED)), CHUNKS
+        FakeLLM(answer(GOOD, FABRICATED), answer(FABRICATED)), CHUNKS
     )
     client = _client(schema, access_tokens, generator)
     response = client.post(

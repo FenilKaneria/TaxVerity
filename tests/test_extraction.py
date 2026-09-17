@@ -483,7 +483,12 @@ def test_from_settings_builds_the_phase_7_stack(tmp_path):
 
 
 def test_an_unconfigured_process_traces_nothing(tmp_path):
-    settings = Settings(groq_api_key=KEY, data_dir=tmp_path)
+    # `_env_file=None` is required here, not optional (test_llm_tracing.py's
+    # own pattern for this exact case) — without it, a real `.env` carrying
+    # live Langfuse keys leaks through for every field this call doesn't
+    # override, and "unconfigured" silently becomes "configured from
+    # whatever happens to be on disk."
+    settings = Settings(_env_file=None, groq_api_key=KEY, data_dir=tmp_path)
     node = FactExtractor.from_settings(settings)
     assert isinstance(node._client._tracer, NullTracer)
 

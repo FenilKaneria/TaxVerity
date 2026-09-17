@@ -92,7 +92,10 @@ def test_no_claim_event_ever_carries_verified_false(schema, alice, thread_id):
     """Structural per rule 04 (`ClaimEvent.verified: Literal[True]`), checked
     here against what actually crosses the wire, including a withheld claim
     alongside a served one."""
-    d = _streaming_deps(schema, AnswerGenerator(FakeLLM(answer(GOOD, FABRICATED)), CHUNKS))
+    d = _streaming_deps(
+        schema,
+        AnswerGenerator(FakeLLM(answer(GOOD, FABRICATED), answer(FABRICATED)), CHUNKS),
+    )
     emitted = _stream(d, alice, thread_id)
     claims = [e for e in emitted if "verified" in e]
     assert claims  # the fixture must actually exercise a claim event
@@ -106,7 +109,10 @@ def test_fault_injection_withholds_the_bad_claim_and_keeps_the_good_one_intact(
     FABRICATED cites marker [99] — nothing is packed at that position (only
     2 units are packed here) — so it is withheld, and GOOD's already-released
     event is untouched by the failure that comes after it."""
-    d = _streaming_deps(schema, AnswerGenerator(FakeLLM(answer(GOOD, FABRICATED)), CHUNKS))
+    d = _streaming_deps(
+        schema,
+        AnswerGenerator(FakeLLM(answer(GOOD, FABRICATED), answer(FABRICATED)), CHUNKS),
+    )
     emitted = _stream(d, alice, thread_id)
 
     claim_events = [e for e in emitted if "verified" in e]

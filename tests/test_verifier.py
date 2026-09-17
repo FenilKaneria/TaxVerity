@@ -19,6 +19,15 @@ from taxverity.generation.verifier import (
     canonical_path,
     numbers_in,
 )
+from taxverity.reasoning.models import (
+    AnswerPlan,
+    CheckStatus,
+    ConclusionKind,
+    Condition,
+    ConditionCheck,
+    LegalRule,
+)
+from taxverity.reasoning.validate import ValidatedAnalysis
 from taxverity.retrieval.base import ScoredChunk
 from taxverity.retrieval.evidence import EvidencePacker
 
@@ -108,6 +117,40 @@ def no_basis(text: str) -> Claim:
 
 def computation_claim(text: str) -> Claim:
     return Claim(type=ClaimType.COMPUTATION, text=text)
+
+
+def application(text: str) -> Claim:
+    return Claim(type=ClaimType.APPLICATION, text=text)
+
+
+def unknown(text: str) -> Claim:
+    return Claim(type=ClaimType.UNKNOWN, text=text)
+
+
+# c1's condition sits on rule marker [1] (22(1)), satisfied; c2's on [2]
+# (24), unknown — R20 Step 20.7's fixture for APPLICATION/UNKNOWN claims.
+ANALYSIS = ValidatedAnalysis(
+    legal_rules=(
+        LegalRule(
+            id="r1",
+            markers=(1,),
+            rule="Thirty per cent of the annual value is deducted.",
+            conditions=(Condition(id="c1", text="The property is let out.", markers=()),),
+        ),
+        LegalRule(
+            id="r2",
+            markers=(2,),
+            rule="The deduction shall not exceed Rs. 2,00,000 in a tax year.",
+            conditions=(Condition(id="c2", text="The claim exceeds the cap.", markers=()),),
+        ),
+    ),
+    applicability=(
+        ConditionCheck(condition_id="c1", status=CheckStatus.SATISFIED, fact_refs=("salary_income",)),
+        ConditionCheck(condition_id="c2", status=CheckStatus.UNKNOWN),
+    ),
+    missing_facts=(),
+    answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
+)
 
 
 def violations(claim: Claim, **kwargs) -> set[Violation]:
@@ -321,6 +364,80 @@ def test_a_no_basis_claim_with_the_wrong_opener_is_malformed():
 def test_a_no_basis_claim_stating_a_number_is_unsupported():
     claim = no_basis("The Act does not deal with gifts of 500 acres.")
     assert Violation.MALFORMED_NO_BASIS in violations(claim)
+
+
+# --- application claims (R20 Step 20.7) -------------------------------------------
+
+
+def test_an_application_claim_grounded_by_a_satisfied_condition_passes():
+    claim = application("You can deduct thirty per cent of the annual value [1][fact].")
+    assert violations(claim, analysis=ANALYSIS) == set()
+
+
+def test_an_application_claim_may_use_a_stated_fact():
+    claim = application("Against your salary of 14,00,000, you can deduct this [1][fact].")
+    assert violations(claim, analysis=ANALYSIS) == set()
+
+
+def test_an_application_claim_with_no_citation_is_uncited():
+    assert Violation.NO_CITATION in violations(application("You qualify [fact]."), analysis=ANALYSIS)
+
+
+def test_an_application_claim_against_an_unknown_condition_is_caught():
+    # This is the HRA-to-mother shape: an affirmative conclusion resting on
+    # a condition the analysis could not check.
+    claim = application("You are entitled to deduct up to 2 lakh [2][fact].")
+    assert Violation.UNSUPPORTED_APPLICATION in violations(claim, analysis=ANALYSIS)
+
+
+def test_an_application_claim_with_no_affirmative_modal_is_not_flagged():
+    # No affirmative modal ("you can", "is allowed", ...) at all, so the
+    # check never fires even against an unknown condition — the same
+    # one-directional, safer-failure-mode design as MODAL_MISMATCH.
+    claim = application("This deduction depends on facts not yet known, up to 2 lakh [2][fact].")
+    assert Violation.UNSUPPORTED_APPLICATION not in violations(claim, analysis=ANALYSIS)
+
+
+def test_an_application_claim_with_no_analysis_skips_the_condition_check():
+    claim = application("You can deduct thirty per cent [1][fact].")
+    assert violations(claim) == set()
+
+
+def test_an_application_claim_still_needs_a_grounded_number():
+    claim = application("You can deduct forty per cent [1][fact].")
+    assert Violation.UNSUPPORTED_NUMBER in violations(claim, analysis=ANALYSIS)
+
+
+# --- unknown claims (R20 Step 20.7) -------------------------------------------------
+
+
+def test_an_unknown_claim_naming_a_genuinely_unknown_condition_passes():
+    claim = unknown("This can't yet be determined because the cap may already be used [2].")
+    assert violations(claim, analysis=ANALYSIS) == set()
+
+
+def test_an_unknown_claim_with_the_wrong_opener_is_malformed():
+    assert Violation.MALFORMED_UNKNOWN in violations(
+        unknown("We don't know yet [2]."), analysis=ANALYSIS
+    )
+
+
+def test_an_unknown_claim_with_no_citation_is_malformed():
+    assert Violation.MALFORMED_UNKNOWN in violations(
+        unknown("This can't yet be determined because more is needed."), analysis=ANALYSIS
+    )
+
+
+def test_an_unknown_claim_stating_a_number_is_malformed():
+    claim = unknown("This can't yet be determined because the cap is 2 lakh [2].")
+    assert Violation.MALFORMED_UNKNOWN in violations(claim, analysis=ANALYSIS)
+
+
+def test_an_unknown_claim_against_a_satisfied_condition_is_malformed():
+    # [1] is c1, and c1 is satisfied, not unknown — this claim is fabricating
+    # uncertainty that the analysis does not have.
+    claim = unknown("This can't yet be determined because it isn't clear [1].")
+    assert Violation.MALFORMED_UNKNOWN in violations(claim, analysis=ANALYSIS)
 
 
 # --- helpers -----------------------------------------------------------------------
