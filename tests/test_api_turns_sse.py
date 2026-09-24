@@ -61,7 +61,7 @@ def _static_deps(generator):
             classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior: SimpleNamespace(
+            contextualize=lambda q, prior, **_: SimpleNamespace(
                 query=q, rewritten=False, completion=None
             )
         ),

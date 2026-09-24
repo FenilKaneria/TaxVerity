@@ -213,3 +213,34 @@ def test_the_recent_turns_window_is_what_the_rewrite_prompt_carries(schema):
     user_message = body["messages"][1]["content"]
     assert "self-occupied property" in user_message
     assert "Rs. 2,00,000" in user_message
+
+
+# --- R21: follow-ups that name no pronoun, and the previous answer ------------
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Give some examples about the loss",
+        "Explain in simple terms and not legally heavy language",
+        "Can you elaborate on the carry forward part?",
+    ],
+)
+def test_a_style_or_elaboration_follow_up_needs_a_rewrite(query):
+    assert needs_contextualization(query, ["a prior turn"]) is True
+
+
+def test_the_previous_answer_reaches_the_rewrite_prompt_bounded():
+    contextualizer, recorder = build(ok("Give examples of setting off a house-property loss."))
+    long_answer = "Loss from house property can be set off against salary. " + "x" * 2_000
+    contextualizer.contextualize(
+        "Give some examples about the loss",
+        ["Set off house-property loss against salary"],
+        previous_answer=long_answer,
+    )
+    (body,) = recorder.bodies
+    user_message = body["messages"][1]["content"]
+    assert "Previous answer:\nLoss from house property can be set off" in user_message
+    assert len(user_message) < 1_000
+    # The previous answer is data in the user role, never the system role.
+    assert body["messages"][0] == {"role": "system", "content": SYSTEM_PROMPT}

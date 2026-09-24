@@ -49,6 +49,7 @@ from taxverity.corpus.nodes import NodePath
 from taxverity.facts import FactStatus, UserFacts
 from taxverity.generation.claims import (
     CALC_MARKER,
+    EXAMPLE_OPENERS,
     FACT_MARKER,
     MARKER,
     NO_BASIS_OPENERS,
@@ -56,6 +57,8 @@ from taxverity.generation.claims import (
     Citation,
     Claim,
     ClaimType,
+    line_body,
+    strip_non_citation_markers,
 )
 from taxverity.reasoning.models import CheckStatus
 from taxverity.retrieval.evidence import EvidencePack, EvidenceUnit
@@ -67,7 +70,7 @@ from taxverity.retrieval.evidence import EvidencePack, EvidenceUnit
 if TYPE_CHECKING:
     from taxverity.reasoning.validate import ValidatedAnalysis
 
-VERIFIER_STAGE_VERSION = 4
+VERIFIER_STAGE_VERSION = 5
 
 _CITATION_PREFIX = re.compile(r"^(?:sections?|sec\.?|s\.|u/s\.?)\s*", re.IGNORECASE)
 _SPACE_BEFORE_BRACKET = re.compile(r"\s+\(")
@@ -120,6 +123,47 @@ _AFFIRMATIVE_MODAL = re.compile(
     re.IGNORECASE,
 )
 
+# R21 (ADR-127) — the EXAMPLE line's "can't invent law" guard. A figure in a
+# legal position (right after a limit/rate word or a provision name, or any
+# percentage) states the law, never a hypothetical, so it must ground in the
+# cited passage however the line frames it.
+_LEGAL_KEYWORD = re.compile(
+    r"\b(?:up\s*to|upto|limit\w*|maximum|max\.|cap(?:ped)?|at\s+most|not\s+exceeding|"
+    r"exceed\w*|threshold|rates?|slab|sections?|sub-sections?|clauses?|schedule|rules?|"
+    r"paragraph)\b",
+    re.IGNORECASE,
+)
+# A clause ends at `.`/`;`/`,` followed by space or end — never at the commas
+# inside "2,00,000".
+_CLAUSE_END = re.compile(r"[.;,](?=\s|$)")
+_PERCENT = re.compile(
+    r"(?P<digits>\d+(?:\.\d+)?)\s*(?:%|per\s*cent\b|percent\b)"
+    r"|(?P<words>(?:[a-z]+[\s-]){1,3})per\s*cent\b",
+    re.IGNORECASE,
+)
+# The premise — "Suppose your loss is ₹3,00,000 and your salary ₹12,00,000" —
+# runs from the opener to the first sentence break, "then", or a comma that
+# hands over to the consequence ("…, you can…"). Figures stated there are the
+# example's own inputs. A premise that itself says what is *allowed* ("Suppose
+# you can set off ₹5,00,000") is stating law, so it grounds nothing.
+_OPENER_PREFIX = re.compile(
+    r"^(?:for example|for instance|e\.g\.|say|suppose|imagine)[,:]?\s*(?:(?:suppose|say|imagine|if)\b,?\s*)?",
+    re.IGNORECASE,
+)
+_PREMISE_END = re.compile(
+    r"[.;:—](?=\s|$)|\bthen\b|,\s*(?=(?:you|so|this|that|which|it|only|the)\b)",
+    re.IGNORECASE,
+)
+_PERMISSION = re.compile(
+    r"\b(?:can|could|may|allowed|entitled|permitted|eligible)\b", re.IGNORECASE
+)
+_OPERAND = r"(?:₹\s*|Rs\.?\s*|INR\s*)?\d[\d,]*(?:\.\d+)?(?:\s*(?:lakhs?|crores?))?(?:\s*%)?"
+_OPERATOR = r"\s*(?:[+\-−–×*/÷]|\sx\s)\s*"
+_EQUATION = re.compile(rf"(?P<lhs>{_OPERAND}(?:{_OPERATOR}{_OPERAND})+)\s*=\s*(?P<rhs>{_OPERAND})")
+_OPERAND_OR_OPERATOR = re.compile(rf"(?P<operand>{_OPERAND})|(?P<op>[+\-−–×*/÷]|(?<=\s)x(?=\s))")
+_EXAMPLE_BULLET = re.compile(r"^[-*•\s]+")
+_NIL = re.compile(r"\bnil\b", re.IGNORECASE)
+
 
 class Violation(StrEnum):
     MALFORMED_CLAIM = "malformed_claim"
@@ -136,6 +180,12 @@ class Violation(StrEnum):
     # `unknown`, `not_satisfied` or `ambiguous` — not a text-vs-text
     # mismatch like MODAL_MISMATCH, a claim-vs-analysis one.
     UNSUPPORTED_APPLICATION = "unsupported_application"
+    # R21 (ADR-127): EXAMPLE-line checks.
+    MALFORMED_EXAMPLE = "malformed_example"
+    # A rate, limit, threshold or provision number no cited passage states —
+    # the one thing an illustration may never do.
+    INVENTED_LAW = "invented_law"
+    BAD_ARITHMETIC = "bad_arithmetic"
 
 
 @dataclass(frozen=True)
@@ -167,6 +217,15 @@ class Verifier:
         analysis: ValidatedAnalysis | None = None,
     ) -> None:
         self._units: dict[int, EvidenceUnit] = dict(enumerate(pack.units, start=1))
+        self.pack_size = len(pack.units)
+        self.has_computation = computation is not None
+        # R21 Part B: section number -> pack positions, for the generator's
+        # deterministic "[408] means the passage of section 408" rewrite.
+        sections: dict[str, list[int]] = {}
+        for number, unit in self._units.items():
+            if unit.chunk.section_number is not None:
+                sections.setdefault(unit.chunk.section_number, []).append(number)
+        self.section_markers = {k: tuple(v) for k, v in sections.items()}
         self._computation = computation
         self._user_numbers = numbers_in(question) | _fact_numbers(facts)
         self._computation_numbers = (
@@ -196,7 +255,119 @@ class Verifier:
             return self._verify_computation(claim)
         if claim.type is ClaimType.APPLICATION:
             return self._verify_application(claim)
+        if claim.type is ClaimType.EXAMPLE:
+            return self._verify_example(claim)
         return self._verify_content(claim)
+
+    def _verify_example(self, claim: Claim) -> Verdict:
+        """R21 (ADR-127): the model may illustrate, never invent law.
+
+        - It must open with a fixed hypothetical phrase and cite the rule it
+          illustrates.
+        - Any figure in a legal position (after a limit/rate word or a
+          provision name, or a percentage) must ground in a cited passage.
+        - Figures in the premise ("Suppose your loss is ₹3,00,000") are the
+          example's own inputs and need no source.
+        - Any other figure is either grounded in a cited passage or the
+          result of an equation the line shows and that adds up.
+        """
+        findings: list[Finding] = []
+        citations: list[Citation] = []
+        allowed: set[Decimal] = set()
+        markers = [int(m) for m in MARKER.findall(claim.text)]
+
+        for marker in markers:
+            unit = self._units.get(marker)
+            if unit is None:
+                findings.append(
+                    Finding(
+                        Violation.MARKER_NOT_IN_EVIDENCE,
+                        f"[{marker}] does not name any passage shown",
+                    )
+                )
+                continue
+            citations.append(Citation(marker=marker, path=unit.citation, quote=_excerpt(unit)))
+            allowed |= ground_numbers(unit)
+        if not markers:
+            findings.append(Finding(Violation.NO_CITATION, "cites nothing"))
+
+        body = normalise(
+            _EXAMPLE_BULLET.sub("", MARKER.sub("", strip_non_citation_markers(claim.text)))
+        ).strip()
+        if not body.startswith(EXAMPLE_OPENERS):
+            findings.append(
+                Finding(
+                    Violation.MALFORMED_EXAMPLE,
+                    'an example must open with "For example" or "Suppose"',
+                )
+            )
+
+        invented = sorted(_legal_numbers(body) - allowed)
+        if invented:
+            findings.append(
+                Finding(
+                    Violation.INVENTED_LAW,
+                    "states a rate, limit or provision no cited passage gives: "
+                    + ", ".join(str(n) for n in invented),
+                )
+            )
+
+        opener = _OPENER_PREFIX.match(body)
+        premise_start = opener.end() if opener else 0
+        end = _PREMISE_END.search(body, premise_start)
+        premise_end = end.start() if end else len(body)
+        results: set[Decimal] = set()
+        equations = list(_EQUATION.finditer(body))
+        premise = _mask(body, equations)[:premise_end]
+        if _PERMISSION.search(premise):
+            # The "premise" states law, so its figures are checked like any
+            # other rather than accepted as the example's own inputs.
+            hypothetical: frozenset[Decimal] = frozenset()
+            premise_end = 0
+        else:
+            hypothetical = numbers_in(premise) - _legal_numbers(body)
+        for equation in equations:
+            evaluated = _evaluate(equation.group("lhs"))
+            stated = _operand_value(equation.group("rhs"))
+            if evaluated is None or stated is None or abs(evaluated - stated) > 1:
+                findings.append(
+                    Finding(Violation.BAD_ARITHMETIC, f'"{equation.group(0)}" does not add up')
+                )
+                continue
+            operands = numbers_in(equation.group("lhs"))
+            unsourced = sorted(operands - allowed - hypothetical - results)
+            if unsourced:
+                findings.append(_unsupported_finding(unsourced))
+            results.add(stated.normalize())
+        masked = _mask(body, equations)
+
+        known = allowed | hypothetical | results
+        derived = sorted(
+            n
+            for n in numbers_in(masked[premise_end:]) - known
+            if not _is_sum_or_difference(n, known)
+        )
+        if derived:
+            findings.append(
+                Finding(
+                    Violation.UNSUPPORTED_NUMBER,
+                    "no source or shown working for " + ", ".join(str(n) for n in derived),
+                )
+            )
+
+        cited_units = [self._units[m] for m in markers if m in self._units]
+        if cited_units and _asserts_the_opposite_of_its_source(claim.text, cited_units):
+            findings.append(
+                Finding(
+                    Violation.MODAL_MISMATCH,
+                    "the cited passage says this is not allowed, but the example asserts it is",
+                )
+            )
+
+        return Verdict(
+            claim=claim.model_copy(update={"citations": tuple(citations)}),
+            findings=tuple(findings),
+        )
 
     def _verify_heading(self, claim: Claim) -> Verdict:
         findings = []
@@ -216,7 +387,7 @@ class Verifier:
             findings.append(
                 Finding(Violation.MALFORMED_NO_BASIS, "a no_basis claim states a number")
             )
-        if not claim.text.startswith(NO_BASIS_OPENERS):
+        if not line_body(claim.text).startswith(NO_BASIS_OPENERS):
             findings.append(
                 Finding(
                     Violation.MALFORMED_NO_BASIS,
@@ -347,7 +518,7 @@ class Verifier:
 
     def _verify_unknown(self, claim: Claim) -> Verdict:
         findings: list[Finding] = []
-        if not claim.text.startswith(UNKNOWN_OPENERS):
+        if not line_body(claim.text).startswith(UNKNOWN_OPENERS):
             findings.append(
                 Finding(
                     Violation.MALFORMED_UNKNOWN,
@@ -406,6 +577,90 @@ def _affirms(text: str) -> bool:
     return bool(_AFFIRMATIVE_MODAL.search(text)) and not _NEGATIVE_MODAL.search(text)
 
 
+def _legal_numbers(text: str) -> frozenset[Decimal]:
+    """Figures a text states *as law*: whatever follows a limit/rate word or a
+    provision name within its own clause, and every percentage."""
+    numbers: set[Decimal] = set()
+    for keyword in _LEGAL_KEYWORD.finditer(text):
+        tail = text[keyword.end() : keyword.end() + 40]
+        clause_end = _CLAUSE_END.search(tail)
+        numbers |= numbers_in(tail[: clause_end.start()] if clause_end else tail)
+    for percent in _PERCENT.finditer(text):
+        numbers |= numbers_in(percent.group("digits") or percent.group("words"))
+    return frozenset(numbers)
+
+
+def _is_sum_or_difference(value: Decimal, known: set[Decimal]) -> bool:
+    """A figure the example worked out in its head ("the remaining ₹1,00,000"):
+    accepted only if it is exactly a + b or a − b of two figures the line
+    already carries — checked arithmetic, never a new legal number."""
+    return any(a + b == value or a - b == value for a in known for b in known if a is not b)
+
+
+def _mask(text: str, spans: list[re.Match[str]]) -> str:
+    """Blank out equation spans, keeping every other offset unchanged."""
+    chars = list(text)
+    for span in spans:
+        chars[span.start() : span.end()] = " " * (span.end() - span.start())
+    return "".join(chars)
+
+
+def _operand_value(raw: str) -> Decimal | None:
+    text = re.sub(r"^(?:₹|Rs\.?|INR)\s*", "", raw.strip(), flags=re.IGNORECASE)
+    percent = text.endswith("%")
+    text = text.rstrip("% ").strip()
+    match = re.fullmatch(r"(\d[\d,]*(?:\.\d+)?)\s*(lakhs?|crores?)?", text, re.IGNORECASE)
+    if match is None:
+        return None
+    try:
+        value = Decimal(match.group(1).replace(",", ""))
+    except InvalidOperation:
+        return None
+    if match.group(2):
+        value *= _MULTIPLIERS[match.group(2).lower().rstrip("s")]
+    return value / 100 if percent else value
+
+
+def _evaluate(expression: str) -> Decimal | None:
+    """`a ± b`, `a × b%` and mixes of them, multiplication and division first.
+    Anything it can't parse is None — an unreadable equation is a failed one."""
+    values: list[Decimal] = []
+    operators: list[str] = []
+    expect_operand = True
+    for token in _OPERAND_OR_OPERATOR.finditer(expression):
+        if expect_operand:
+            if token.group("operand") is None:
+                return None
+            value = _operand_value(token.group("operand"))
+            if value is None:
+                return None
+            values.append(value)
+        else:
+            if token.group("op") is None:
+                return None
+            operators.append(token.group("op"))
+        expect_operand = not expect_operand
+    if expect_operand or not operators:
+        return None
+
+    terms = [values[0]]
+    signs: list[str] = []
+    for op, value in zip(operators, values[1:], strict=True):
+        if op in ("×", "*", "x"):
+            terms[-1] *= value
+        elif op in ("/", "÷"):
+            if value == 0:
+                return None
+            terms[-1] /= value
+        else:
+            signs.append(op)
+            terms.append(value)
+    total = terms[0]
+    for sign, term in zip(signs, terms[1:], strict=True):
+        total = total + term if sign == "+" else total - term
+    return total
+
+
 def _unsupported_finding(unsupported: list[Decimal]) -> Finding:
     return Finding(
         Violation.UNSUPPORTED_NUMBER,
@@ -427,6 +682,10 @@ def ground_numbers(unit: EvidenceUnit) -> frozenset[Decimal]:
     numbers = numbers_in(unit.chunk.text) | numbers_in(unit.citation)
     for line in unit.context:
         numbers |= numbers_in(line.text)
+    # R21 Part B: the Act prints a zero rate as "Nil" (section 202(1)'s first
+    # slab), so a passage saying "Nil" grounds 0 — and only such a passage.
+    if _NIL.search(unit.chunk.text) or any(_NIL.search(line.text) for line in unit.context):
+        numbers |= {Decimal(0)}
     return numbers
 
 

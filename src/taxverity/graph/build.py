@@ -68,7 +68,7 @@ from taxverity.retrieval.rerank import CachedReranker, JinaReranker, RerankRetri
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 from taxverity.safety.evidence_gate import served_grounded_claims
 
-GRAPH_BUILD_STAGE_VERSION = 9
+GRAPH_BUILD_STAGE_VERSION = 10
 
 # R19 Phase B (ADR-120): a smaller pack than `EvidencePacker`'s own
 # `EVIDENCE_BUDGET` default (4,000) — that constant stays put so every past
@@ -78,6 +78,11 @@ GRAPH_BUILD_STAGE_VERSION = 9
 # reliably (marker numbers, not verbatim quotes, per University Assistant's
 # top-5-small-passages approach — see PLAN's R19 note).
 PRODUCTION_EVIDENCE_BUDGET = 2_500
+
+# R21 Part B: measured query-embed p95 is ~416 ms (reports/dense_measurement.md);
+# 5 s leaves room for the one-off probe-fingerprint batch on a cold process.
+QUERY_EMBED_TIMEOUT = 5.0
+QUERY_EMBED_ATTEMPTS = 2
 
 _NODES = (
     "load_thread",
@@ -122,7 +127,13 @@ def build_deps(
     chunks = load_chunks_from_db(conn, served.corpus_version)
 
     bm25 = BM25Retriever(chunks)
-    dense = PgVectorIndex(conn, embedding_set_id, JinaAPIEmbedder.from_settings(settings))
+    # R21 Part B: the query path must fail fast, not after the offline batch
+    # defaults (120 s x 6 attempts) — a dense failure degrades to BM25 + the
+    # citation shortcut (ADR-075), which is far better than a stalled turn.
+    query_embedder = JinaAPIEmbedder.from_settings(
+        settings, timeout=QUERY_EMBED_TIMEOUT, max_attempts=QUERY_EMBED_ATTEMPTS
+    )
+    dense = PgVectorIndex(conn, embedding_set_id, query_embedder)
     fusion = FallbackRetriever(FusionRetriever([dense, bm25]), bm25)
     bridge = TermBridge(load_bridge_map(), chunks)
     reranker = CachedReranker(JinaReranker.from_settings(settings))

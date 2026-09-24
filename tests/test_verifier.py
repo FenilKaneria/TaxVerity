@@ -480,3 +480,112 @@ def test_a_bare_one_or_zero_is_not_read_as_a_figure():
     assert numbers_in("one such condition applies") == frozenset()
     assert numbers_in("zero tolerance for late filing") == frozenset()
     assert numbers_in("one lakh rupees") == {Decimal("100000")}
+
+
+# --- R21 (ADR-127): EXAMPLE lines — may illustrate, may never invent law ------
+
+
+def example(text: str) -> Claim:
+    return Claim(type=ClaimType.EXAMPLE, text=text)
+
+
+def violations_of(claim: Claim, **kwargs) -> set[Violation]:
+    return {f.violation for f in Verifier(PACK, **kwargs).verify(claim).findings}
+
+
+def test_a_hypothetical_premise_with_a_correct_equation_passes():
+    line = (
+        "- Suppose your loss is ₹3,00,000. Only ₹2,00,000 [2] counts this year, "
+        "and ₹3,00,000 − ₹2,00,000 = ₹1,00,000 is left over [eg]."
+    )
+    verdict = Verifier(PACK).verify(example(line))
+    assert verdict.passed, verdict.findings
+    assert [c.path for c in verdict.claim.citations] == ["24"]
+
+
+def test_a_grounded_percentage_in_an_example_passes():
+    line = "For example, if the annual value is ₹1,00,000, 30% of it is ₹1,00,000 × 30% = ₹30,000 [1][eg]."
+    assert Verifier(PACK).verify(example(line)).passed
+
+
+@pytest.mark.parametrize(
+    ("line", "violation"),
+    [
+        # An invented limit, dressed as an illustration.
+        (
+            "Suppose your loss is ₹6,00,000; the limit is ₹5,00,000 [2][eg].",
+            Violation.INVENTED_LAW,
+        ),
+        # An invented rate.
+        ("For example, 40% of the annual value is deductible [1][eg].", Violation.INVENTED_LAW),
+        (
+            "For example, ₹1,00,000 × 40% = ₹40,000 comes off the annual value [1][eg].",
+            Violation.INVENTED_LAW,
+        ),
+        # An invented provision number.
+        ("For example, section 80 gives a further deduction [1][eg].", Violation.INVENTED_LAW),
+        # Law slipped into the premise as if it were a hypothetical.
+        ("Suppose you can set off ₹5,00,000 against salary [2][eg].", Violation.UNSUPPORTED_NUMBER),
+        # A derived figure with no working shown and no source.
+        (
+            "Suppose your loss is ₹3,00,000. You carry forward ₹1,50,000 [2][eg].",
+            Violation.UNSUPPORTED_NUMBER,
+        ),
+        # Arithmetic that does not add up.
+        (
+            "Suppose your loss is ₹3,00,000. ₹3,00,000 − ₹2,00,000 = ₹1,50,000 is left [2][eg].",
+            Violation.BAD_ARITHMETIC,
+        ),
+        # No hypothetical framing.
+        ("Your loss of ₹3,00,000 is capped at ₹2,00,000 [2][eg].", Violation.MALFORMED_EXAMPLE),
+        # No citation: an example must illustrate a cited rule.
+        ("Suppose your loss is ₹3,00,000 [eg].", Violation.NO_CITATION),
+        # A citation outside the pack.
+        ("Suppose your loss is ₹3,00,000 [9][eg].", Violation.MARKER_NOT_IN_EVIDENCE),
+        # Affirming what the cited passage denies.
+        (
+            "Suppose your loss is large; you can deduct any other sum as well [2][eg].",
+            Violation.MODAL_MISMATCH,
+        ),
+    ],
+)
+def test_an_example_that_invents_law_is_caught(line, violation):
+    assert violation in violations_of(example(line))
+
+
+def test_an_example_line_is_classified_as_example():
+    from taxverity.generation.claims import parse_claim
+
+    assert parse_claim("- Suppose your loss is ₹3,00,000 [2][eg].").type is ClaimType.EXAMPLE
+
+
+def test_an_equation_operand_with_no_source_is_caught():
+    # ₹2,50,000 is neither the example's own input nor in passage [2] — an
+    # invented cap slipped in as an operand, with arithmetic that adds up.
+    line = "Suppose your loss is ₹3,00,000. ₹3,00,000 − ₹2,50,000 = ₹50,000 is left [2][eg]."
+    assert Violation.UNSUPPORTED_NUMBER in violations_of(example(line))
+
+
+def test_a_hypothetical_input_cannot_ground_a_content_line():
+    # The relaxation is scoped to EXAMPLE lines: the same figure on an
+    # ordinary content line still needs a source.
+    assert Violation.UNSUPPORTED_NUMBER in violations_of(
+        content("Your loss of ₹3,00,000 is partly deductible [2].")
+    )
+
+
+def test_a_remainder_worked_out_from_the_lines_own_figures_passes():
+    # ₹1,00,000 = ₹3,00,000 − ₹2,00,000: checked arithmetic over the premise
+    # and the cited limit, even without a written equation.
+    line = "Suppose your loss is ₹3,00,000. ₹2,00,000 [2] counts now and the remaining ₹1,00,000 waits [eg]."
+    assert Verifier(PACK).verify(example(line)).passed
+
+
+def test_a_nil_rate_in_the_passage_grounds_zero_and_only_there():
+    # R21 Part B: section 202(1)'s first slab reads "Nil", not "0%".
+    nil = ("202", "202. Up to 4,00,000 rupees: Nil. Above that: five per cent.", [])
+    chunks = {c.node_path: c for c in build(nil, "202")}
+    pack = EvidencePacker(chunks.values()).pack([ScoredChunk(chunk=chunks["202"], score=1.0)])
+    assert Verifier(pack).verify(content("- Income up to ₹4,00,000 is taxed at 0% [1].")).passed
+    # A passage without "Nil" still cannot ground a zero rate.
+    assert Violation.UNSUPPORTED_NUMBER in violations_of(content("- Arrears are taxed at 0% [2]."))

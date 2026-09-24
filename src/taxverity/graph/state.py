@@ -42,7 +42,7 @@ from taxverity.retrieval.base import Retriever
 from taxverity.retrieval.evidence import EVIDENCE_POOL, EvidencePack, EvidencePacker
 from taxverity.safety.classifier import Intent, IntentClassifier, ScopeCategory
 
-GRAPH_STAGE_VERSION = 9
+GRAPH_STAGE_VERSION = 10
 
 # rule 04: "a short recent-turns window (2-3 turns of text)".
 RECENT_TURNS_WINDOW = 3
@@ -137,6 +137,10 @@ class GraphState(TypedDict, total=False):
     thread_id: UUID
     question: str
     prior_turns: list[str]
+    # R21: the last served answer's plain text (markers stripped), so a
+    # follow-up ("explain simply", "give examples") builds on it rather than
+    # re-answering blind. Context only — never evidence, never fact truth.
+    previous_answer: str
     turn: int
     query: str
     # R19 Phase B (ADR-120): the classifier's Act-vocabulary rewrite of

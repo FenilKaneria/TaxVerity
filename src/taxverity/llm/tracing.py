@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 import time
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol, runtime_checkable
 
 import httpx2
@@ -41,7 +43,7 @@ from taxverity.observability import get_logger, redact
 
 logger = get_logger(__name__)
 
-TRACING_STAGE_VERSION = 1
+TRACING_STAGE_VERSION = 2
 
 OTLP_TRACES_PATH = "/api/public/otel/v1/traces"
 
@@ -52,6 +54,11 @@ TRACE_TIMEOUT = 5.0
 # The endpoint caps a batch at 3.5 MB. An evidence-pack prompt is a few tens of
 # kilobytes, so a count is a sufficient proxy and needs no byte accounting.
 MAX_BATCH_EVENTS = 20
+
+# R21 Part B: a full batch is posted off the answer path. At most this many
+# batches wait for the one sender thread; beyond that a batch is dropped and
+# counted, never queued without bound against a slow or unreachable host.
+MAX_PENDING_BATCHES = 2
 
 
 @runtime_checkable
@@ -96,7 +103,11 @@ class LangfuseTracer:
         timeout: float = TRACE_TIMEOUT,
         release: str | None = None,
         environment: str | None = None,
+        background: bool = False,
     ) -> None:
+        """`background=True` (production, via `from_settings`) posts a full
+        batch on a sender thread so no LLM-calling node waits on Langfuse;
+        `flush()`/`close()` stay synchronous either way."""
         if not (public_key and secret_key and host):
             raise ValueError(
                 "a Langfuse tracer needs a public key, a secret key and a host"
@@ -114,6 +125,9 @@ class LangfuseTracer:
         self._owns_client = http_client is None
         self._client = http_client or httpx2.Client(timeout=timeout)
         self._batch: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+        self._sender = ThreadPoolExecutor(max_workers=1) if background else None
+        self._pending = threading.BoundedSemaphore(MAX_PENDING_BATCHES)
         self.dropped = 0
 
     @classmethod
@@ -126,6 +140,7 @@ class LangfuseTracer:
         ):
             logger.warning("no Langfuse configured: LLM calls are not traced")
             return NullTracer()
+        kwargs.setdefault("background", True)
         return cls(
             settings.require("langfuse_public_key"),
             settings.require("langfuse_secret_key"),
@@ -143,18 +158,32 @@ class LangfuseTracer:
         latency_s: float | None = None,
         error: str | None = None,
     ) -> None:
-        self._batch.append(
-            self._span(
-                name,
-                messages,
-                completion=completion,
-                model_parameters=model_parameters,
-                latency_s=latency_s,
-                error=error,
-            )
+        span = self._span(
+            name,
+            messages,
+            completion=completion,
+            model_parameters=model_parameters,
+            latency_s=latency_s,
+            error=error,
         )
-        if len(self._batch) >= MAX_BATCH_EVENTS:
-            self.flush()
+        with self._lock:
+            self._batch.append(span)
+            if len(self._batch) < MAX_BATCH_EVENTS:
+                return
+            batch, self._batch = self._batch, []
+        if self._sender is None:
+            self._send(batch)
+        elif self._pending.acquire(blocking=False):
+            self._sender.submit(self._send_and_release, batch)
+        else:
+            self.dropped += len(batch)
+            logger.warning("dropped %d trace spans: sender backlog full", len(batch))
+
+    def _send_and_release(self, batch: list[dict[str, Any]]) -> None:
+        try:
+            self._send(batch)
+        finally:
+            self._pending.release()
 
     def _span(
         self,
@@ -228,9 +257,13 @@ class LangfuseTracer:
         }
 
     def flush(self) -> None:
-        if not self._batch:
-            return
-        batch, self._batch = self._batch, []
+        with self._lock:
+            if not self._batch:
+                return
+            batch, self._batch = self._batch, []
+        self._send(batch)
+
+    def _send(self, batch: list[dict[str, Any]]) -> None:
         resource_attributes = [_str_attr("service.name", "taxverity")]
         if self._release is not None:
             resource_attributes.append(_str_attr("service.version", self._release))
@@ -274,6 +307,8 @@ class LangfuseTracer:
             logger.warning("Langfuse rejected %d trace spans", rejected)
 
     def close(self) -> None:
+        if self._sender is not None:
+            self._sender.shutdown(wait=True)
         self.flush()
         if self._owns_client:
             self._client.close()

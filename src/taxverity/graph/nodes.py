@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from langgraph.config import get_stream_writer
@@ -26,7 +27,7 @@ from taxverity.calculator.materiality import Outcome, probe
 from taxverity.calculator.scope import Computation, Route, compute, route
 from taxverity.calculator.scope import run as run_calculator
 from taxverity.facts import FIELDS, FactField, FactStatus, UserFacts, ValueKind
-from taxverity.generation.claims import ClaimEvent, WithheldEvent
+from taxverity.generation.claims import ClaimEvent, WithheldEvent, strip_all_markers
 from taxverity.generation.generate import render_computation
 from taxverity.graph.state import (
     CLARIFY_TEMPLATES,
@@ -59,6 +60,11 @@ Writer = Callable[[Any], None]
 # registered before any run, per PLAN 13.5.
 RETRY_POOL = 40
 
+# R21 Part B: sub-query searches run concurrently, two at a time. Each search
+# makes its Jina calls (embed, then rerank) one after another, so two workers
+# never exceed Jina's free-tier concurrency limit of 2 (ADR-123).
+SUBQUERY_WORKERS = 2
+
 # R19 Phase C: fields the materiality probe can sweep or ask about. A thread
 # with none of these stated or inferred yet has said nothing quantitative at
 # all — asking 6-7 clarify questions on that first turn is an interrogation,
@@ -83,13 +89,27 @@ def load_thread(state: GraphState, deps: GraphDeps, writer: Writer | None = None
     fact_state = load_fact_state(deps.conn, state["user_id"], state["thread_id"])
     return {
         "prior_turns": user_turns[-RECENT_TURNS_WINDOW:],
+        "previous_answer": _previous_answer(messages),
         "turn": len(user_turns) + 1,
         "fact_state": fact_state,
     }
 
 
+def _previous_answer(messages: Sequence[Any]) -> str:
+    for message in reversed(messages):
+        if message.role != "assistant":
+            continue
+        lines = (strip_all_markers(line) for line in message.content.splitlines())
+        return "\n".join(line for line in lines if line)
+    return ""
+
+
 def contextualize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
-    result = deps.contextualizer.contextualize(state["question"], state["prior_turns"])
+    result = deps.contextualizer.contextualize(
+        state["question"],
+        state["prior_turns"],
+        previous_answer=state.get("previous_answer", ""),
+    )
     return {"query": result.query}
 
 
@@ -219,13 +239,22 @@ def _retrieve(
         # goes through `deps.retriever`'s own reranker) and merged before
         # packing — a plain question still takes the single-search path
         # below (rule 01: no extra pass where one suffices).
-        per_query = []
-        for i, sub_query in enumerate(sub_queries, start=1):
+        #
+        # R21 Part B: run concurrently; `map` returns results in sub-query
+        # order, so the round-robin merge is exactly as deterministic as the
+        # sequential loop it replaced.
+        def timed_search(sub_query: str) -> tuple[Sequence[ScoredChunk], float]:
             started = time.perf_counter()
-            per_query.append(deps.retriever.search(sub_query, k))
-            sub_trace.append(
-                {"node": f"retrieve.subquery.{i}", "ms": (time.perf_counter() - started) * 1000}
-            )
+            found = deps.retriever.search(sub_query, k)
+            return found, (time.perf_counter() - started) * 1000
+
+        with ThreadPoolExecutor(max_workers=SUBQUERY_WORKERS) as pool:
+            timed = list(pool.map(timed_search, sub_queries))
+        per_query = [found for found, _ in timed]
+        sub_trace = [
+            {"node": f"retrieve.subquery.{i}", "ms": ms}
+            for i, (_, ms) in enumerate(timed, start=1)
+        ]
         results = _merge_subquery_results(per_query, k)
     else:
         results = list(deps.retriever.search(base_query, k))
@@ -389,6 +418,8 @@ def generate_verify(state: GraphState, deps: GraphDeps, writer: Writer | None = 
         facts=facts,
         computation=state["computation"],
         analysis=_analysis_from_state(state),
+        request=state.get("question"),
+        previous_answer=state.get("previous_answer") or None,
     ):
         emit(event.model_dump())
         events.append(event)

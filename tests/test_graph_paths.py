@@ -68,7 +68,7 @@ def _in_scope_deps(schema, **kwargs) -> object:
             classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
         ),
     )
     base.update(kwargs)
@@ -182,7 +182,7 @@ def test_refused_categories_short_circuit_to_the_fixed_template(schema, alice, t
             )
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
         ),
     )
     result = build_graph(d).invoke(
@@ -207,7 +207,7 @@ def test_conversational_category_short_circuits_to_a_guarded_reply(schema, alice
             )
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
         ),
         conversational=SimpleNamespace(reply=lambda q: "Hello! Ask me about the Act."),
     )

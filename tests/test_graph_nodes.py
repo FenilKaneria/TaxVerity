@@ -336,6 +336,66 @@ def test_retrieve_merges_and_dedupes_across_sub_queries():
     ]
 
 
+def test_sub_query_searches_run_two_at_a_time_and_merge_in_sub_query_order():
+    """R21 Part B: concurrency never exceeds Jina's limit of 2, and a
+    sub-query finishing first does not reorder the merge."""
+    import threading
+    import time as clock
+
+    delays = {"issue a": 0.3, "issue b": 0.05, "issue c": 0.05}
+    per_query = {
+        "issue a": [ScoredChunk(chunk=CHUNKS["22(1)(a)"], score=1.0)],
+        "issue b": [ScoredChunk(chunk=CHUNKS["24"], score=1.0)],
+        "issue c": [ScoredChunk(chunk=CHUNKS["23"], score=1.0)],
+    }
+    lock = threading.Lock()
+    active = peak = 0
+
+    class SlowRetriever:
+        def search(self, query: str, k: int) -> list[ScoredChunk]:
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            clock.sleep(delays[query])
+            with lock:
+                active -= 1
+            return per_query[query]
+
+    started = clock.perf_counter()
+    result = retrieve(
+        {"query": "q", "search_query": "q", "sub_queries": tuple(delays)},
+        deps(retriever=SlowRetriever(), packer=EvidencePacker(CHUNKS.values())),
+        writer=Recorder(),
+    )
+    elapsed = clock.perf_counter() - started
+    assert peak == 2
+    assert elapsed < sum(delays.values())
+    assert [unit.citation for unit in result["pack"].units] == ["22(1)(a)", "24", "23"]
+    assert [entry["node"] for entry in result["trace"]] == [
+        "retrieve.subquery.1",
+        "retrieve.subquery.2",
+        "retrieve.subquery.3",
+    ]
+
+
+def test_an_error_in_a_worker_thread_surfaces_rather_than_being_swallowed():
+    """Vendor degradation (FallbackRetriever, rerank fallback) lives inside each
+    search, so threads change nothing about it; anything else raising is a bug
+    and must reach the caller, not vanish in the pool."""
+
+    class Broken:
+        def search(self, query: str, k: int) -> list[ScoredChunk]:
+            raise RuntimeError("bug")
+
+    with pytest.raises(RuntimeError, match="bug"):
+        retrieve(
+            {"query": "q", "search_query": "q", "sub_queries": ("a", "b")},
+            deps(retriever=Broken(), packer=EvidencePacker(CHUNKS.values())),
+            writer=Recorder(),
+        )
+
+
 # --- reason (R20 Step 20.5, no DB, not yet wired into the compiled graph) ----
 
 
@@ -549,6 +609,19 @@ def test_load_thread_reads_the_recent_window_and_a_fresh_fact_state(schema, alic
     assert result["turn"] == 3
     assert result["fact_state"] == ThreadFactState()
     assert recorder.events == [StageEvent(stage="thinking").model_dump()]
+    assert result["previous_answer"] == "first answer"
+
+
+def test_load_thread_strips_markers_from_the_previous_answer(schema, alice, thread_id):
+    # R21: the previous answer's [n] numbers named that turn's pack, not this
+    # one's — carried forward as plain prose only.
+    append_message(schema, alice, thread_id, "user", "q")
+    append_message(
+        schema, alice, thread_id, "assistant", "## Topic\n- Loss is capped [2].\n- Suppose x [1][eg]."
+    )
+    state = {"user_id": alice, "thread_id": thread_id}
+    result = load_thread(state, deps(conn=schema), writer=Recorder())
+    assert result["previous_answer"] == "## Topic\n- Loss is capped.\n- Suppose x."
 
 
 def test_merge_facts_persists_to_the_database_and_emits_the_facts_stage(schema, alice, thread_id):
@@ -648,7 +721,7 @@ def _end_to_end_deps(schema: object) -> GraphDeps:
             classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
         ),
         extractor=SimpleNamespace(
             extract=lambda turn: ExtractionResult(
@@ -691,7 +764,7 @@ def test_the_graph_short_circuits_a_prohibited_question_with_no_llm_or_retrieval
             )
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
         ),
     )
     graph = build_graph(prohibited)

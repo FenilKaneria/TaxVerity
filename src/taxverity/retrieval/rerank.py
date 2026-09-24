@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import threading
 import time
 from collections import OrderedDict
 from collections.abc import Sequence
@@ -196,6 +197,9 @@ class CachedReranker:
         self._inner = inner
         self._maxsize = maxsize
         self._entries: OrderedDict[tuple[str, frozenset[str]], dict[str, float]] = OrderedDict()
+        # R21 Part B: sub-query searches run on two threads and share this
+        # cache; the lock guards the OrderedDict, never the vendor call.
+        self._lock = threading.Lock()
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -203,13 +207,15 @@ class CachedReranker:
     def score(self, query: str, chunks: Sequence[Chunk]) -> dict[str, float]:
         digest = hashlib.sha256(redact(normalise(query)).encode("utf-8")).hexdigest()
         key = (digest, frozenset(chunk.chunk_id for chunk in chunks))
-        if key in self._entries:
-            self._entries.move_to_end(key)
-            return dict(self._entries[key])
+        with self._lock:
+            if key in self._entries:
+                self._entries.move_to_end(key)
+                return dict(self._entries[key])
         scores = self._inner.score(query, chunks)
-        self._entries[key] = dict(scores)
-        if len(self._entries) > self._maxsize:
-            self._entries.popitem(last=False)
+        with self._lock:
+            self._entries[key] = dict(scores)
+            if len(self._entries) > self._maxsize:
+                self._entries.popitem(last=False)
         return scores
 
 

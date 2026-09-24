@@ -35,7 +35,10 @@ export interface ClaimEvent {
   // statute/advice split is now just voice, not a schema field); "no_basis"
   // names what the Act does not address (it carries no citations). See
   // generation/claims.py's ClaimType.
-  type: "heading" | "content" | "computation" | "no_basis";
+  // R20/R21: "application" applies a cited rule to the person's facts,
+  // "unknown" names a condition not yet decidable, "example" illustrates a
+  // cited rule with made-up figures.
+  type: "heading" | "content" | "computation" | "no_basis" | "application" | "unknown" | "example";
   text: string;
   citations: Citation[];
   // Rule 04's invariant is a type on the wire (generation/claims.py's

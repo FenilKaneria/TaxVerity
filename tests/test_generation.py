@@ -264,3 +264,103 @@ def test_the_real_client_composes_with_generation():
     events = AnswerGenerator(llm, CHUNKS).generate(QUESTION, PACK)
     assert [e.id for e in events] == [1, 2]
     assert all(isinstance(e, ClaimEvent) for e in events)
+
+
+# --- R21 (ADR-127): plain language, examples, follow-ups -----------------------
+
+EXAMPLE_LINE = (
+    "- Suppose your loss is ₹3,00,000. Only ₹2,00,000 [2] counts this year, "
+    "and ₹3,00,000 − ₹2,00,000 = ₹1,00,000 is left over [eg]."
+)
+INVENTED_EXAMPLE = "- Suppose your loss is ₹6,00,000; the limit is ₹5,00,000 [2][eg]."
+
+
+def test_a_grounded_example_is_released_alongside_the_rule():
+    llm = FakeLLM(answer(HEADING, ALSO_GOOD, EXAMPLE_LINE))
+    events = generate(llm)
+    assert all(isinstance(e, ClaimEvent) for e in events)
+    assert events[2].type.value == "example"
+    assert len(llm.calls) == 1
+
+
+def test_an_example_that_invents_a_limit_is_withheld_after_repair_fails():
+    llm = FakeLLM(answer(ALSO_GOOD, INVENTED_EXAMPLE), answer(INVENTED_EXAMPLE))
+    events = generate(llm)
+    assert isinstance(events[0], ClaimEvent)
+    assert events[1] == WithheldEvent(id=2, reason="invented_law")
+    assert len(llm.calls) == 2
+
+
+def test_the_request_and_previous_answer_reach_the_prompt_as_data():
+    llm = FakeLLM(answer(GOOD))
+    generate(llm, request="give examples please", previous_answer="Loss can be set off.")
+    user_message = llm.calls[0][0][1].content
+    assert "<latest_message>\ngive examples please\n</latest_message>" in user_message
+    assert "<previous_answer>\nLoss can be set off.\n</previous_answer>" in user_message
+
+
+def test_a_previous_answer_never_grounds_a_number():
+    # The previous answer is prose context only: a figure appearing there,
+    # and nowhere in the cited passage, is still unsupported.
+    line = "- The cap is 7,77,777 [2]."
+    llm = FakeLLM(answer(line), answer(line))
+    events = generate(llm, previous_answer="The cap is 7,77,777.")
+    assert events == [WithheldEvent(id=1, reason="unsupported_number")]
+
+
+def test_surplus_unknown_lines_are_dropped_not_released():
+    second_unknown = "This can't yet be determined because the annual value is not known [1]."
+    llm = FakeLLM(answer(GOOD, UNKNOWN_LINE, second_unknown))
+    events = generate(llm, analysis=ANALYSIS)
+    assert len(events) == 2
+    assert all(isinstance(e, ClaimEvent) for e in events)
+
+
+def test_a_cited_act_does_not_line_is_verified_as_content():
+    # "The Act does not allow X [n]" states what a cited passage says, so it
+    # is content (and grounded), not the Act's silence.
+    line = "- The Act does not allow any other sum to be deducted [1]."
+    events = generate(FakeLLM(answer(line)))
+    assert isinstance(events[0], ClaimEvent)
+    assert events[0].type.value == "content"
+
+
+# --- R21 Part B: a section number used as a marker ----------------------------
+
+
+def test_a_section_number_used_as_a_marker_is_resolved_to_its_passage():
+    # PACK is [1]=22(1), [2]=24. "[24]" is beyond the pack and names section
+    # 24, so it becomes [2] and is verified against that real passage.
+    llm = FakeLLM(answer("- The deduction is capped at 2 lakh [24]."))
+    events = generate(llm)
+    assert isinstance(events[0], ClaimEvent)
+    assert events[0].text == "- The deduction is capped at 2 lakh [2]."
+    assert [c.path for c in events[0].citations] == ["24"]
+    assert len(llm.calls) == 1
+
+
+def test_a_renumbered_marker_is_still_grounded_against_the_real_passage():
+    # Section 24 does not state 5 lakh: renumbering never loosens grounding.
+    line = "- The deduction is capped at 5 lakh [24]."
+    events = generate(FakeLLM(answer(line), answer(line)))
+    assert events == [WithheldEvent(id=1, reason="unsupported_number")]
+
+
+def test_a_marker_within_the_pack_is_never_renumbered():
+    from taxverity.generation.generate import renumber_section_markers
+
+    assert renumber_section_markers("x [2].", {"2": (1,)}, pack_size=2) == "x [2]."
+    assert renumber_section_markers("x [99].", {"24": (2,)}, pack_size=2) == "x [99]."
+    assert renumber_section_markers("x [24].", {"24": (2, 3)}, pack_size=3) == "x [2][3]."
+
+
+def test_a_worked_example_mislabelled_calc_is_verified_as_an_example():
+    # No computation block, so [calc] has nothing to restate: a "Suppose"
+    # line carrying it is checked as an example (legal figures must ground).
+    line = "- Suppose your loss is ₹3,00,000. ₹3,00,000 − ₹2,00,000 = ₹1,00,000 is left [2][calc]."
+    events = generate(FakeLLM(answer(line)))
+    assert isinstance(events[0], ClaimEvent)
+    assert events[0].type.value == "example"
+    invented = "- Suppose your loss is ₹6,00,000; the limit is ₹5,00,000 [2][calc]."
+    events = generate(FakeLLM(answer(invented), answer(invented)))
+    assert events == [WithheldEvent(id=1, reason="invented_law")]

@@ -28,3 +28,21 @@ describe("classifyLine", () => {
     expect(classifyLine("#")).toBe("content");
   });
 });
+
+describe("classifyLine — R21 line kinds", () => {
+  it("recognises an example line by its [eg] marker", () => {
+    expect(classifyLine("- Suppose your loss is ₹3,00,000 [2][eg].")).toBe("example");
+  });
+  it("recognises an application line by its [fact] marker", () => {
+    expect(classifyLine("- You can deduct the interest paid [4][fact].")).toBe("application");
+  });
+  it("recognises an unknown line, bulleted or not", () => {
+    expect(classifyLine("- This can't yet be determined because the loss is unknown [1].")).toBe(
+      "unknown",
+    );
+  });
+  it("treats a cited 'The Act does not' line as content, like the backend", () => {
+    expect(classifyLine("- The Act does not allow any other sum [1].")).toBe("content");
+    expect(classifyLine("- The Act does not deal with this.")).toBe("no_basis");
+  });
+});

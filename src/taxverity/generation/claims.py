@@ -33,7 +33,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CLAIMS_STAGE_VERSION = 4
+CLAIMS_STAGE_VERSION = 5
 
 # "The Act does not ...", "The Act is silent on ...", "Nothing in the Act
 # ...": the one claim type carrying no citation, recognisable only by its own
@@ -53,7 +53,15 @@ CALC_MARKER = "[calc]"
 # marker is what tells the verifier a line is doing that, the same way
 # CALC_MARKER tells it a line restates the computation.
 FACT_MARKER = "[fact]"
+# R21 (ADR-127): an EXAMPLE line illustrates a cited rule with hypothetical
+# figures. The marker says "illustration", and the fixed openers make the
+# hypothetical framing visible to the reader, not only to the verifier.
+EXAMPLE_MARKER = "[eg]"
+EXAMPLE_OPENERS = (
+    "For example", "For instance", "Suppose", "Say ", "Say,", "Imagine", "E.g.", "e.g.",
+)  # fmt: skip
 MARKER = re.compile(r"\[(\d+)\]")
+_NON_CITATION_MARKERS = (CALC_MARKER, FACT_MARKER, EXAMPLE_MARKER)
 
 
 class ClaimType(StrEnum):
@@ -85,6 +93,12 @@ class ClaimType(StrEnum):
     # the `[n]` of the specific condition the reasoning analysis marked
     # `unknown` (verifier.py).
     UNKNOWN = "unknown"
+    # R21 (ADR-127): "Suppose your loss is ₹3,00,000 … [2][eg]". Illustrates
+    # a cited rule; hypothetical inputs need no source, but a rate, limit,
+    # threshold or section number must still ground in the cited passage, and
+    # any equation it shows must add up (verifier.py). Never counts towards
+    # the evidence gate on its own.
+    EXAMPLE = "example"
 
 
 class Citation(BaseModel):
@@ -147,13 +161,28 @@ DISCLAIMER = (
 )
 
 
+_BULLET = re.compile(r"^[-*•]\s+")
+
+
+def line_body(text: str) -> str:
+    """The line without its markdown bullet, so a fixed opener is recognised
+    whether or not the model bulleted it."""
+    return _BULLET.sub("", text.strip())
+
+
 def classify_line(text: str) -> ClaimType:
     if _HEADING.match(text):
         return ClaimType.HEADING
-    if text.startswith(NO_BASIS_OPENERS):
+    body = line_body(text)
+    # R21: "The Act does not allow X [3]" cites the passage that says so — a
+    # grounded statement, verified as content. Only an uncited opener line is
+    # the Act's silence.
+    if body.startswith(NO_BASIS_OPENERS) and not MARKER.search(text):
         return ClaimType.NO_BASIS
-    if text.startswith(UNKNOWN_OPENERS):
+    if body.startswith(UNKNOWN_OPENERS):
         return ClaimType.UNKNOWN
+    if EXAMPLE_MARKER in text:
+        return ClaimType.EXAMPLE
     if CALC_MARKER in text:
         return ClaimType.COMPUTATION
     if FACT_MARKER in text:
@@ -163,10 +192,22 @@ def classify_line(text: str) -> ClaimType:
 
 def parse_claim(line: str) -> Claim:
     text = line.strip()
-    without_markers = MARKER.sub("", text.replace(CALC_MARKER, "").replace(FACT_MARKER, ""))
+    without_markers = MARKER.sub("", strip_non_citation_markers(text))
     if not without_markers.lstrip("#-* ").strip():
         raise MalformedClaim("no content once markers and markdown punctuation are stripped")
     return Claim(type=classify_line(text), text=text)
+
+
+def strip_non_citation_markers(text: str) -> str:
+    for marker in _NON_CITATION_MARKERS:
+        text = text.replace(marker, "")
+    return text
+
+
+def strip_all_markers(text: str) -> str:
+    """Plain prose of a served line, for re-use as context on a follow-up —
+    its `[n]` numbers belonged to that turn's pack and mean nothing now."""
+    return re.sub(r"\s+([.,;:])", r"\1", MARKER.sub("", strip_non_citation_markers(text))).strip()
 
 
 class LineBuffer:

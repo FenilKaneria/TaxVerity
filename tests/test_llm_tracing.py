@@ -580,3 +580,71 @@ def test_the_wrapper_records_the_parameters_it_was_called_with():
     )
     assert parameters["max_completion_tokens"] == 64
     assert parameters["temperature"] == 0.0
+
+
+# --- R21 Part B: a full batch is posted off the answer path ------------------
+
+
+class BlockingRecorder(Recorder):
+    """Holds every POST until released, standing in for a slow Langfuse."""
+
+    def __init__(self):
+        super().__init__()
+        import threading
+
+        self.release = threading.Event()
+
+    def __call__(self, request):
+        self.release.wait(timeout=5)
+        return super().__call__(request)
+
+
+def test_a_background_tracer_never_waits_on_a_slow_host():
+    import time
+
+    handler = BlockingRecorder()
+    tracer = make(handler, background=True)
+    started = time.perf_counter()
+    for _ in range(MAX_BATCH_EVENTS):
+        tracer.generation("gen", ASK)
+    assert time.perf_counter() - started < 1.0  # the POST is still blocked
+    handler.release.set()
+    tracer.close()
+    assert len(handler.spans) == 1
+    assert len(handler.spans[0]) == MAX_BATCH_EVENTS
+
+
+def test_a_background_tracer_drops_rather_than_queues_without_bound():
+    from taxverity.llm.tracing import MAX_PENDING_BATCHES
+
+    handler = BlockingRecorder()
+    tracer = make(handler, background=True)
+    batches = MAX_PENDING_BATCHES + 2
+    for _ in range(MAX_BATCH_EVENTS * batches):
+        tracer.generation("gen", ASK)
+    assert tracer.dropped >= MAX_BATCH_EVENTS
+    handler.release.set()
+    tracer.close()
+    assert len(handler.requests) <= MAX_PENDING_BATCHES
+
+
+def test_a_background_tracer_still_redacts_what_it_sends():
+    handler = Recorder()
+    tracer = make(handler, background=True)
+    for _ in range(MAX_BATCH_EVENTS):
+        tracer.generation("gen", [Message(role="user", content=f"my PAN is {PAN}")])
+    tracer.close()
+    assert PAN not in handler.raw
+    assert PAN_MASK in handler.raw
+
+
+def test_from_settings_builds_a_background_tracer():
+    settings = Settings(
+        _env_file=None,
+        langfuse_public_key=PUBLIC,
+        langfuse_secret_key=SECRET,
+        langfuse_host=HOST,
+    )
+    tracer = LangfuseTracer.from_settings(settings)
+    assert tracer._sender is not None
+    tracer.close()

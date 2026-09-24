@@ -211,3 +211,20 @@ def test_the_message_is_a_fixed_template_not_derived_from_the_pack():
     empty_result = gate(make_pack(with_unit=False), [])
     zero_claims_result = gate(make_pack(), [computation_event()])
     assert empty_result == zero_claims_result == INSUFFICIENT_EVIDENCE_MESSAGE
+
+
+def example_event(claim_id: int = 1) -> ClaimEvent:
+    return ClaimEvent(
+        id=claim_id,
+        type=ClaimType.EXAMPLE,
+        text="Suppose the annual value is ₹1,00,000 [1][eg].",
+        citations=(Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),),
+    )
+
+
+def test_an_examples_only_answer_still_gates():
+    """R21 (ADR-127): an illustration is not a statutory answer, so an
+    answer made only of examples must not satisfy the gate on its own."""
+    assert served_grounded_claims([example_event(1)]) == 0
+    assert gate(make_pack(), [example_event()]) == INSUFFICIENT_EVIDENCE_MESSAGE
+    assert gate(make_pack(), [content_event(1), example_event(2)]) is None

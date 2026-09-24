@@ -497,3 +497,33 @@ def test_the_reranker_meets_its_rule_on_the_real_pool(gold, reranked_legs):
     verdict = judge_rerank(after.reports[5], before.reports[5], p95)
     assert verdict.adopted, verdict.reasons
     assert after.reports[5].overall[CreditMode.LENIENT].ndcg >= NDCG5_FLOOR
+
+
+def test_the_rerank_cache_is_safe_to_share_across_threads():
+    # R21 Part B: sub-query searches share one CachedReranker on two threads.
+    import threading
+
+    from taxverity.retrieval.rerank import CachedReranker
+
+    class Inner:
+        def score(self, query, chunks):
+            return {chunk.chunk_id: 1.0 for chunk in chunks}
+
+    cache = CachedReranker(Inner(), maxsize=8)
+    chunks_for = [CHUNKS[i : i + 2] for i in range(4)]
+    errors: list[BaseException] = []
+
+    def hammer(n: int) -> None:
+        try:
+            for i in range(200):
+                cache.score(f"q{(n + i) % 12}", chunks_for[i % 4])
+        except BaseException as error:  # pragma: no cover - the assertion is that none happen
+            errors.append(error)
+
+    threads = [threading.Thread(target=hammer, args=(n,)) for n in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    assert len(cache) <= 8

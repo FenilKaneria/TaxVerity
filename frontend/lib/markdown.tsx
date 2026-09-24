@@ -4,34 +4,52 @@
 // persisted message — see `classifyLine`, which must stay in sync with
 // `generation/claims.py`'s `classify_line`), so there is no markdown block
 // parser here, only per-line inline rendering: strip the leading "## "/"- "
-// syntax, and turn `[n]`/`[calc]` tokens into clickable citation chips or a
-// small "computed" badge. Borrowed in spirit from University Assistant's
+// syntax, and turn `[n]`/`[calc]` tokens into small clickable section
+// references or a "computed" badge (R21: `[eg]` lines render as an example
+// callout, `[fact]`/`[eg]` markers themselves are dropped). Borrowed in spirit from University Assistant's
 // hand-written renderer (see PLAN's R19 note) — no markdown library.
 
-import { Calculator, CheckCircle2 } from "lucide-react";
+import { Calculator, Lightbulb } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ClickedCitation } from "@/components/citation-dialog";
 
-export type LineType = "heading" | "content" | "computation" | "no_basis";
+export type LineType =
+  | "heading"
+  | "content"
+  | "computation"
+  | "no_basis"
+  | "application"
+  | "unknown"
+  | "example";
 
-// Mirrors generation/claims.py's NO_BASIS_OPENERS/CALC_MARKER/_HEADING —
+// Mirrors generation/claims.py's openers, markers and `classify_line` order —
 // keep these in sync if the backend's grammar ever changes.
 const NO_BASIS_OPENERS = ["The Act does not", "The Act is silent on", "Nothing in the Act"];
+const UNKNOWN_OPENERS = ["This can't yet be determined", "This cannot yet be determined"];
 const CALC_MARKER = "[calc]";
+const FACT_MARKER = "[fact]";
+const EXAMPLE_MARKER = "[eg]";
 const HEADING_RE = /^#{1,6}\s+\S/;
-const MARKER_RE = /\[(\d+)\]|\[calc\]/g;
+const BULLET_RE = /^[-*•]\s+/;
+const CITATION_RE = /\[\d+\]/;
+// `[fact]`/`[eg]` only tell the verifier what kind of line this is; they
+// carry nothing for a reader, so they are matched here to be dropped.
+const MARKER_RE = /\[(\d+)\]|\[calc\]|\[fact\]|\[eg\]/g;
 
 export function classifyLine(text: string): LineType {
   if (HEADING_RE.test(text)) return "heading";
-  if (NO_BASIS_OPENERS.some((opener) => text.startsWith(opener))) return "no_basis";
+  const body = text.trim().replace(BULLET_RE, "");
+  if (NO_BASIS_OPENERS.some((o) => body.startsWith(o)) && !CITATION_RE.test(text)) return "no_basis";
+  if (UNKNOWN_OPENERS.some((o) => body.startsWith(o))) return "unknown";
+  if (text.includes(EXAMPLE_MARKER)) return "example";
   if (text.includes(CALC_MARKER)) return "computation";
+  if (text.includes(FACT_MARKER)) return "application";
   return "content";
 }
 
 function stripPrefix(text: string, type: LineType): string {
   if (type === "heading") return text.replace(/^#{1,6}\s+/, "");
-  if (type === "content" || type === "computation") return text.replace(/^[-*]\s+/, "");
-  return text;
+  return text.trim().replace(BULLET_RE, "");
 }
 
 export interface MarkerCitation {
@@ -59,7 +77,9 @@ function renderInline(
   for (const match of text.matchAll(MARKER_RE)) {
     const index = match.index ?? 0;
     if (index > cursor) nodes.push(text.slice(cursor, index));
-    if (match[0] === "[calc]") {
+    if (match[0] === "[fact]" || match[0] === "[eg]") {
+      // Line-kind markers: nothing to show.
+    } else if (match[0] === "[calc]") {
       nodes.push(
         <span
           key={key++}
@@ -79,10 +99,10 @@ function renderInline(
           type="button"
           disabled={!citation}
           onClick={() => citation && onCiteClick?.(citation)}
-          className="ml-0.5 inline-flex items-center gap-0.5 rounded-full bg-seal/10 px-1.5 py-0.5 font-serif text-xs text-seal hover:bg-seal/20 disabled:opacity-50"
+          title={citation ? `Section ${citation.path} — tap to read` : undefined}
+          className="ml-0.5 align-super font-serif text-[10px] leading-none text-seal hover:underline disabled:opacity-50"
         >
-          <CheckCircle2 className="size-3" />
-          {citation?.path ?? marker}
+          §{citation?.path ?? marker}
         </button>,
       );
     }
@@ -109,10 +129,18 @@ export function ClaimLine({
   if (type === "heading") {
     return <h3 className="font-serif text-base font-semibold text-foreground">{inline}</h3>;
   }
-  if (type === "no_basis") {
+  if (type === "no_basis" || type === "unknown") {
     return <p className="text-[15px] leading-relaxed text-muted-foreground italic">{inline}</p>;
   }
-  // content and computation both read as a bullet line.
+  if (type === "example") {
+    return (
+      <p className="my-1 flex gap-2 rounded-md border-l-2 border-seal/40 bg-muted/40 px-3 py-2 text-[15px] leading-relaxed text-foreground">
+        <Lightbulb className="mt-1 size-3.5 shrink-0 text-seal" aria-label="Example" />
+        <span>{inline}</span>
+      </p>
+    );
+  }
+  // content, application and computation all read as a bullet line.
   return (
     <p className="flex gap-2 text-[15px] leading-relaxed text-foreground">
       <span className="text-muted-foreground">–</span>
