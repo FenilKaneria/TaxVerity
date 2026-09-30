@@ -69,9 +69,13 @@ class GoldQuery(BaseModel):
     def only_a_negative_has_no_answer(self) -> GoldQuery:
         negative = self.slice is QuerySlice.NEGATIVE
         if negative and self.required:
-            raise ValueError(f"{self.query_id}: a negative query must have no citations")
+            raise ValueError(
+                f"{self.query_id}: a negative query must have no citations"
+            )
         if not negative and not self.required:
-            raise ValueError(f"{self.query_id}: {self.slice} needs at least one citation")
+            raise ValueError(
+                f"{self.query_id}: {self.slice} needs at least one citation"
+            )
         return self
 
 

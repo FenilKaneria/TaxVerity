@@ -540,7 +540,10 @@ def test_a_loss_whose_span_omits_the_loss_word_is_repaired_to_a_negative():
     good = entry("business_income", "-300000", span="3,00,000")
     node, recorder = build(ok(payload(bad)), ok(payload(good)))
     result = node.extract(turn)
-    assert REPAIR_HINTS[FactIssue.SIGN_CONTRADICTS_SPAN] in recorder.bodies[1]["messages"][-1]["content"]
+    assert (
+        REPAIR_HINTS[FactIssue.SIGN_CONTRADICTS_SPAN]
+        in recorder.bodies[1]["messages"][-1]["content"]
+    )
     assert result.facts.get(FactField.BUSINESS_INCOME).value == Decimal("-300000")
     assert result.rejections == ()
 
@@ -573,9 +576,7 @@ def payload_with_situation(*entries: dict, situation: tuple[dict, ...] = ()) -> 
 
 def test_situation_facts_ride_alongside_the_closed_fields():
     turn = "My salary is 14,00,000. I pay rent to my mother for a flat."
-    rent = situation_entry(
-        "rent recipient", "my mother", span="pay rent to my mother"
-    )
+    rent = situation_entry("rent recipient", "my mother", span="pay rent to my mother")
     node, recorder = build(ok(payload_with_situation(SALARY, situation=(rent,))))
     result = node.extract(turn)
     assert len(recorder.requests) == 1
@@ -608,9 +609,7 @@ def test_a_repair_does_not_touch_the_first_passs_situation_facts():
     repair triggered by a bad closed field must not drop the situation facts
     the first pass already accepted."""
     turn = "My salary is 14,00,000. I pay rent to my mother for a flat."
-    rent = situation_entry(
-        "rent recipient", "my mother", span="pay rent to my mother"
-    )
+    rent = situation_entry("rent recipient", "my mother", span="pay rent to my mother")
     bad = entry("business_income", "not-a-number")
     fixed = entry("business_income", "50000")
     node, recorder = build(
@@ -622,4 +621,3 @@ def test_a_repair_does_not_touch_the_first_passs_situation_facts():
     assert result.repaired is True
     (fact,) = result.situation_facts
     assert fact.name == "rent recipient"
-

@@ -30,6 +30,7 @@ from taxverity.facts import FIELDS, FactField, FactStatus, UserFacts, ValueKind
 from taxverity.generation.claims import ClaimEvent, WithheldEvent, strip_all_markers
 from taxverity.generation.generate import render_computation
 from taxverity.graph.state import (
+    CALCULATION_CLARIFY,
     CLARIFY_TEMPLATES,
     RECENT_TURNS_WINDOW,
     ClarifyEvent,
@@ -81,7 +82,9 @@ def _has_amount_fact(facts: UserFacts) -> bool:
     )
 
 
-def load_thread(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+def load_thread(
+    state: GraphState, deps: GraphDeps, writer: Writer | None = None
+) -> dict:
     emit = writer or get_stream_writer()
     emit(StageEvent(stage="thinking").model_dump())
     messages = list_messages(deps.conn, state["user_id"], state["thread_id"])
@@ -104,7 +107,9 @@ def _previous_answer(messages: Sequence[Any]) -> str:
     return ""
 
 
-def contextualize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+def contextualize(
+    state: GraphState, deps: GraphDeps, writer: Writer | None = None
+) -> dict:
     result = deps.contextualizer.contextualize(
         state["question"],
         state["prior_turns"],
@@ -131,7 +136,9 @@ def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     }
 
 
-def respond_fixed(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+def respond_fixed(
+    state: GraphState, deps: GraphDeps, writer: Writer | None = None
+) -> dict:
     """Reached only for `adjacent | out_of_scope | prohibited` (rule 03). No
     LLM call, no retrieval — the classifier already picked the fixed template."""
     return {
@@ -158,14 +165,18 @@ def respond_conversational(
     }
 
 
-def extract_facts(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+def extract_facts(
+    state: GraphState, deps: GraphDeps, writer: Writer | None = None
+) -> dict:
     # The raw turn, never the contextualized query (rule 04): a follow-up
     # rewrite resolves references for retrieval, it is never fact truth.
     result = deps.extractor.extract(state["question"])
     return {"extraction": result}
 
 
-def merge_facts(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+def merge_facts(
+    state: GraphState, deps: GraphDeps, writer: Writer | None = None
+) -> dict:
     emit = writer or get_stream_writer()
     extraction = state["extraction"]
     # getattr, not extraction.situation_facts: a test double's ExtractionResult
@@ -186,7 +197,9 @@ def retrieve(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     return _retrieve(state, deps, writer, k=deps.pool_k, expand=False)
 
 
-def retrieve_retry(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+def retrieve_retry(
+    state: GraphState, deps: GraphDeps, writer: Writer | None = None
+) -> dict:
     """Step 13.5's one corrective retry (ADR-033 as amended by ADR-110, PLAN
     13.5): fires only when `generate_verify`'s first pass served zero statute
     claims, over a wider pool with `pack(expand=True)`. Bounded to one retry by
@@ -221,6 +234,20 @@ def _merge_subquery_results(
             seen.add(result.chunk.chunk_id)
             merged.append(result)
     return merged
+
+
+def pinned_first(
+    pins: Sequence[ScoredChunk], results: Sequence[ScoredChunk]
+) -> list[ScoredChunk]:
+    """The calculator's own provisions ahead of the ranking for a calculation
+    question: a first "can you calculate my tax?" names no section, so the
+    citation shortcut never fires, and the ranking alone surfaced ss.190/405
+    rather than the slab rates on a live turn."""
+    pinned = {pin.chunk.chunk_id for pin in pins}
+    return [
+        *pins,
+        *(result for result in results if result.chunk.chunk_id not in pinned),
+    ]
 
 
 def _retrieve(
@@ -258,6 +285,8 @@ def _retrieve(
         results = _merge_subquery_results(per_query, k)
     else:
         results = list(deps.retriever.search(base_query, k))
+    if state.get("intent") is Intent.CALCULATION:
+        results = pinned_first(deps.calc_pins, results)
     pack = deps.packer.pack(results, expand=expand)
     emit(
         StageEvent(
@@ -267,7 +296,9 @@ def _retrieve(
     return {"pack": pack, "trace": sub_trace}
 
 
-def route_calc(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+def route_calc(
+    state: GraphState, deps: GraphDeps, writer: Writer | None = None
+) -> dict:
     """`scope.route`, then `materiality.probe` or `compute` (PLAN 13.2).
 
     `TEXT_ONLY` and `INCOMPLETE` are not graph branches — only what this
@@ -295,8 +326,15 @@ def route_calc(state: GraphState, deps: GraphDeps, writer: Writer | None = None)
             computation = run_calculator(found.inputs)
         else:
             clarify_questions = tuple(
-                CLARIFY_TEMPLATES[finding.field] for finding in found.by_outcome(Outcome.ASK)
+                CLARIFY_TEMPLATES[finding.field]
+                for finding in found.by_outcome(Outcome.ASK)
             )
+    elif (
+        decision.route is Route.INCOMPLETE and state.get("intent") is Intent.CALCULATION
+    ):
+        # The one exception to R19 Phase C's "no first-turn questions": the
+        # person asked for a calculation, so their income is the question.
+        clarify_questions = (CALCULATION_CLARIFY,)
     if clarify_questions:
         emit(ClarifyEvent(questions=clarify_questions).model_dump())
     return {
@@ -383,8 +421,15 @@ def decide(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> 
     upstream, not here."""
     emit = writer or get_stream_writer()
     existing = state.get("clarify_questions", ())
+    if CALCULATION_CLARIFY in existing:
+        # The calculator's income question comes first: reasoning questions
+        # asked before any figure exists re-ask it in other words, and any
+        # still material once the income is known are asked on that turn.
+        return {"clarify_questions": existing}
     material_questions = tuple(
-        missing.question for missing in state.get("missing_facts", ()) if missing.material
+        missing.question
+        for missing in state.get("missing_facts", ())
+        if missing.material
     )
     new_questions = tuple(q for q in material_questions if q not in existing)
     if new_questions:
@@ -408,7 +453,9 @@ def _analysis_from_state(state: GraphState) -> ValidatedAnalysis | None:
     )
 
 
-def generate_verify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
+def generate_verify(
+    state: GraphState, deps: GraphDeps, writer: Writer | None = None
+) -> dict:
     emit = writer or get_stream_writer()
     facts = state["fact_state"].as_user_facts()
     events: list[ClaimEvent | WithheldEvent] = []
@@ -420,6 +467,7 @@ def generate_verify(state: GraphState, deps: GraphDeps, writer: Writer | None = 
         analysis=_analysis_from_state(state),
         request=state.get("question"),
         previous_answer=state.get("previous_answer") or None,
+        calculation_pending=CALCULATION_CLARIFY in state.get("clarify_questions", ()),
     ):
         emit(event.model_dump())
         events.append(event)
@@ -433,7 +481,9 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     "persist with per-turn provenance"), independent of how the turn ends."""
     emit = writer or get_stream_writer()
     decision = state.get("scope_decision")
-    route_label = decision.route.value if decision is not None else state["category"].value
+    route_label = (
+        decision.route.value if decision is not None else state["category"].value
+    )
     events = state.get("events", [])
     answer_text = state.get("answer_text")
     text = answer_text if answer_text is not None else _served_text(events)
@@ -448,14 +498,18 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     trace = tuple(TraceEntry(**entry) for entry in state.get("trace", []))
     final_event = FinalEvent(
         route=route_label,
-        computation=_computation_summary(computation) if computation is not None else None,
+        computation=_computation_summary(computation)
+        if computation is not None
+        else None,
         citations=citations,
         text=answer_text,
         searched=searched,
         trace=trace,
     )
     emit(final_event.model_dump())
-    append_message(deps.conn, state["user_id"], state["thread_id"], "user", state["question"])
+    append_message(
+        deps.conn, state["user_id"], state["thread_id"], "user", state["question"]
+    )
     append_message(
         deps.conn,
         state["user_id"],
@@ -522,7 +576,11 @@ def _served_citation_records(
                 continue
             seen.add(citation.marker)
             records.append(
-                {"marker": citation.marker, "path": citation.path, "quote": citation.quote}
+                {
+                    "marker": citation.marker,
+                    "path": citation.path,
+                    "quote": citation.quote,
+                }
             )
     return records
 

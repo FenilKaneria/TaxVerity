@@ -77,9 +77,19 @@ def test_the_slabs_apply_to_the_rounded_income_not_the_raw_one(rates):
 
 def test_the_trace_names_each_band_the_income_reaches(rates):
     result = slab_tax(D(1275000), rates)
-    assert [band.basis for band in result.bands] == [D(400000), D(400000), D(400000), D(75000)]
+    assert [band.basis for band in result.bands] == [
+        D(400000),
+        D(400000),
+        D(400000),
+        D(75000),
+    ]
     assert [band.rate_percent for band in result.bands] == [D(0), D(5), D(10), D(15)]
-    assert [band.amount for band in result.bands] == [D(0), D(20000), D(40000), D(11250)]
+    assert [band.amount for band in result.bands] == [
+        D(0),
+        D(20000),
+        D(40000),
+        D(11250),
+    ]
     assert result.lines() == (result.rounded_income, *result.bands)
 
 
@@ -108,7 +118,11 @@ def test_the_result_carries_its_tax_year(rates):
 @pytest.fixture(scope="module")
 def sweep(rates):
     incomes = [D(n) for n in range(0, 3_000_001, 1_730)]
-    incomes += [slab.upper + delta for slab in rates.new_regime_slabs[:-1] for delta in (-10, 0, 10)]
+    incomes += [
+        slab.upper + delta
+        for slab in rates.new_regime_slabs[:-1]
+        for delta in (-10, 0, 10)
+    ]
     return [slab_tax(income, rates) for income in sorted(incomes)]
 
 
@@ -162,7 +176,12 @@ def test_a_rate_line_whose_amount_is_wrong_cannot_be_built(rates):
 def test_a_rate_line_needs_both_its_basis_and_its_rate(rates):
     band = slab_tax(D(800000), rates).bands[1]
     with pytest.raises(ValueError, match="both"):
-        LineItem(label=band.label, amount=band.amount, provenance=band.provenance, basis=band.basis)
+        LineItem(
+            label=band.label,
+            amount=band.amount,
+            provenance=band.provenance,
+            basis=band.basis,
+        )
 
 
 def test_a_trace_that_does_not_add_up_cannot_be_built(rates):
@@ -170,4 +189,10 @@ def test_a_trace_that_does_not_add_up_cannot_be_built(rates):
     with pytest.raises(ValueError, match="sum of its bands"):
         replace(result, tax=result.tax + 1)
     with pytest.raises(ValueError, match="cover"):
-        SlabTax(result.tax_year, result.total_income, result.rounded_income, result.bands[:1], D(0))
+        SlabTax(
+            result.tax_year,
+            result.total_income,
+            result.rounded_income,
+            result.bands[:1],
+            D(0),
+        )

@@ -516,7 +516,9 @@ def _parse_situation_entries(
         if status is FactStatus.STATED and not span:
             rejections.append(
                 Rejection(
-                    FactIssue.MISSING_SPAN, f"{name!r} is stated but quotes nothing", entry
+                    FactIssue.MISSING_SPAN,
+                    f"{name!r} is stated but quotes nothing",
+                    entry,
                 )
             )
             continue
@@ -529,7 +531,9 @@ def _parse_situation_entries(
             continue
         try:
             facts.append(
-                SituationFact(name=name, status=status, raw_value=raw_value, source_span=span)
+                SituationFact(
+                    name=name, status=status, raw_value=raw_value, source_span=span
+                )
             )
         except ValueError as error:
             rejections.append(Rejection(FactIssue.MALFORMED_ENTRY, str(error), entry))
@@ -537,7 +541,9 @@ def _parse_situation_entries(
     return tuple(facts), tuple(rejections)
 
 
-_LOSS_WORDS = re.compile(r"\b(?:loss(?:es)?|lost|minus|negative|deficit)\b", re.IGNORECASE)
+_LOSS_WORDS = re.compile(
+    r"\b(?:loss(?:es)?|lost|minus|negative|deficit)\b", re.IGNORECASE
+)
 # A period ends a clause only before a capital or the end, so "Rs. 1,60,000"
 # and "3.2 lakh" stay whole; a comma only before a space, so Indian digit
 # grouping never splits a figure.
@@ -553,12 +559,15 @@ def _clause_describes_loss(span: str, turn: str) -> bool:
     # let "$" match there and end the clause at "Rs.".
     breaks = list(_CLAUSE_BREAK.finditer(turn))
     for occurrence in re.finditer(re.escape(span), turn):
-        start = max((b.end() for b in breaks if b.end() <= occurrence.start()), default=0)
+        start = max(
+            (b.end() for b in breaks if b.end() <= occurrence.start()), default=0
+        )
         following = _CLAUSE_BREAK.search(turn, occurrence.end())
         end = following.start() if following else len(turn)
         if _LOSS_WORDS.search(turn[start:end]):
             return True
     return False
+
 
 _MULTIPLIERS = {
     "lakh": 100_000,
@@ -578,7 +587,9 @@ _YEAR_RANGE = re.compile(
 )
 
 
-def fact_value(field: FactField, raw_value: str, span: str) -> Decimal | int | str | None:
+def fact_value(
+    field: FactField, raw_value: str, span: str
+) -> Decimal | int | str | None:
     """The value a fact carries, from what the model wrote and the words it quoted.
 
     Recomputed from both wherever a fact is rebuilt, so a stored run re-derives
@@ -703,7 +714,9 @@ def _entries(payload: Any, rejections: list[Rejection]) -> list[dict[str, Any]]:
     return entries
 
 
-def _situation_entries(payload: Any, rejections: list[Rejection]) -> list[dict[str, Any]]:
+def _situation_entries(
+    payload: Any, rejections: list[Rejection]
+) -> list[dict[str, Any]]:
     if not isinstance(payload, dict):
         return []
     raw = payload.get("situation_facts")
@@ -720,7 +733,9 @@ def _situation_entries(payload: Any, rejections: list[Rejection]) -> list[dict[s
             entries.append(entry)
         else:
             rejections.append(
-                Rejection(FactIssue.MALFORMED_ENTRY, "situation entry is not an object", {})
+                Rejection(
+                    FactIssue.MALFORMED_ENTRY, "situation entry is not an object", {}
+                )
             )
     return entries
 
@@ -802,8 +817,7 @@ FACTS_JSON_SCHEMA: dict[str, Any] = {
                     "status": {
                         "type": "string",
                         "enum": [
-                            s.value
-                            for s in (FactStatus.STATED, FactStatus.INFERRED)
+                            s.value for s in (FactStatus.STATED, FactStatus.INFERRED)
                         ],
                     },
                     "source_span": {

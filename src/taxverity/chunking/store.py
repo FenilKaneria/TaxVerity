@@ -57,9 +57,7 @@ def to_json_line(chunk: Chunk) -> str:
     )
 
 
-def write_chunks_jsonl(
-    chunks: Iterable[Chunk], destination: Path
-) -> tuple[int, str]:
+def write_chunks_jsonl(chunks: Iterable[Chunk], destination: Path) -> tuple[int, str]:
     destination.parent.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256()
     count = 0
@@ -72,7 +70,9 @@ def write_chunks_jsonl(
             digest.update(line.encode("utf-8"))
             count += 1
     artifact_sha256 = digest.hexdigest()
-    logger.info("wrote %d chunks to %s (sha256 %s)", count, destination, artifact_sha256)
+    logger.info(
+        "wrote %d chunks to %s (sha256 %s)", count, destination, artifact_sha256
+    )
     return count, artifact_sha256
 
 
@@ -118,9 +118,7 @@ def load_chunks(
     manifest_path = directory / CHUNK_MANIFEST_FILENAME
     for path in (chunks_path, manifest_path):
         if not path.exists():
-            raise StaleChunkStoreError(
-                f"missing {path} — run scripts/build_chunks.py"
-            )
+            raise StaleChunkStoreError(f"missing {path} — run scripts/build_chunks.py")
 
     manifest = read_chunk_manifest(manifest_path)
     if corpus_version is not None and manifest.corpus_version != corpus_version:

@@ -159,7 +159,9 @@ def parse_rates(payload: dict[str, Any]) -> TaxYearRates:
         raise RatesError(f"declared both supported and outside the Act: {overlap}")
     for name, declared in outside.items():
         if _digits(declared.provenance.source_text):
-            raise RatesError(f"{name} is outside the Act but its quote carries a number")
+            raise RatesError(
+                f"{name} is outside the Act but its quote carries a number"
+            )
     return TaxYearRates(
         tax_year=tax_year,
         commencement=_provenance(payload["commencement"]),
@@ -167,7 +169,11 @@ def parse_rates(payload: dict[str, Any]) -> TaxYearRates:
         values=values,
         outside_act=outside,
         not_allowed_under_202_1={
-            name: NotAllowed(section=entry["section"], chapter=entry["chapter"], provenance=_provenance(entry))
+            name: NotAllowed(
+                section=entry["section"],
+                chapter=entry["chapter"],
+                provenance=_provenance(entry),
+            )
             for name, entry in payload["not_allowed_under_202_1"].items()
         },
         rules={name: _provenance(entry) for name, entry in payload["rules"].items()},

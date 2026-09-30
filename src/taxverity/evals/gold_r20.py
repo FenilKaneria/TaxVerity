@@ -93,9 +93,13 @@ class R20GoldQuery(BaseModel):
     def only_a_negative_has_no_answer(self) -> R20GoldQuery:
         negative = self.slice is R20Slice.NEGATIVE
         if negative and (self.required or self.rule_units):
-            raise ValueError(f"{self.query_id}: a negative query must have no citations")
+            raise ValueError(
+                f"{self.query_id}: a negative query must have no citations"
+            )
         if not negative and not self.required:
-            raise ValueError(f"{self.query_id}: {self.slice} needs at least one citation")
+            raise ValueError(
+                f"{self.query_id}: {self.slice} needs at least one citation"
+            )
         return self
 
     @model_validator(mode="after")
@@ -104,7 +108,9 @@ class R20GoldQuery(BaseModel):
             return self
         missing = set(self.required) - set(self.rule_units)
         if missing:
-            raise ValueError(f"{self.query_id}: rule_units omits required citation(s) {missing}")
+            raise ValueError(
+                f"{self.query_id}: rule_units omits required citation(s) {missing}"
+            )
         if len(self.rule_units) <= len(self.required):
             raise ValueError(
                 f"{self.query_id}: rule_units must add at least one condition/limit/"

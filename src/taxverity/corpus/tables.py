@@ -54,7 +54,9 @@ def find_table_regions(pdf_path: Path, pages: Iterable[int]) -> tuple[TableRegio
                 if columns < MIN_TABLE_COLUMNS:
                     continue
                 regions.append(
-                    TableRegion(page=page_number, top=table.bbox[1], bottom=table.bbox[3])
+                    TableRegion(
+                        page=page_number, top=table.bbox[1], bottom=table.bbox[3]
+                    )
                 )
     logger.info(
         "pdfplumber measured %d table regions on %d candidate pages in %.1fs",

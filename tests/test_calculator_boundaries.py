@@ -64,7 +64,10 @@ def test_one_rounding_step_above_an_edge_opens_the_next_row(index):
     edge, above = EDGES[index], RATES.new_regime_slabs[index + 1]
     at, beyond = slab_tax(edge, RATES), slab_tax(edge + STEP, RATES)
     assert len(beyond.bands) == len(at.bands) + 1
-    assert (beyond.bands[-1].rate_percent, beyond.bands[-1].basis) == (above.rate_percent, STEP)
+    assert (beyond.bands[-1].rate_percent, beyond.bands[-1].basis) == (
+        above.rate_percent,
+        STEP,
+    )
     assert beyond.tax - at.tax == STEP * above.rate_percent / 100
 
 
@@ -88,7 +91,10 @@ def test_rounding_ignores_paise_then_takes_five_upward(edge, offset, lands_on):
     # Ignoring paise first and rounding the whole amount half-up agree for every
     # remainder (floor(r) >= 5 exactly when r >= 5), so no input separates the
     # two orders. Measured: a mutant keeping the paise survives every suite.
-    assert slab_tax(edge + D(offset), RATES).rounded_income.amount == edge + D(lands_on) * STEP
+    assert (
+        slab_tax(edge + D(offset), RATES).rounded_income.amount
+        == edge + D(lands_on) * STEP
+    )
 
 
 @pytest.mark.parametrize(
@@ -149,7 +155,9 @@ def test_marginal_relief_ends_exactly_where_the_tax_meets_the_excess():
 
 
 def test_the_rebate_is_the_maximum_or_the_tax_whichever_is_less_at_the_limit():
-    assert tax(other=str(LIMIT)).rebate.amount == min(MAXIMUM, slab_tax(LIMIT, RATES).tax)
+    assert tax(other=str(LIMIT)).rebate.amount == min(
+        MAXIMUM, slab_tax(LIMIT, RATES).tax
+    )
 
 
 def test_no_rebate_line_is_written_when_there_is_no_tax_to_rebate():
@@ -168,13 +176,20 @@ def test_a_non_resident_gets_no_rebate_on_either_side_of_the_limit():
 
 @pytest.mark.parametrize(
     ("name", "route"),
-    [("standard_deduction_new_regime", "under_202_1"), ("standard_deduction_other", "opted_out")],
+    [
+        ("standard_deduction_new_regime", "under_202_1"),
+        ("standard_deduction_other", "opted_out"),
+    ],
 )
-def test_the_standard_deduction_is_the_salary_up_to_its_cap_and_the_cap_beyond(name, route):
+def test_the_standard_deduction_is_the_salary_up_to_its_cap_and_the_cap_beyond(
+    name, route
+):
     cap = RATES.value(name).value
 
     def deducted(salary):
-        result = compare_regimes(RATES, salary=salary, other_income=D(0), resident_individual=True)
+        result = compare_regimes(
+            RATES, salary=salary, other_income=D(0), resident_individual=True
+        )
         return getattr(result, route).standard_deduction.amount
 
     assert deducted(cap - 1) == cap - 1
@@ -191,15 +206,25 @@ CAP_123 = RATES.value("savings_insurance_deduction_cap").value
 
 def test_a_claim_is_allowed_up_to_the_section_123_cap_and_no_further():
     gross = CAP_123 * 10
-    for claim, allowed in ((CAP_123 - 1, CAP_123 - 1), (CAP_123, CAP_123), (CAP_123 + 1, CAP_123)):
-        (line,) = opted_out(other=str(gross), deduction_savings_insurance=str(claim)).deductions
+    for claim, allowed in (
+        (CAP_123 - 1, CAP_123 - 1),
+        (CAP_123, CAP_123),
+        (CAP_123 + 1, CAP_123),
+    ):
+        (line,) = opted_out(
+            other=str(gross), deduction_savings_insurance=str(claim)
+        ).deductions
         assert (line.amount, line.provenance.citation) == (allowed, "123")
 
 
 def test_section_122_2_binds_only_once_the_claim_exceeds_gross_total_income():
     claim = CAP_123
-    (at,) = opted_out(other=str(claim), deduction_savings_insurance=str(claim)).deductions
-    (below,) = opted_out(other=str(claim - 1), deduction_savings_insurance=str(claim)).deductions
+    (at,) = opted_out(
+        other=str(claim), deduction_savings_insurance=str(claim)
+    ).deductions
+    (below,) = opted_out(
+        other=str(claim - 1), deduction_savings_insurance=str(claim)
+    ).deductions
     assert (at.amount, at.provenance.citation) == (claim, "123")
     assert (below.amount, below.provenance.citation) == (claim - 1, "122(2)")
 
@@ -209,8 +234,13 @@ def test_a_nil_claim_writes_no_deduction_line():
 
 
 def test_nil_gross_total_income_writes_no_deduction_line():
-    assert opted_out(salary="50000", deduction_savings_insurance=str(CAP_123)).deductions == ()
-    (line,) = opted_out(other="0.01", deduction_savings_insurance=str(CAP_123)).deductions
+    assert (
+        opted_out(salary="50000", deduction_savings_insurance=str(CAP_123)).deductions
+        == ()
+    )
+    (line,) = opted_out(
+        other="0.01", deduction_savings_insurance=str(CAP_123)
+    ).deductions
     assert (line.amount, line.provenance.citation) == (D("0.01"), "122(2)")
 
 

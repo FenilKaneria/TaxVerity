@@ -396,6 +396,7 @@ VALUE_ACCURACY_FLOOR = 0.90
 STRICT_FLOOR = 0.88
 FABRICATED_SPAN_CEILING = 0.05
 
+
 def test_field_detection_holds_its_floor(measured):
     assert measured.counts.precision >= FIELD_PRECISION_FLOOR
     assert measured.counts.recall >= FIELD_RECALL_FLOOR

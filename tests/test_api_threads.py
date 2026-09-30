@@ -34,7 +34,9 @@ def client(schema, access_tokens):
 
     app = FastAPI()
     app.include_router(threads_router)
-    app.dependency_overrides[app_state] = lambda: SimpleNamespace(access_tokens=access_tokens)
+    app.dependency_overrides[app_state] = lambda: SimpleNamespace(
+        access_tokens=access_tokens
+    )
     app.dependency_overrides[get_conn] = _get_conn_override
     return TestClient(app)
 
@@ -61,7 +63,9 @@ def test_no_auth_header_is_refused(client):
 def test_create_list_get_rename_delete(client, access_tokens, alice):
     headers = _auth(access_tokens, alice)
 
-    created = client.post("/v1/threads", json={"title": "House property"}, headers=headers)
+    created = client.post(
+        "/v1/threads", json={"title": "House property"}, headers=headers
+    )
     assert created.status_code == 201
     thread_id = created.json()["thread_id"]
 
@@ -90,19 +94,27 @@ def test_a_foreign_thread_id_reads_as_not_found(client, access_tokens, alice, bo
     thread_id = created.json()["thread_id"]
 
     bob_headers = _auth(access_tokens, bob)
-    assert client.get(f"/v1/threads/{thread_id}", headers=bob_headers).status_code == 404
+    assert (
+        client.get(f"/v1/threads/{thread_id}", headers=bob_headers).status_code == 404
+    )
     assert (
         client.patch(
             f"/v1/threads/{thread_id}", json={"title": "hijacked"}, headers=bob_headers
         ).status_code
         == 404
     )
-    assert client.delete(f"/v1/threads/{thread_id}", headers=bob_headers).status_code == 404
+    assert (
+        client.delete(f"/v1/threads/{thread_id}", headers=bob_headers).status_code
+        == 404
+    )
     assert (
         client.get(f"/v1/threads/{thread_id}/messages", headers=bob_headers).status_code
         == 404
     )
-    assert client.get(f"/v1/threads/{thread_id}/facts", headers=bob_headers).status_code == 404
+    assert (
+        client.get(f"/v1/threads/{thread_id}/facts", headers=bob_headers).status_code
+        == 404
+    )
     assert (
         client.patch(
             f"/v1/threads/{thread_id}/facts",
@@ -113,15 +125,17 @@ def test_a_foreign_thread_id_reads_as_not_found(client, access_tokens, alice, bo
     )
 
     # Untouched from Alice's own side.
-    still_hers = client.get(f"/v1/threads/{thread_id}", headers=_auth(access_tokens, alice))
+    still_hers = client.get(
+        f"/v1/threads/{thread_id}", headers=_auth(access_tokens, alice)
+    )
     assert still_hers.json()["title"] == "Alice only"
 
 
 def test_facts_edit_round_trips_as_a_stated_override(client, access_tokens, alice):
     headers = _auth(access_tokens, alice)
-    thread_id = client.post(
-        "/v1/threads", json={"title": "t"}, headers=headers
-    ).json()["thread_id"]
+    thread_id = client.post("/v1/threads", json={"title": "t"}, headers=headers).json()[
+        "thread_id"
+    ]
 
     empty = client.get(f"/v1/threads/{thread_id}/facts", headers=headers)
     assert empty.json()["facts"] == {}
@@ -147,14 +161,19 @@ def test_facts_edit_round_trips_as_a_stated_override(client, access_tokens, alic
 
 
 def test_messages_requires_auth(client):
-    assert client.get("/v1/threads/00000000-0000-0000-0000-000000000000/messages").status_code == 401
+    assert (
+        client.get(
+            "/v1/threads/00000000-0000-0000-0000-000000000000/messages"
+        ).status_code
+        == 401
+    )
 
 
 def test_an_empty_thread_has_no_messages(client, access_tokens, alice):
     headers = _auth(access_tokens, alice)
-    thread_id = client.post(
-        "/v1/threads", json={"title": "t"}, headers=headers
-    ).json()["thread_id"]
+    thread_id = client.post("/v1/threads", json={"title": "t"}, headers=headers).json()[
+        "thread_id"
+    ]
 
     empty = client.get(f"/v1/threads/{thread_id}/messages", headers=headers)
     assert empty.status_code == 200
@@ -165,9 +184,9 @@ def test_messages_round_trip_oldest_first_with_citations(
     client, schema, access_tokens, alice
 ):
     headers = _auth(access_tokens, alice)
-    thread_id = client.post(
-        "/v1/threads", json={"title": "t"}, headers=headers
-    ).json()["thread_id"]
+    thread_id = client.post("/v1/threads", json={"title": "t"}, headers=headers).json()[
+        "thread_id"
+    ]
 
     append_message(schema, alice, thread_id, "user", "What is section 19(1)?")
     append_message(
@@ -188,7 +207,9 @@ def test_messages_round_trip_oldest_first_with_citations(
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assert messages[0]["content"] == "What is section 19(1)?"
     assert messages[0]["citations"] == []
-    assert messages[1]["citations"] == [{"marker": None, "path": "19(1)", "quote": None}]
+    assert messages[1]["citations"] == [
+        {"marker": None, "path": "19(1)", "quote": None}
+    ]
     assert messages[1]["message_id"] > messages[0]["message_id"]
 
 
@@ -196,9 +217,9 @@ def test_messages_render_citation_quotes_in_the_new_format(
     client, schema, access_tokens, alice
 ):
     headers = _auth(access_tokens, alice)
-    thread_id = client.post(
-        "/v1/threads", json={"title": "t"}, headers=headers
-    ).json()["thread_id"]
+    thread_id = client.post("/v1/threads", json={"title": "t"}, headers=headers).json()[
+        "thread_id"
+    ]
 
     append_message(schema, alice, thread_id, "user", "What is section 19(1)?")
     append_message(
@@ -217,5 +238,9 @@ def test_messages_render_citation_quotes_in_the_new_format(
     response = client.get(f"/v1/threads/{thread_id}/messages", headers=headers)
     messages = response.json()
     assert messages[1]["citations"] == [
-        {"marker": None, "path": "19(1)", "quote": "a deduction of fifty thousand rupees"}
+        {
+            "marker": None,
+            "path": "19(1)",
+            "quote": "a deduction of fifty thousand rupees",
+        }
     ]

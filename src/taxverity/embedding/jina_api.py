@@ -102,7 +102,9 @@ class JinaAPIEmbedder:
         # other egress path (rule 03, path 4). Document text is public statute,
         # and redacting it would silently move a corpus vector wherever a
         # provision happens to print a nine-digit figure.
-        inputs = [redact(text) for text in texts] if kind is EmbedKind.QUERY else list(texts)
+        inputs = (
+            [redact(text) for text in texts] if kind is EmbedKind.QUERY else list(texts)
+        )
         body = self._post(
             {
                 "model": MODEL_ID,
@@ -124,7 +126,9 @@ class JinaAPIEmbedder:
             indices = [item["index"] for item in data]
             vectors = [item["embedding"] for item in data]
         except (KeyError, TypeError) as error:
-            raise EmbeddingAPIError(f"malformed embeddings response: {error!r}") from error
+            raise EmbeddingAPIError(
+                f"malformed embeddings response: {error!r}"
+            ) from error
         if indices != list(range(len(texts))):
             raise EmbeddingAPIError(
                 f"asked for {len(texts)} vectors, received indices {indices}"
@@ -142,7 +146,9 @@ class JinaAPIEmbedder:
         for attempt in range(1, self._max_attempts + 1):
             delay = self._backoff_base * 2 ** (attempt - 1)
             try:
-                response = self._client.post(API_URL, json=payload, headers=self._headers)
+                response = self._client.post(
+                    API_URL, json=payload, headers=self._headers
+                )
             except httpx2.RequestError as error:
                 last = error
             else:

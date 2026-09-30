@@ -49,6 +49,7 @@ from taxverity.api.app import AppState, app_state, request_deps
 from taxverity.api.deps import get_conn
 from taxverity.api.errors import rate_limited
 from taxverity.generation.claims import ClaimEvent
+from taxverity.graph.nodes import pinned_first
 from taxverity.graph.state import FinalEvent, StageEvent, TraceEntry
 from taxverity.guests.quota import (
     GUEST_TURN_LIMIT,
@@ -57,7 +58,7 @@ from taxverity.guests.quota import (
     record_guest_turn,
 )
 from taxverity.observability import get_logger
-from taxverity.safety.classifier import ScopeCategory
+from taxverity.safety.classifier import Intent, ScopeCategory
 from taxverity.safety.evidence_gate import gate
 
 logger = get_logger(__name__)
@@ -163,7 +164,9 @@ def create_guest_turn_route(
         def timed(node: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
             result = fn(*args, **kwargs)
-            trace.append(TraceEntry(node=node, ms=round((time.perf_counter() - start) * 1000, 1)))
+            trace.append(
+                TraceEntry(node=node, ms=round((time.perf_counter() - start) * 1000, 1))
+            )
             return result
 
         try:
@@ -172,7 +175,9 @@ def create_guest_turn_route(
                 result = timed("classify", deps.classifier.classify, body.question)
                 if result.category is ScopeCategory.CONVERSATIONAL:
                     reply = timed(
-                        "respond_conversational", deps.conversational.reply, body.question
+                        "respond_conversational",
+                        deps.conversational.reply,
+                        body.question,
                     )
                     final = FinalEvent(
                         route=result.category.value,
@@ -196,7 +201,11 @@ def create_guest_turn_route(
                 # getattr, not result.search_query: a test double's classifier
                 # stub may predate R19 Phase B (ADR-120) and not set it.
                 search_query = getattr(result, "search_query", None) or body.question
-                results = timed("retrieve", deps.retriever.search, search_query, deps.pool_k)
+                results = timed(
+                    "retrieve", deps.retriever.search, search_query, deps.pool_k
+                )
+                if getattr(result, "intent", None) is Intent.CALCULATION:
+                    results = pinned_first(deps.calc_pins, results)
                 pack = timed("pack", deps.packer.pack, results, expand=False)
                 yield _sse(
                     StageEvent(

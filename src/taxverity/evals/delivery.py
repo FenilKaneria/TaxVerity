@@ -51,5 +51,7 @@ def judge_expansion(expanded: RunReport, packed: RunReport) -> Verdict:
     before = packed.per_slice[QuerySlice.CROSSREF][CreditMode.LENIENT].recall
     after = expanded.per_slice[QuerySlice.CROSSREF][CreditMode.LENIENT].recall
     if after <= before + TOLERANCE:
-        reasons.append(f"crossref slice lenient recall did not rise ({before:.3f} -> {after:.3f})")
+        reasons.append(
+            f"crossref slice lenient recall did not rise ({before:.3f} -> {after:.3f})"
+        )
     return Verdict(adopted=not reasons, reasons=tuple(reasons))

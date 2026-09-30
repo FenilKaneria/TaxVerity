@@ -34,7 +34,9 @@ def judge_rerank(reranked: RunReport, fusion: RunReport, p95_ms: float) -> Verdi
     the reranker a scheduled build, and the guards ask only whether it is
     configured well."""
     if reranked.k != GUARD_K or fusion.k != GUARD_K:
-        raise ValueError(f"the guard is nDCG@{GUARD_K}; got k={reranked.k} and k={fusion.k}")
+        raise ValueError(
+            f"the guard is nDCG@{GUARD_K}; got k={reranked.k} and k={fusion.k}"
+        )
     if {s.query_id for s in reranked.scored} != {s.query_id for s in fusion.scored}:
         raise ValueError("the two runs do not cover the same queries")
     reasons = []
@@ -95,7 +97,9 @@ def load_rerank_scores(
     ):
         got = getattr(loaded, name)
         if got != want:
-            raise StaleRerankScoresError(f"{path} was scored with {name}={got!r}, not {want!r}")
+            raise StaleRerankScoresError(
+                f"{path} was scored with {name}={got!r}, not {want!r}"
+            )
     missing = [q for q in questions if q not in loaded.scores]
     if missing:
         raise StaleRerankScoresError(

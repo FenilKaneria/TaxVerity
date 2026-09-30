@@ -36,11 +36,17 @@ def judge_loss_fix(
     *,
     fixed: Sequence[str] = SIGN_FAILURES_BEFORE,
 ) -> Verdict:
-    reasons = [f"held-out {t.turn_id} is not clean" for t in holdout.turns if unclean(t)]
+    reasons = [
+        f"held-out {t.turn_id} is not clean" for t in holdout.turns if unclean(t)
+    ]
     after = {t.turn_id: t for t in gold_after.turns}
     if set(after) != {t.turn_id for t in gold_before.turns}:
         raise ValueError("the two gold runs do not cover the same turns")
-    reasons += [f"{turn_id} still has a wrong value" for turn_id in fixed if after[turn_id].value_wrong]
+    reasons += [
+        f"{turn_id} still has a wrong value"
+        for turn_id in fixed
+        if after[turn_id].value_wrong
+    ]
     reasons += [
         f"{t.turn_id} was clean and is not now"
         for t in gold_before.turns
@@ -71,7 +77,11 @@ def judge_context_guard(
     """
     reasons = [
         f"{name} {t.turn_id} has a wrong value"
-        for name, score in (("held-out v1", holdout_v1), ("held-out v2", holdout_v2), ("gold", gold_after))
+        for name, score in (
+            ("held-out v1", holdout_v1),
+            ("held-out v2", holdout_v2),
+            ("gold", gold_after),
+        )
         for t in score.turns
         if t.value_wrong
     ]
@@ -84,7 +94,11 @@ def judge_context_guard(
     after = {t.turn_id: t for t in gold_after.turns}
     if set(after) != {t.turn_id for t in gold_before.turns}:
         raise ValueError("the two gold runs do not cover the same turns")
-    reasons += [f"{turn_id} still has a wrong value" for turn_id in fixed if after[turn_id].value_wrong]
+    reasons += [
+        f"{turn_id} still has a wrong value"
+        for turn_id in fixed
+        if after[turn_id].value_wrong
+    ]
     reasons += [
         f"{t.turn_id} was clean and is not now"
         for t in gold_before.turns

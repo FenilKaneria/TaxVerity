@@ -167,7 +167,9 @@ def _citations(payload: dict[str, Any]) -> list[CitationOut]:
     """A pre-quote message (`payload["citations"]` as bare path strings) still
     needs to render — as a path with no quote, not a crash."""
     return [
-        CitationOut(path=entry, quote=None) if isinstance(entry, str) else CitationOut(**entry)
+        CitationOut(path=entry, quote=None)
+        if isinstance(entry, str)
+        else CitationOut(**entry)
         for entry in payload.get("citations", [])
     ]
 
@@ -188,9 +190,15 @@ def list_messages_route(
             role=message.role,
             content=message.content,
             citations=_citations(dict(message.payload)),
-            withheld=[WithheldOut(**entry) for entry in dict(message.payload).get("withheld", [])],
+            withheld=[
+                WithheldOut(**entry)
+                for entry in dict(message.payload).get("withheld", [])
+            ],
             clarify_questions=list(dict(message.payload).get("clarify_questions", [])),
-            trace=[TraceEntryOut(**entry) for entry in dict(message.payload).get("trace", [])],
+            trace=[
+                TraceEntryOut(**entry)
+                for entry in dict(message.payload).get("trace", [])
+            ],
             structured=bool(dict(message.payload).get("structured", False)),
             created_at=message.created_at,
         )

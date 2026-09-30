@@ -88,7 +88,9 @@ def test_every_single_character_split_gives_the_same_lines():
 @given(st.lists(st.integers(min_value=0, max_value=len(ANSWER)), max_size=12))
 def test_any_split_gives_the_same_claim_sequence(cuts):
     points = sorted(set(cuts))
-    pieces = [ANSWER[a:b] for a, b in zip([0, *points], [*points, len(ANSWER)], strict=True)]
+    pieces = [
+        ANSWER[a:b] for a, b in zip([0, *points], [*points, len(ANSWER)], strict=True)
+    ]
     assert [parse_claim(line) for line in iter_lines(pieces)] == [
         parse_claim(line) for line in ANSWER.split("\n")
     ]
@@ -118,9 +120,7 @@ def test_the_disclaimer_matches_the_safety_policy_doc_verbatim():
     # strip that marker before collapsing whitespace, or it survives as a
     # stray token between words and breaks the substring match.
     lines = Path("docs/SAFETY_POLICY.md").read_text(encoding="utf-8").splitlines()
-    policy = " ".join(
-        " ".join(line.removeprefix(">").split()) for line in lines
-    )
+    policy = " ".join(" ".join(line.removeprefix(">").split()) for line in lines)
     assert " ".join(DISCLAIMER.split()) in policy
 
 

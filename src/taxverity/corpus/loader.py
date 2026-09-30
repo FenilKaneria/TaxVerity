@@ -105,9 +105,7 @@ def write_pages_jsonl(
             digest.update(line.encode("utf-8"))
             count += 1
     artifact_sha256 = digest.hexdigest()
-    logger.info(
-        "wrote %d pages to %s (sha256 %s)", count, destination, artifact_sha256
-    )
+    logger.info("wrote %d pages to %s (sha256 %s)", count, destination, artifact_sha256)
     return count, artifact_sha256
 
 

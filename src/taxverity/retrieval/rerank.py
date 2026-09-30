@@ -109,12 +109,15 @@ class JinaReranker:
         )
         try:
             pairs = [
-                (int(item["index"]), float(item["relevance_score"])) for item in body["results"]
+                (int(item["index"]), float(item["relevance_score"]))
+                for item in body["results"]
             ]
         except (KeyError, TypeError, ValueError) as error:
             raise RerankError(f"malformed rerank response: {error!r}") from error
         if sorted(index for index, _ in pairs) != list(range(len(chunks))):
-            raise RerankError(f"asked to score {len(chunks)} documents, received {len(pairs)}")
+            raise RerankError(
+                f"asked to score {len(chunks)} documents, received {len(pairs)}"
+            )
         if not all(math.isfinite(score) for _, score in pairs):
             raise RerankError("received a non-finite relevance score")
         self.tokens_used += int(body.get("usage", {}).get("total_tokens", 0))
@@ -127,7 +130,9 @@ class JinaReranker:
             delay = self._backoff_base * 2 ** (attempt - 1)
             started = time.perf_counter()
             try:
-                response = self._client.post(API_URL, json=payload, headers=self._headers)
+                response = self._client.post(
+                    API_URL, json=payload, headers=self._headers
+                )
             except httpx2.RequestError as error:
                 last = error
             else:
@@ -140,7 +145,9 @@ class JinaReranker:
                     try:
                         body = response.json()
                     except ValueError as error:
-                        raise RerankError("Jina rerank API returned a body that is not JSON") from error
+                        raise RerankError(
+                            "Jina rerank API returned a body that is not JSON"
+                        ) from error
                     elapsed = (time.perf_counter() - started) * 1000
                     self.latencies_ms.append(elapsed)
                     logger.debug(
@@ -160,7 +167,9 @@ class JinaReranker:
                     delay,
                 )
                 time.sleep(delay)
-        raise RerankError(f"rerank API failed after {self._max_attempts} attempt(s): {last}") from last
+        raise RerankError(
+            f"rerank API failed after {self._max_attempts} attempt(s): {last}"
+        ) from last
 
     def close(self) -> None:
         if self._owns_client:
@@ -196,7 +205,9 @@ class CachedReranker:
             raise ValueError(f"maxsize must be at least 1, not {maxsize}")
         self._inner = inner
         self._maxsize = maxsize
-        self._entries: OrderedDict[tuple[str, frozenset[str]], dict[str, float]] = OrderedDict()
+        self._entries: OrderedDict[tuple[str, frozenset[str]], dict[str, float]] = (
+            OrderedDict()
+        )
         # R21 Part B: sub-query searches run on two threads and share this
         # cache; the lock guards the OrderedDict, never the vendor call.
         self._lock = threading.Lock()
@@ -230,7 +241,9 @@ class RerankRetriever:
     so they rank this retriever's own output and say nothing else (Step 3.3).
     """
 
-    def __init__(self, primary: Retriever, reranker: Reranker, *, depth: int = RERANK_DEPTH) -> None:
+    def __init__(
+        self, primary: Retriever, reranker: Reranker, *, depth: int = RERANK_DEPTH
+    ) -> None:
         if depth < 1:
             raise ValueError(f"depth must be at least 1, not {depth}")
         self._primary = primary
@@ -250,7 +263,9 @@ class RerankRetriever:
             # The query text is never logged: it is user input (rule 03).
             logger.warning("rerank unavailable, keeping the fusion order: %s", error)
             return results[:k]
-        order = sorted(range(len(head)), key=lambda i: (-scores[head[i].chunk.chunk_id], i))
+        order = sorted(
+            range(len(head)), key=lambda i: (-scores[head[i].chunk.chunk_id], i)
+        )
         ranked = [head[i].chunk for i in order] + [result.chunk for result in tail]
         return [
             ScoredChunk(chunk=chunk, score=float(len(ranked) - position))

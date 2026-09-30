@@ -58,7 +58,8 @@ def captured():
 class Scripted:
     def __init__(self, *chunks) -> None:
         self._results = [
-            ScoredChunk(chunk=c, score=float(len(chunks) - i)) for i, c in enumerate(chunks)
+            ScoredChunk(chunk=c, score=float(len(chunks) - i))
+            for i, c in enumerate(chunks)
         ]
 
     def search(self, query: str, k: int):
@@ -101,7 +102,9 @@ def test_a_dense_failure_degrades_to_the_fallback_with_a_warning(captured):
     assert PAN not in record.getMessage(), "the query is user input and is never logged"
 
 
-@pytest.mark.parametrize("error", [RuntimeError("bug"), ValueError("bug"), KeyError("bug")])
+@pytest.mark.parametrize(
+    "error", [RuntimeError("bug"), ValueError("bug"), KeyError("bug")]
+)
 def test_any_other_error_propagates_rather_than_degrading(error):
     """Degrading on a bug would hide it behind a working-looking answer."""
     with pytest.raises(type(error)):
@@ -175,10 +178,13 @@ def test_any_slice_falling_rejects_even_with_an_overall_rise():
     """ADR-010's per-slice clause, with no one-query tolerance: an aggregate that
     hides "hybrid is worse on crossref" is the lie the rule exists to catch."""
     verdict = judge_hybrid(
-        report(0.80, 0.70, crossref=0.75), {"dense": report(0.758, 0.673, crossref=0.76)}
+        report(0.80, 0.70, crossref=0.75),
+        {"dense": report(0.758, 0.673, crossref=0.76)},
     )
     assert not verdict.adopted
-    assert verdict.reasons == ("vs dense: crossref slice lenient recall fell 0.760 -> 0.750",)
+    assert verdict.reasons == (
+        "vs dense: crossref slice lenient recall fell 0.760 -> 0.750",
+    )
 
 
 def test_a_recall_rise_bought_with_an_ndcg_fall_is_rejected():
@@ -188,7 +194,9 @@ def test_a_recall_rise_bought_with_an_ndcg_fall_is_rejected():
 
 def test_matching_an_incumbent_exactly_is_not_a_win():
     verdict = judge_hybrid(report(0.758, 0.673), {"dense": DENSE})
-    assert verdict.reasons == ("vs dense: neither lenient recall nor lenient nDCG rose",)
+    assert verdict.reasons == (
+        "vs dense: neither lenient recall nor lenient nDCG rose",
+    )
 
 
 def test_no_incumbent_or_a_different_k_is_refused():
@@ -211,8 +219,12 @@ def test_cached_vectors_round_trip_byte_identically(tmp_path):
     original = cache(rent=(0.6, 0.8), salary=(1.0, 0.0))
     first, second = tmp_path / "a.json", tmp_path / "b.json"
     write_query_vectors(first, original)
-    write_query_vectors(second, load_query_vectors(first, model=MODEL, questions=["rent"]))
-    assert load_query_vectors(first, model=MODEL, questions=["rent", "salary"]) == original
+    write_query_vectors(
+        second, load_query_vectors(first, model=MODEL, questions=["rent"])
+    )
+    assert (
+        load_query_vectors(first, model=MODEL, questions=["rent", "salary"]) == original
+    )
     assert first.read_bytes() == second.read_bytes()
 
 
@@ -230,7 +242,9 @@ def test_a_question_without_a_vector_is_refused(tmp_path):
     path = tmp_path / "q.json"
     write_query_vectors(path, cache(rent=(1.0,)))
     with pytest.raises(StaleVectorStoreError, match="no vector for 1"):
-        load_query_vectors(path, model=MODEL, questions=["rent", "rent paid to my mother"])
+        load_query_vectors(
+            path, model=MODEL, questions=["rent", "rent paid to my mother"]
+        )
 
 
 def test_the_cached_retriever_searches_the_stored_vector_and_never_embeds():
@@ -251,7 +265,11 @@ def test_the_cached_retriever_searches_the_stored_vector_and_never_embeds():
 @pytest.fixture(scope="module")
 def measured(gold, retrieval_legs):
     index, dense, bm25, shortcut = retrieval_legs
-    legs = (("bm25", bm25), ("dense", dense), ("hybrid", FusionRetriever([dense, bm25])))
+    legs = (
+        ("bm25", bm25),
+        ("dense", dense),
+        ("hybrid", FusionRetriever([dense, bm25])),
+    )
     return {
         name: measure(
             name, ShortcutRetriever(shortcut, leg), gold, index, ordinal_scores=True

@@ -34,7 +34,9 @@ class ChunkBuild(NamedTuple):
 
 def read_corpus_version(manifest: Path) -> str:
     if not manifest.exists():
-        logger.warning("no %s — chunk ids in this run are not corpus-versioned", manifest)
+        logger.warning(
+            "no %s — chunk ids in this run are not corpus-versioned", manifest
+        )
         return UNVERSIONED
     return json.loads(manifest.read_text(encoding="utf-8"))["corpus_version"]
 

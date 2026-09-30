@@ -103,7 +103,9 @@ class FailureClassifier:
         """One failure per required label that no packed citation credits
         leniently, in label order."""
         if not required:
-            raise ValueError(f"{query_id} carries no label; negatives are not classified")
+            raise ValueError(
+                f"{query_id} carries no label; negatives are not classified"
+            )
         for citation in (*required, *pool, *packed):
             self._chunk(citation)
         lenient = CreditMode.LENIENT
@@ -113,8 +115,12 @@ class FailureClassifier:
                 continue
             others = [other for other in required if other != label]
             # Units carrying some other part of the answer, whole or in part.
-            support = [unit for unit in packed if any(_related(unit, o) for o in others)]
-            descendants = tuple(unit for unit in packed if credits(label, unit, lenient))
+            support = [
+                unit for unit in packed if any(_related(unit, o) for o in others)
+            ]
+            descendants = tuple(
+                unit for unit in packed if credits(label, unit, lenient)
+            )
             in_pool = tuple(hit for hit in pool if credits(hit, label, lenient))
             forward = tuple(unit for unit in support if self.cites(unit, label))
             backward = tuple(unit for unit in support if self.cites(label, unit))
@@ -148,7 +154,9 @@ class FailureCohorts(BaseModel):
 
 
 def cohorts_of(failures: Iterable[LabelFailure]) -> FailureCohorts:
-    grouped: dict[FailureCategory, list[tuple[str, str]]] = {c: [] for c in FailureCategory}
+    grouped: dict[FailureCategory, list[tuple[str, str]]] = {
+        c: [] for c in FailureCategory
+    }
     for failure in failures:
         grouped[failure.category].append((failure.query_id, failure.label))
     return FailureCohorts(

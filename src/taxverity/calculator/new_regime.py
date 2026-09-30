@@ -44,17 +44,26 @@ class NewRegimeTax:
         if deducted > self.salary:
             raise ValueError("the standard deduction exceeds the salary")
         if self.slab.total_income != self.salary - deducted + self.other_income:
-            raise ValueError("total income is not salary less the standard deduction plus other income")
+            raise ValueError(
+                "total income is not salary less the standard deduction plus other income"
+            )
         rebated = self.rebate.amount if self.rebate else _ZERO
         if not _ZERO <= rebated <= self.slab.tax:
             raise ValueError("the rebate exceeds the income-tax it is deducted from")
-        if self.payable.amount != round_to_multiple(self.slab.tax - rebated, Decimal(10)):
+        if self.payable.amount != round_to_multiple(
+            self.slab.tax - rebated, Decimal(10)
+        ):
             raise ValueError("the amount payable is not the rounded tax after rebate")
 
     def lines(self) -> tuple[LineItem, ...]:
         return tuple(
             line
-            for line in (self.standard_deduction, *self.slab.lines(), self.rebate, self.payable)
+            for line in (
+                self.standard_deduction,
+                *self.slab.lines(),
+                self.rebate,
+                self.payable,
+            )
             if line is not None
         )
 
@@ -115,7 +124,11 @@ def _rebate(rates: TaxYearRates, slab: SlabTax) -> LineItem | None:
         amount = min(tax, maximum.value)
         if amount == 0:
             return None
-        return LineItem(label="Rebate on income not exceeding twelve lakh rupees", amount=amount, provenance=maximum.provenance)
+        return LineItem(
+            label="Rebate on income not exceeding twelve lakh rupees",
+            amount=amount,
+            provenance=maximum.provenance,
+        )
 
     threshold = rates.value("rebate_new_regime_marginal_relief_threshold")
     excess = income - threshold.value
@@ -130,12 +143,16 @@ def _rebate(rates: TaxYearRates, slab: SlabTax) -> LineItem | None:
     )
 
 
-def _not_allowed(rates: TaxYearRates, claimed: dict[str, Decimal]) -> tuple[LineItem, ...]:
+def _not_allowed(
+    rates: TaxYearRates, claimed: dict[str, Decimal]
+) -> tuple[LineItem, ...]:
     lines = []
     for name, amount in sorted(claimed.items()):
         require_amount(amount, name)
         if name not in rates.not_allowed_under_202_1:
-            raise KeyError(f"{name} is not a deduction this computation knows to exclude")
+            raise KeyError(
+                f"{name} is not a deduction this computation knows to exclude"
+            )
         if amount == 0:
             continue
         entry = rates.not_allowed_under_202_1[name]

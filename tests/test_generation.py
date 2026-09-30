@@ -17,9 +17,11 @@ import pytest
 from taxverity.calculator.scope import CalculatorInputs, run
 from taxverity.generation.claims import ClaimEvent, WithheldEvent, parse_claim
 from taxverity.generation.generate import (
+    CALCULATION_PENDING_NOTE,
     SYSTEM_PROMPT,
     AnswerGenerator,
     render_computation,
+    render_context,
 )
 from taxverity.generation.verifier import Verifier
 from taxverity.llm.client import GROQ, Completion, LLMClient, LLMUnavailable, Usage
@@ -44,7 +46,12 @@ def answer(*lines: str) -> str:
 
 def completion(text: str) -> Completion:
     return Completion(
-        text=text, provider="fake", model="fake", finish_reason="stop", usage=Usage(), degraded=False
+        text=text,
+        provider="fake",
+        model="fake",
+        finish_reason="stop",
+        usage=Usage(),
+        degraded=False,
     )
 
 
@@ -214,7 +221,10 @@ def test_no_repair_call_when_every_line_passes():
 
 
 def test_at_most_one_repair_call_however_many_lines_fail():
-    llm = FakeLLM(answer(FABRICATED, UNSUPPORTED, NO_BASIS_LINE + " [1]"), answer(GOOD, GOOD, GOOD))
+    llm = FakeLLM(
+        answer(FABRICATED, UNSUPPORTED, NO_BASIS_LINE + " [1]"),
+        answer(GOOD, GOOD, GOOD),
+    )
     generate(llm)
     assert len(llm.calls) == 2
 
@@ -257,10 +267,21 @@ def test_injected_instructions_in_the_question_cannot_release_an_uncited_claim()
 
 def test_the_real_client_composes_with_generation():
     body = json.dumps(
-        {"choices": [{"message": {"content": answer(GOOD, ALSO_GOOD)}, "finish_reason": "stop"}]}
+        {
+            "choices": [
+                {
+                    "message": {"content": answer(GOOD, ALSO_GOOD)},
+                    "finish_reason": "stop",
+                }
+            ]
+        }
     )
-    transport = httpx2.MockTransport(lambda request: httpx2.Response(200, content=body.encode()))
-    llm = LLMClient(GROQ, "test-key-not-real", http_client=httpx2.Client(transport=transport))
+    transport = httpx2.MockTransport(
+        lambda request: httpx2.Response(200, content=body.encode())
+    )
+    llm = LLMClient(
+        GROQ, "test-key-not-real", http_client=httpx2.Client(transport=transport)
+    )
     events = AnswerGenerator(llm, CHUNKS).generate(QUESTION, PACK)
     assert [e.id for e in events] == [1, 2]
     assert all(isinstance(e, ClaimEvent) for e in events)
@@ -293,7 +314,9 @@ def test_an_example_that_invents_a_limit_is_withheld_after_repair_fails():
 
 def test_the_request_and_previous_answer_reach_the_prompt_as_data():
     llm = FakeLLM(answer(GOOD))
-    generate(llm, request="give examples please", previous_answer="Loss can be set off.")
+    generate(
+        llm, request="give examples please", previous_answer="Loss can be set off."
+    )
     user_message = llm.calls[0][0][1].content
     assert "<latest_message>\ngive examples please\n</latest_message>" in user_message
     assert "<previous_answer>\nLoss can be set off.\n</previous_answer>" in user_message
@@ -309,7 +332,9 @@ def test_a_previous_answer_never_grounds_a_number():
 
 
 def test_surplus_unknown_lines_are_dropped_not_released():
-    second_unknown = "This can't yet be determined because the annual value is not known [1]."
+    second_unknown = (
+        "This can't yet be determined because the annual value is not known [1]."
+    )
     llm = FakeLLM(answer(GOOD, UNKNOWN_LINE, second_unknown))
     events = generate(llm, analysis=ANALYSIS)
     assert len(events) == 2
@@ -351,7 +376,9 @@ def test_a_marker_within_the_pack_is_never_renumbered():
 
     assert renumber_section_markers("x [2].", {"2": (1,)}, pack_size=2) == "x [2]."
     assert renumber_section_markers("x [99].", {"24": (2,)}, pack_size=2) == "x [99]."
-    assert renumber_section_markers("x [24].", {"24": (2, 3)}, pack_size=3) == "x [2][3]."
+    assert (
+        renumber_section_markers("x [24].", {"24": (2, 3)}, pack_size=3) == "x [2][3]."
+    )
 
 
 def test_a_worked_example_mislabelled_calc_is_verified_as_an_example():
@@ -364,3 +391,39 @@ def test_a_worked_example_mislabelled_calc_is_verified_as_an_example():
     invented = "- Suppose your loss is ₹6,00,000; the limit is ₹5,00,000 [2][calc]."
     events = generate(FakeLLM(answer(invented), answer(invented)))
     assert events == [WithheldEvent(id=1, reason="invented_law")]
+
+
+# --- a calculation still waiting on the person's income ----------------------
+
+
+def test_the_pending_note_is_rendered_only_when_asked_and_nothing_was_computed():
+    with_note = render_context(QUESTION, PACK, None, None, calculation_pending=True)
+    assert "<calculation_pending>\n" + CALCULATION_PENDING_NOTE in with_note
+    assert "<calculation_pending>" not in render_context(QUESTION, PACK, None, None)
+
+
+def test_a_computation_outranks_the_pending_note():
+    computation = run(
+        CalculatorInputs(
+            tax_year="2026-27",
+            salary=Decimal("1500000"),
+            other_income=Decimal("0"),
+            resident_individual=True,
+            claimed={},
+            tax_deducted_at_source=None,
+            advance_tax=None,
+        )
+    )
+    context = render_context(
+        QUESTION, PACK, None, computation, calculation_pending=True
+    )
+    assert "<calculation_pending>" not in context
+    assert "<computation>" in context
+
+
+def test_the_pending_note_reaches_the_model_as_user_data_not_system_text():
+    llm = FakeLLM(GOOD)
+    AnswerGenerator(llm, CHUNKS).generate(QUESTION, PACK, calculation_pending=True)
+    system, user = llm.calls[0][0]
+    assert CALCULATION_PENDING_NOTE not in system.content
+    assert CALCULATION_PENDING_NOTE in user.content

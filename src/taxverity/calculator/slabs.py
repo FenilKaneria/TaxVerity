@@ -34,8 +34,13 @@ class LineItem:
     def __post_init__(self) -> None:
         if (self.basis is None) != (self.rate_percent is None):
             raise ValueError("a rate line carries both its basis and its rate")
-        if self.rate_percent is not None and self.amount != self.basis * self.rate_percent / _HUNDRED:
-            raise ValueError(f"{self.label}: {self.amount} is not {self.rate_percent}% of {self.basis}")
+        if (
+            self.rate_percent is not None
+            and self.amount != self.basis * self.rate_percent / _HUNDRED
+        ):
+            raise ValueError(
+                f"{self.label}: {self.amount} is not {self.rate_percent}% of {self.basis}"
+            )
 
 
 @dataclass(frozen=True)
@@ -47,7 +52,10 @@ class SlabTax:
     tax: Decimal
 
     def __post_init__(self) -> None:
-        if sum((band.basis for band in self.bands), Decimal(0)) != self.rounded_income.amount:
+        if (
+            sum((band.basis for band in self.bands), Decimal(0))
+            != self.rounded_income.amount
+        ):
             raise ValueError("the bands do not cover the rounded total income exactly")
         if sum((band.amount for band in self.bands), Decimal(0)) != self.tax:
             raise ValueError("the tax is not the sum of its bands")
@@ -69,7 +77,9 @@ def require_amount(value: Decimal, what: str) -> Decimal:
     if not isinstance(value, Decimal):
         raise SlabInputError(f"{what} must be a Decimal, not {type(value).__name__}")
     if not value.is_finite() or value < 0:
-        raise SlabInputError(f"{what} must be a finite amount of at least zero, not {value}")
+        raise SlabInputError(
+            f"{what} must be a finite amount of at least zero, not {value}"
+        )
     return value
 
 

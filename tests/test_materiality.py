@@ -102,7 +102,9 @@ def test_an_unknown_head_or_unnamed_deduction_is_asked_on_its_own(name):
 
 def test_unknown_heads_are_asked_one_question_each():
     result = probed(**{name.value: None for name in ROUTE_CHANGING_FIELDS})
-    assert [f.field for f in result.by_outcome(Outcome.ASK)] == list(ROUTE_CHANGING_FIELDS)
+    assert [f.field for f in result.by_outcome(Outcome.ASK)] == list(
+        ROUTE_CHANGING_FIELDS
+    )
 
 
 @pytest.mark.parametrize("name", CLAIM_FIELDS)
@@ -136,7 +138,10 @@ def test_unknown_tax_paid_computes_the_tax_but_no_balance(unknown):
 def test_an_unknown_tax_year_is_the_only_year_with_data():
     result = probed(tax_year=None)
     (finding,) = result.findings
-    assert (finding.reason, finding.assumed) == (Reason.ONLY_TAX_YEAR_WITH_DATA, "2026-27")
+    assert (finding.reason, finding.assumed) == (
+        Reason.ONLY_TAX_YEAR_WITH_DATA,
+        "2026-27",
+    )
     assert result.inputs.tax_year == "2026-27"
 
 
@@ -173,7 +178,9 @@ def test_the_sweep_agrees_with_computing_both_statuses_directly(salary):
     # hand-picked threshold would drift from the Act's arithmetic.
     rates = load_rates("2026-27")
     taxes = {
-        new_regime_tax(rates, salary=D(salary), other_income=D(0), resident_individual=resident).payable.amount
+        new_regime_tax(
+            rates, salary=D(salary), other_income=D(0), resident_individual=resident
+        ).payable.amount
         for resident in (True, False)
     }
     (finding,) = probed(residential_status=None, salary_income=D(salary)).findings
@@ -204,8 +211,13 @@ def test_an_inferred_fact_is_used_as_a_value_in_the_sweep():
 
 def test_a_probed_result_is_computed_with_its_assumptions():
     changes = {n.value: None for n in (*CLAIM_FIELDS, *PAID_FIELDS)}
-    result = probed(tax_year=None, residential_status=None, salary_income=D("3000000"), **changes)
-    assert {f.outcome for f in result.findings} == {Outcome.ASSUME, Outcome.NOT_COMPUTED}
+    result = probed(
+        tax_year=None, residential_status=None, salary_income=D("3000000"), **changes
+    )
+    assert {f.outcome for f in result.findings} == {
+        Outcome.ASSUME,
+        Outcome.NOT_COMPUTED,
+    }
     computation = run(result.inputs)
     assert computation.settlement is None
     assert computation.comparison.under_202_1.rebate is None
@@ -221,9 +233,22 @@ def test_unmapped_facts_never_reach_the_probe():
     "kwargs",
     [
         {"field": F.RESIDENTIAL_STATUS, "reason": Reason.TAX_DIFFERS},
-        {"field": F.RESIDENTIAL_STATUS, "reason": Reason.TAX_DIFFERS, "spread": (D(1), D(1))},
-        {"field": F.RESIDENTIAL_STATUS, "reason": Reason.TAX_SAME, "spread": (D(0), D(1)), "assumed": "x"},
-        {"field": F.SALARY_INCOME, "reason": Reason.INCOME_UNBOUNDED, "spread": (D(0), D(0))},
+        {
+            "field": F.RESIDENTIAL_STATUS,
+            "reason": Reason.TAX_DIFFERS,
+            "spread": (D(1), D(1)),
+        },
+        {
+            "field": F.RESIDENTIAL_STATUS,
+            "reason": Reason.TAX_SAME,
+            "spread": (D(0), D(1)),
+            "assumed": "x",
+        },
+        {
+            "field": F.SALARY_INCOME,
+            "reason": Reason.INCOME_UNBOUNDED,
+            "spread": (D(0), D(0)),
+        },
         {"field": F.TAX_YEAR, "reason": Reason.ONLY_TAX_YEAR_WITH_DATA},
         {"field": F.SALARY_INCOME, "reason": Reason.INCOME_UNBOUNDED, "assumed": D(0)},
     ],

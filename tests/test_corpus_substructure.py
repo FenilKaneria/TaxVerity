@@ -1,4 +1,3 @@
-
 import pytest
 
 from taxverity.corpus.nodes import NodePath, NodeType, StatutoryNode
@@ -91,7 +90,12 @@ def test_a_deeper_list_closes_when_its_parent_resumes():
         "(2) Second.",
     )
     assert citations(grown) == [
-        "9(1)", "9(1)(a)", "9(1)(a)(i)", "9(1)(a)(ii)", "9(1)(b)", "9(2)",
+        "9(1)",
+        "9(1)(a)",
+        "9(1)(a)(i)",
+        "9(1)(a)(ii)",
+        "9(1)(b)",
+        "9(2)",
     ]
 
 
@@ -116,7 +120,10 @@ def test_a_repeated_alphabet_nests_when_the_line_above_announces_a_list():
         "416", "416. (1) x", *outer, "(g) on oath that—", "(a) a;", "(b) b,", "(h) h;"
     )
     assert citations(grown)[-4:] == [
-        "416(1)(g)", "416(1)(g)(a)", "416(1)(g)(b)", "416(1)(h)",
+        "416(1)(g)",
+        "416(1)(g)(a)",
+        "416(1)(g)(b)",
+        "416(1)(h)",
     ]
 
 
@@ -154,7 +161,9 @@ def test_the_veto_only_applies_to_the_reference_vocabulary():
 
 def test_a_marker_fenced_by_the_amendment_brackets_still_opens_a_level():
     """A missed "[" cascades: section 66 lost 36 nodes to one of them."""
-    grown, _ = tree("66", "66. In this Part,—", '[(1) "a" means x;]', '(2) "b" means y;')
+    grown, _ = tree(
+        "66", "66. In this Part,—", '[(1) "a" means x;]', '(2) "b" means y;'
+    )
     assert citations(grown) == ["66(1)", "66(2)"]
 
 
@@ -356,8 +365,10 @@ def test_a_level_only_ever_opens_at_its_alphabets_first_marker(sub):
         for section in sub.sections
         for parent in section.walk()
         if parent.children
-        and not any(opens(kind, parent.children[0].marker)
-                    for kind in kinds_for(parent.children[0].marker))
+        and not any(
+            opens(kind, parent.children[0].marker)
+            for kind in kinds_for(parent.children[0].marker)
+        )
     ]
     assert late == []
 

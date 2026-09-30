@@ -117,7 +117,9 @@ class BM25Retriever:
                 continue
             idf = self._idf[token]
             for index, frequency in postings.items():
-                norm = 1 - self._b + self._b * self._lengths[index] / self._average_length
+                norm = (
+                    1 - self._b + self._b * self._lengths[index] / self._average_length
+                )
                 weight = frequency * (self._k1 + 1) / (frequency + self._k1 * norm)
                 scores[index] = scores.get(index, 0.0) + query_weight * idf * weight
 

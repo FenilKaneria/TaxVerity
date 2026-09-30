@@ -18,14 +18,19 @@ BRIDGE_SCORES_FILENAME = "bridge_rerank_scores.json"
 Delivered = Mapping[str, frozenset[str]]
 
 
-def delivered(gold: Iterable[GoldQuery], packs: Mapping[str, Sequence[str]]) -> dict[str, frozenset[str]]:
+def delivered(
+    gold: Iterable[GoldQuery], packs: Mapping[str, Sequence[str]]
+) -> dict[str, frozenset[str]]:
     """Per answerable question, the labels some delivered unit credits
     leniently (ADR-060)."""
     return {
         query.query_id: frozenset(
             label
             for label in query.required
-            if any(credits(unit, label, CreditMode.LENIENT) for unit in packs[query.query_id])
+            if any(
+                credits(unit, label, CreditMode.LENIENT)
+                for unit in packs[query.query_id]
+            )
         )
         for query in gold
         if query.slice is not QuerySlice.NEGATIVE
@@ -64,7 +69,9 @@ def judge_bridge(
         reasons.append(f"recovered none of the {len(cohort)} vocabulary labels")
     reasons += [f"{q} lost {label}" for q, label in lost(before, after)]
     if expanded_citation_queries:
-        reasons.append(f"rewrote citation-slice questions: {', '.join(expanded_citation_queries)}")
+        reasons.append(
+            f"rewrote citation-slice questions: {', '.join(expanded_citation_queries)}"
+        )
     return Verdict(adopted=not reasons, reasons=tuple(reasons))
 
 

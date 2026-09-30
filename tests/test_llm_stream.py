@@ -24,13 +24,20 @@ from taxverity.observability import PAN_MASK
 
 KEY = "test-key-not-real"
 PAN = "ABCDE1234F"
-ASK = [Message(role="user", content=f"My PAN is {PAN}. What does section 22(1)(a) allow?")]
+ASK = [
+    Message(role="user", content=f"My PAN is {PAN}. What does section 22(1)(a) allow?")
+]
 
 
-def sse(*deltas: str, usage: bool = True, done: bool = True, model: str = GROQ.model) -> bytes:
+def sse(
+    *deltas: str, usage: bool = True, done: bool = True, model: str = GROQ.model
+) -> bytes:
     lines = []
     for delta in deltas:
-        chunk = {"model": model, "choices": [{"delta": {"content": delta}, "finish_reason": None}]}
+        chunk = {
+            "model": model,
+            "choices": [{"delta": {"content": delta}, "finish_reason": None}],
+        }
         lines.append(f"data: {json.dumps(chunk)}\n\n")
     final = {"model": model, "choices": [{"delta": {}, "finish_reason": "stop"}]}
     if usage:
@@ -114,7 +121,9 @@ def test_a_retryable_status_before_the_first_token_is_retried():
 
 
 def test_a_malformed_chunk_before_the_first_token_is_retried():
-    recorder = Recorder(httpx2.Response(200, content=b"data: {not json\n\n"), ok("fine"))
+    recorder = Recorder(
+        httpx2.Response(200, content=b"data: {not json\n\n"), ok("fine")
+    )
     assert list(client(recorder).stream(ASK)) == ["fine"]
 
 
@@ -183,7 +192,9 @@ def test_a_cached_stream_replays_without_a_request(tmp_path):
     assert first == second == '{"a": 1}\n{"b": 2}'
     assert len(recorder.requests) == 1
     assert (cached.hits, cached.misses) == (1, 1)
-    assert PAN not in "".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
+    assert PAN not in "".join(
+        path.read_text(encoding="utf-8") for path in tmp_path.iterdir()
+    )
 
 
 def test_an_interrupted_stream_is_not_cached(tmp_path):

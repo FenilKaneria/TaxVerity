@@ -14,7 +14,9 @@ def test_every_micro_chunk_comes_back_in_corpus_order(schema):
 
     loaded = load_chunks_from_db(schema, MICRO_V1)
 
-    assert [chunk.node_path for chunk in loaded] == [chunk.node_path for chunk in chunks]
+    assert [chunk.node_path for chunk in loaded] == [
+        chunk.node_path for chunk in chunks
+    ]
     assert [chunk.text for chunk in loaded] == [chunk.text for chunk in chunks]
 
 

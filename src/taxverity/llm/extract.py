@@ -96,7 +96,7 @@ SYSTEM_PROMPT = (
     'negative, for example "-50000".\n\n'
     "The fields are: " + _SHAPE + "\n\n"
     'The "situation_facts" array: ' + _SITUATION_SHAPE + " It never carries "
-    "status \"missing\" — leave a situation fact out entirely rather than "
+    'status "missing" — leave a situation fact out entirely rather than '
     "reporting it as missing, since there is no fixed list to be exhaustive "
     "over. If the message contains no such fact, return an empty array."
 )
@@ -212,7 +212,9 @@ class FactExtractor:
         defaults (Groq 120b / Gemini) — pass them to run this node against a
         different pair, e.g. Groq's 20b model.
         """
-        client: Any = LLMClient.from_settings(settings, primary=primary, fallback=fallback)
+        client: Any = LLMClient.from_settings(
+            settings, primary=primary, fallback=fallback
+        )
         if cache:
             client = CachedLLMClient(client, settings.llm_cache_dir)
         if trace:

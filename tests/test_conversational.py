@@ -13,9 +13,11 @@ from __future__ import annotations
 import json
 
 import httpx2
+import pytest
 
 from taxverity.llm.client import GROQ, LLMClient, LLMUnavailable
 from taxverity.llm.conversational import (
+    CAPABILITY_REPLY,
     CONVERSATIONAL_FALLBACK,
     CONVERSATIONAL_STAGE_VERSION,
     Conversationalist,
@@ -31,7 +33,10 @@ def ok(text: str) -> httpx2.Response:
         json={
             "model": GROQ.model,
             "choices": [
-                {"message": {"role": "assistant", "content": text}, "finish_reason": "stop"}
+                {
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": "stop",
+                }
             ],
             "usage": {
                 "prompt_tokens": 40,
@@ -89,7 +94,44 @@ def test_a_provider_failure_falls_back_to_the_fixed_template():
 
 def test_a_statutory_looking_reply_falls_back_to_the_fixed_template():
     node, _ = build(ok("Section 19 gives you a standard deduction."))
-    assert node.reply("what can you do?") == CONVERSATIONAL_FALLBACK
+    assert node.reply("good morning, nice to meet you") == CONVERSATIONAL_FALLBACK
+
+
+# --- capability questions: a fixed text, never an LLM call ---------------------
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "what can you do?",
+        "Hello what can you do",
+        "give example question and answer so that i can understand what types "
+        "of question you can answer",
+        "can you help me file a income tax return?",
+        "who are you",
+        "how do I use this?",
+        "what can I ask?",
+    ],
+)
+def test_a_capability_question_gets_the_fixed_text_without_a_call(question):
+    node, recorder = build()
+    assert node.reply(question) == CAPABILITY_REPLY
+    assert recorder.requests == []
+
+
+@pytest.mark.parametrize(
+    "question", ["hi", "thanks, that's really helpful", "hello there"]
+)
+def test_small_talk_still_goes_to_the_model(question):
+    node, recorder = build(ok("Hello! Ask me anything about the Act."))
+    assert node.reply(question) == "Hello! Ask me anything about the Act."
+    assert len(recorder.requests) == 1
+
+
+def test_the_capability_text_names_the_calculation_limit_and_examples():
+    assert "new regime" in CAPABILITY_REPLY
+    assert "old-regime tax, surcharge and cess" in CAPABILITY_REPLY
+    assert CAPABILITY_REPLY.count('• "') == 4
 
 
 # --- _looks_statutory ---------------------------------------------------------

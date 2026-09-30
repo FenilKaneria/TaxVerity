@@ -44,14 +44,22 @@ def _streaming_deps(schema, generator):
     return deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
+            classify=lambda q: SimpleNamespace(
+                category=ScopeCategory.IN_SCOPE, response=None, search_query=q
+            )
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(
+                query=q, rewritten=False, completion=None
+            )
         ),
         extractor=SimpleNamespace(
             extract=lambda turn: ExtractionResult(
-                facts=UserFacts(facts=()), rejections=(), repairable=(), repaired=False, completions=()
+                facts=UserFacts(facts=()),
+                rejections=(),
+                repairable=(),
+                repaired=False,
+                completions=(),
             )
         ),
         retriever=SimpleNamespace(search=lambda query, k: PACK_RESULTS),

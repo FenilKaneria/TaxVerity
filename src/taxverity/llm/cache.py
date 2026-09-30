@@ -99,7 +99,9 @@ class CachedLLMClient:
             self.hits += 1
             return iter(stored.text.splitlines(keepends=True))
         self.misses += 1
-        return self._stream_and_store(path, request, messages, max_completion_tokens, temperature)
+        return self._stream_and_store(
+            path, request, messages, max_completion_tokens, temperature
+        )
 
     def _stream_and_store(
         self,
@@ -110,7 +112,9 @@ class CachedLLMClient:
         temperature: float | None,
     ) -> Iterator[str]:
         inner = self._inner.stream(
-            messages, max_completion_tokens=max_completion_tokens, temperature=temperature
+            messages,
+            max_completion_tokens=max_completion_tokens,
+            temperature=temperature,
         )
         yield from inner
         if inner.completion is not None:

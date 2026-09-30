@@ -35,19 +35,41 @@ class Settlement:
         if (self.balance_payable is None) == (self.refund_due is None):
             raise ValueError("a settlement is either a balance payable or a refund due")
         net = self.payable.amount - self.prepaid
-        if self.balance_payable and (net < 0 or self.balance_payable.amount != round_to_multiple(net, Decimal(10))):
-            raise ValueError("the balance payable is not the rounded tax less what was paid")
-        if self.refund_due and (net >= 0 or self.refund_due.amount != round_to_multiple(-net, Decimal(10))):
-            raise ValueError("the refund due is not the rounded excess of what was paid")
+        if self.balance_payable and (
+            net < 0
+            or self.balance_payable.amount != round_to_multiple(net, Decimal(10))
+        ):
+            raise ValueError(
+                "the balance payable is not the rounded tax less what was paid"
+            )
+        if self.refund_due and (
+            net >= 0 or self.refund_due.amount != round_to_multiple(-net, Decimal(10))
+        ):
+            raise ValueError(
+                "the refund due is not the rounded excess of what was paid"
+            )
 
     @property
     def prepaid(self) -> Decimal:
-        return sum((line.amount for line in (self.tax_deducted_at_source, self.advance_tax) if line), _ZERO)
+        return sum(
+            (
+                line.amount
+                for line in (self.tax_deducted_at_source, self.advance_tax)
+                if line
+            ),
+            _ZERO,
+        )
 
     def lines(self) -> tuple[LineItem, ...]:
         return tuple(
             line
-            for line in (self.payable, self.tax_deducted_at_source, self.advance_tax, self.balance_payable, self.refund_due)
+            for line in (
+                self.payable,
+                self.tax_deducted_at_source,
+                self.advance_tax,
+                self.balance_payable,
+                self.refund_due,
+            )
             if line is not None
         )
 
@@ -71,7 +93,11 @@ def settle(
         )
     advance = None
     if advance_tax > 0:
-        advance = LineItem(label="Less advance tax paid", amount=advance_tax, provenance=rates.rule("advance_tax_adjusted"))
+        advance = LineItem(
+            label="Less advance tax paid",
+            amount=advance_tax,
+            provenance=rates.rule("advance_tax_adjusted"),
+        )
 
     net = under_202_1.payable.amount - tax_deducted_at_source - advance_tax
     rounding = rates.value("rounding_multiple")

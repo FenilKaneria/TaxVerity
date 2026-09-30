@@ -253,7 +253,13 @@ def _section_citations(group_text: str) -> list[str]:
         brackets = _clean(match.group("brackets") or match.group("inherited") or "")
 
         if number is not None:
-            if sep and sep.lower() == "to" and previous_plain and not brackets and _is_plain(number):
+            if (
+                sep
+                and sep.lower() == "to"
+                and previous_plain
+                and not brackets
+                and _is_plain(number)
+            ):
                 # ``previous_plain`` was already appended as its own citation
                 # on the prior iteration -- only the rest of the range is new.
                 citations.extend(_int_range(previous_plain, number)[1:])
@@ -274,7 +280,10 @@ def _section_citations(group_text: str) -> list[str]:
 
 
 def _schedule_citations(group_text: str) -> list[str]:
-    return [f"Schedule {match.group('num')}" for match in SCHEDULE_TOKEN.finditer(group_text)]
+    return [
+        f"Schedule {match.group('num')}"
+        for match in SCHEDULE_TOKEN.finditer(group_text)
+    ]
 
 
 _SELF_REF_TYPE_SET = frozenset(SELF_REF_TYPES.values())
@@ -303,9 +312,7 @@ def scan_references(text: str) -> list[ScannedReference]:
     found: list[ScannedReference] = []
     consumed: list[tuple[int, int]] = []
 
-    def take(
-        ref_type: RefType, match: re.Match[str], citations: list[str]
-    ) -> None:
+    def take(ref_type: RefType, match: re.Match[str], citations: list[str]) -> None:
         name, tail_end = _act_tail(text, match.end())
         consumed.append((match.start(), tail_end))
         found.append(
@@ -335,7 +342,9 @@ def scan_references(text: str) -> list[ScannedReference]:
         take(
             RefType.SCHEDULE_PARAGRAPH,
             match,
-            [f"Schedule {match.group('sched')}({marker}){_clean(match.group('brackets'))}"],
+            [
+                f"Schedule {match.group('sched')}({marker}){_clean(match.group('brackets'))}"
+            ],
         )
 
     for match in PLAIN_PARAGRAPH.finditer(text):

@@ -375,12 +375,16 @@ class LLMClient:
             delay = self._backoff_base * 2 ** (attempt - 1)
             key = keys[(attempt - 1) % len(keys)]
             headers = {"Authorization": f"Bearer {key}"}
-            request = self._client.build_request("POST", url, json=payload, headers=headers)
+            request = self._client.build_request(
+                "POST", url, json=payload, headers=headers
+            )
             response = None
             try:
                 response = self._client.send(request, stream=True)
                 if response.status_code in RETRYABLE_STATUS:
-                    last = LLMUnavailable(f"{provider.name} returned {response.status_code}")
+                    last = LLMUnavailable(
+                        f"{provider.name} returned {response.status_code}"
+                    )
                     delay = _retry_after(response) or delay
                     response.close()
                 elif response.status_code >= 400:
@@ -390,7 +394,9 @@ class LLMClient:
                         f"{provider.name} returned {response.status_code}: {text}"
                     )
                 else:
-                    opened = _OpenStream(provider, degraded, response, response.iter_lines())
+                    opened = _OpenStream(
+                        provider, degraded, response, response.iter_lines()
+                    )
                     opened.read_until_first_token()
                     return opened
             except (httpx2.RequestError, httpx2.StreamError) as error:
@@ -610,7 +616,11 @@ class CompletionStream:
             while True:
                 try:
                     deltas = opened.next_deltas()
-                except (httpx2.RequestError, httpx2.StreamError, LLMUnavailable) as error:
+                except (
+                    httpx2.RequestError,
+                    httpx2.StreamError,
+                    LLMUnavailable,
+                ) as error:
                     # Tokens are already on screen, so there is no retry and no
                     # fallback: a second answer would contradict the first.
                     raise LLMUnavailable(

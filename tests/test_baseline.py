@@ -69,7 +69,9 @@ class Fixed:
     exactly rather than inferred from a scoring function."""
 
     def __init__(self, ranking):
-        self._ranking = [(next(c for c in CORPUS if c.node_path == p), s) for p, s in ranking]
+        self._ranking = [
+            (next(c for c in CORPUS if c.node_path == p), s) for p, s in ranking
+        ]
 
     def search(self, query: str, k: int):
         return [ScoredChunk(chunk=c, score=s) for c, s in self._ranking][:k]
@@ -219,7 +221,8 @@ def test_the_shortcut_never_makes_the_baseline_worse(corpus_baselines):
     lexical, composed = corpus_baselines
     for mode in CreditMode:
         assert (
-            composed.primary.overall[mode].recall >= lexical.primary.overall[mode].recall
+            composed.primary.overall[mode].recall
+            >= lexical.primary.overall[mode].recall
         )
         assert composed.primary.overall[mode].mrr >= lexical.primary.overall[mode].mrr
 

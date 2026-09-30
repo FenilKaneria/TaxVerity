@@ -1,4 +1,3 @@
-
 import pytest
 
 from taxverity.corpus.loader import is_furniture
@@ -29,7 +28,12 @@ def span(text, *, size=8.49, bold=False, x0=27.6, furniture=False):
 
 
 def line(text, *, size=8.49, bold=False, x0=27.6, furniture=False):
-    return Line(page=0, index=0, text=text, spans=(span(text, size=size, bold=bold, x0=x0, furniture=furniture),))
+    return Line(
+        page=0,
+        index=0,
+        text=text,
+        spans=(span(text, size=size, bold=bold, x0=x0, furniture=furniture),),
+    )
 
 
 # --- marker_key / is_plausible_next -----------------------------------------
@@ -85,7 +89,9 @@ def test_a_marker_never_goes_backward():
 
 
 def test_a_bold_prose_marker_is_recognised():
-    assert paragraph_marker(line("1. (1) The eligible investment fund", bold=True)) == "1"
+    assert (
+        paragraph_marker(line("1. (1) The eligible investment fund", bold=True)) == "1"
+    )
 
 
 def test_a_plain_list_marker_is_recognised_without_boldness():
@@ -187,9 +193,22 @@ def test_preamble_with_no_title_at_all():
 
 
 PARAGRAPH_COUNTS = {
-    "I": 2, "II": 17, "III": 42, "IV": 17, "V": 8, "VI": 12, "VII": 48,
-    "VIII": 2, "IX": 6, "X": 6, "XI": 26, "XII": 50, "XIII": 15, "XIV": 6,
-    "XV": 6, "XVI": 2,
+    "I": 2,
+    "II": 17,
+    "III": 42,
+    "IV": 17,
+    "V": 8,
+    "VI": 12,
+    "VII": 48,
+    "VIII": 2,
+    "IX": 6,
+    "X": 6,
+    "XI": 26,
+    "XII": 50,
+    "XIII": 15,
+    "XIV": 6,
+    "XV": 6,
+    "XVI": 2,
 }
 
 
@@ -280,7 +299,9 @@ def test_footnote_apparatus_is_separated_from_body_text(parsed_schedules):
     entry carries the amendment vocabulary -- the rest is quoted repealed
     text -- so it is enough that some lines do, not all of them."""
     assert len(parsed_schedules.footnotes) == 48
-    assert any("Act No." in f.text or "w.e.f." in f.text for f in parsed_schedules.footnotes)
+    assert any(
+        "Act No." in f.text or "w.e.f." in f.text for f in parsed_schedules.footnotes
+    )
 
 
 def test_schedule_and_part_headings_are_kept_verbatim(parsed_schedules):
@@ -313,7 +334,9 @@ def test_no_schedule_text_is_lost(act_pages, parsed_schedules):
 
     footnote_lines = {f.text for f in parsed_schedules.footnotes}
     for schedule in parsed_schedules.schedules:
-        parsed_lines = {text for text in schedule.full_text().split("\n") if text.strip()}
+        parsed_lines = {
+            text for text in schedule.full_text().split("\n") if text.strip()
+        }
         for raw_line in raw_by_schedule.get(schedule.marker, []):
             if not raw_line.strip():
                 continue

@@ -166,7 +166,8 @@ def logout_route(
 
 @router.post("/verify-email", status_code=status.HTTP_204_NO_CONTENT)
 def verify_email_route(
-    body: VerifyEmailRequest, conn: psycopg.Connection = Depends(get_conn)  # noqa: B008
+    body: VerifyEmailRequest,
+    conn: psycopg.Connection = Depends(get_conn),  # noqa: B008
 ) -> None:
     try:
         verify_email(conn, body.token)
@@ -202,7 +203,8 @@ def forgot_password_route(
 
 @router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
 def reset_password_route(
-    body: ResetPasswordRequest, conn: psycopg.Connection = Depends(get_conn)  # noqa: B008
+    body: ResetPasswordRequest,
+    conn: psycopg.Connection = Depends(get_conn),  # noqa: B008
 ) -> None:
     try:
         reset_password(conn, body.token, body.new_password)

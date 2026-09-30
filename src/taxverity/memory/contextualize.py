@@ -28,7 +28,7 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-CONTEXTUALIZE_STAGE_VERSION = 2
+CONTEXTUALIZE_STAGE_VERSION = 3
 
 # A rewritten question is short; reasoning cannot be disabled (Step 7.1) but
 # needs far less room here than an extraction's JSON object does.
@@ -60,10 +60,14 @@ SYSTEM_PROMPT = (
 
 
 def needs_contextualization(query: str, prior_turns: Sequence[str]) -> bool:
-    """No prior turn, or no follow-up marker: the query already stands alone."""
+    """No prior turn, or a question with no follow-up marker: the query
+    already stands alone. A message that is not a question at all ("my salary
+    is 15 lakh, no other income") is almost always an answer to the last
+    turn's clarify question, and alone it reads as out of scope — so, with
+    history, it is rewritten too."""
     if not prior_turns:
         return False
-    return bool(FOLLOW_UP_MARKERS.search(query))
+    return bool(FOLLOW_UP_MARKERS.search(query)) or "?" not in query
 
 
 @dataclass(frozen=True)
@@ -105,7 +109,9 @@ class QueryContextualizer:
         generation. `primary`/`fallback` (R18) default to `LLMClient`'s own
         class defaults (Groq 120b / Gemini) — pass them to run this node
         against a different pair, e.g. Groq's 20b model."""
-        client: Any = LLMClient.from_settings(settings, primary=primary, fallback=fallback)
+        client: Any = LLMClient.from_settings(
+            settings, primary=primary, fallback=fallback
+        )
         if cache:
             client = CachedLLMClient(client, settings.llm_cache_dir)
         if trace:
@@ -116,12 +122,16 @@ class QueryContextualizer:
         self, query: str, prior_turns: Sequence[str], *, previous_answer: str = ""
     ) -> ContextualizationResult:
         if not needs_contextualization(query, prior_turns):
-            return ContextualizationResult(query=query, rewritten=False, completion=None)
+            return ContextualizationResult(
+                query=query, rewritten=False, completion=None
+            )
 
         completion = self._client.complete(
             [
                 Message(role="system", content=self._system_prompt),
-                Message(role="user", content=_prompt(query, prior_turns, previous_answer)),
+                Message(
+                    role="user", content=_prompt(query, prior_turns, previous_answer)
+                ),
             ],
             max_completion_tokens=self._max_completion_tokens,
             temperature=CONTEXTUALIZE_TEMPERATURE,
@@ -133,8 +143,12 @@ class QueryContextualizer:
             logger.warning(
                 "contextualization returned no text; answering the original query"
             )
-            return ContextualizationResult(query=query, rewritten=False, completion=completion)
-        return ContextualizationResult(query=rewritten, rewritten=True, completion=completion)
+            return ContextualizationResult(
+                query=query, rewritten=False, completion=completion
+            )
+        return ContextualizationResult(
+            query=rewritten, rewritten=True, completion=completion
+        )
 
 
 def _prompt(query: str, prior_turns: Sequence[str], previous_answer: str = "") -> str:

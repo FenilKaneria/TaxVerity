@@ -82,11 +82,16 @@ def build(node, root, start=0, parent_id=None):
     return chunks
 
 
-CHUNKS = {c.node_path: c for c in (*build(S22, "22"), *build(S24, "24"), *build(S23, "23"))}
+CHUNKS = {
+    c.node_path: c for c in (*build(S22, "22"), *build(S24, "24"), *build(S23, "23"))
+}
 # Marker [1] = 22(1) (with 22's lead-in as context), marker [2] = 24. Neither
 # 22(2) nor 23 is packed — nothing can cite them.
 PACK = EvidencePacker(CHUNKS.values()).pack(
-    [ScoredChunk(chunk=CHUNKS["22(1)"], score=2.0), ScoredChunk(chunk=CHUNKS["24"], score=1.0)]
+    [
+        ScoredChunk(chunk=CHUNKS["22(1)"], score=2.0),
+        ScoredChunk(chunk=CHUNKS["24"], score=1.0),
+    ]
 )
 
 QUESTION = "I earn rent of 3,00,000 a year. What can I deduct?"
@@ -135,17 +140,25 @@ ANALYSIS = ValidatedAnalysis(
             id="r1",
             markers=(1,),
             rule="Thirty per cent of the annual value is deducted.",
-            conditions=(Condition(id="c1", text="The property is let out.", markers=()),),
+            conditions=(
+                Condition(id="c1", text="The property is let out.", markers=()),
+            ),
         ),
         LegalRule(
             id="r2",
             markers=(2,),
             rule="The deduction shall not exceed Rs. 2,00,000 in a tax year.",
-            conditions=(Condition(id="c2", text="The claim exceeds the cap.", markers=()),),
+            conditions=(
+                Condition(id="c2", text="The claim exceeds the cap.", markers=()),
+            ),
         ),
     ),
     applicability=(
-        ConditionCheck(condition_id="c1", status=CheckStatus.SATISFIED, fact_refs=("salary_income",)),
+        ConditionCheck(
+            condition_id="c1",
+            status=CheckStatus.SATISFIED,
+            fact_refs=("salary_income",),
+        ),
         ConditionCheck(condition_id="c2", status=CheckStatus.UNKNOWN),
     ),
     missing_facts=(),
@@ -214,7 +227,10 @@ def test_multiple_markers_on_one_line_both_ground():
         (content("No other deduction [3]."), Violation.MARKER_NOT_IN_EVIDENCE),
         # No marker at all — required unconditionally, no blocklist of
         # trigger words to work around (see the check's own comment for why).
-        (content("Thirty per cent of the annual value is deducted."), Violation.NO_CITATION),
+        (
+            content("Thirty per cent of the annual value is deducted."),
+            Violation.NO_CITATION,
+        ),
         (content("You are entitled to this deduction."), Violation.NO_CITATION),
         # A plain-looking sentence with no statutory vocabulary at all must
         # still be caught uncited — an allowlist-by-absence-of-keywords is
@@ -239,7 +255,9 @@ def test_an_ungrounded_claim_is_caught(claim, expected):
 
 
 def test_the_users_figures_ground_a_computation_claim(computation):
-    claim = computation_claim("On rent of 3,00,000 and a salary of 14,00,000, see the trace [calc].")
+    claim = computation_claim(
+        "On rent of 3,00,000 and a salary of 14,00,000, see the trace [calc]."
+    )
     assert violations(claim, computation=computation) == set()
 
 
@@ -257,7 +275,9 @@ def test_a_profile_default_grounds_no_number(computation):
     )
     claim = computation_claim("A salary of 9,99,999 [calc].")
     verifier = Verifier(PACK, facts=facts, computation=computation)
-    assert Violation.UNSUPPORTED_NUMBER in {f.violation for f in verifier.verify(claim).findings}
+    assert Violation.UNSUPPORTED_NUMBER in {
+        f.violation for f in verifier.verify(claim).findings
+    }
 
 
 # --- computation claims ---------------------------------------------------------
@@ -280,7 +300,9 @@ def computation():
 
 def test_a_computation_claim_restating_the_trace_passes(computation):
     payable = computation.comparison.under_202_1.payable.amount
-    claim = computation_claim(f"For tax year 2026-27 the income-tax payable is {payable:,} [calc].")
+    claim = computation_claim(
+        f"For tax year 2026-27 the income-tax payable is {payable:,} [calc]."
+    )
     assert violations(claim, computation=computation) == set()
 
 
@@ -375,12 +397,16 @@ def test_an_application_claim_grounded_by_a_satisfied_condition_passes():
 
 
 def test_an_application_claim_may_use_a_stated_fact():
-    claim = application("Against your salary of 14,00,000, you can deduct this [1][fact].")
+    claim = application(
+        "Against your salary of 14,00,000, you can deduct this [1][fact]."
+    )
     assert violations(claim, analysis=ANALYSIS) == set()
 
 
 def test_an_application_claim_with_no_citation_is_uncited():
-    assert Violation.NO_CITATION in violations(application("You qualify [fact]."), analysis=ANALYSIS)
+    assert Violation.NO_CITATION in violations(
+        application("You qualify [fact]."), analysis=ANALYSIS
+    )
 
 
 def test_an_application_claim_against_an_unknown_condition_is_caught():
@@ -394,7 +420,9 @@ def test_an_application_claim_with_no_affirmative_modal_is_not_flagged():
     # No affirmative modal ("you can", "is allowed", ...) at all, so the
     # check never fires even against an unknown condition — the same
     # one-directional, safer-failure-mode design as MODAL_MISMATCH.
-    claim = application("This deduction depends on facts not yet known, up to 2 lakh [2][fact].")
+    claim = application(
+        "This deduction depends on facts not yet known, up to 2 lakh [2][fact]."
+    )
     assert Violation.UNSUPPORTED_APPLICATION not in violations(claim, analysis=ANALYSIS)
 
 
@@ -412,7 +440,9 @@ def test_an_application_claim_still_needs_a_grounded_number():
 
 
 def test_an_unknown_claim_naming_a_genuinely_unknown_condition_passes():
-    claim = unknown("This can't yet be determined because the cap may already be used [2].")
+    claim = unknown(
+        "This can't yet be determined because the cap may already be used [2]."
+    )
     assert violations(claim, analysis=ANALYSIS) == set()
 
 
@@ -424,7 +454,8 @@ def test_an_unknown_claim_with_the_wrong_opener_is_malformed():
 
 def test_an_unknown_claim_with_no_citation_is_malformed():
     assert Violation.MALFORMED_UNKNOWN in violations(
-        unknown("This can't yet be determined because more is needed."), analysis=ANALYSIS
+        unknown("This can't yet be determined because more is needed."),
+        analysis=ANALYSIS,
     )
 
 
@@ -517,15 +548,24 @@ def test_a_grounded_percentage_in_an_example_passes():
             Violation.INVENTED_LAW,
         ),
         # An invented rate.
-        ("For example, 40% of the annual value is deductible [1][eg].", Violation.INVENTED_LAW),
+        (
+            "For example, 40% of the annual value is deductible [1][eg].",
+            Violation.INVENTED_LAW,
+        ),
         (
             "For example, ₹1,00,000 × 40% = ₹40,000 comes off the annual value [1][eg].",
             Violation.INVENTED_LAW,
         ),
         # An invented provision number.
-        ("For example, section 80 gives a further deduction [1][eg].", Violation.INVENTED_LAW),
+        (
+            "For example, section 80 gives a further deduction [1][eg].",
+            Violation.INVENTED_LAW,
+        ),
         # Law slipped into the premise as if it were a hypothetical.
-        ("Suppose you can set off ₹5,00,000 against salary [2][eg].", Violation.UNSUPPORTED_NUMBER),
+        (
+            "Suppose you can set off ₹5,00,000 against salary [2][eg].",
+            Violation.UNSUPPORTED_NUMBER,
+        ),
         # A derived figure with no working shown and no source.
         (
             "Suppose your loss is ₹3,00,000. You carry forward ₹1,50,000 [2][eg].",
@@ -537,7 +577,10 @@ def test_a_grounded_percentage_in_an_example_passes():
             Violation.BAD_ARITHMETIC,
         ),
         # No hypothetical framing.
-        ("Your loss of ₹3,00,000 is capped at ₹2,00,000 [2][eg].", Violation.MALFORMED_EXAMPLE),
+        (
+            "Your loss of ₹3,00,000 is capped at ₹2,00,000 [2][eg].",
+            Violation.MALFORMED_EXAMPLE,
+        ),
         # No citation: an example must illustrate a cited rule.
         ("Suppose your loss is ₹3,00,000 [eg].", Violation.NO_CITATION),
         # A citation outside the pack.
@@ -556,7 +599,10 @@ def test_an_example_that_invents_law_is_caught(line, violation):
 def test_an_example_line_is_classified_as_example():
     from taxverity.generation.claims import parse_claim
 
-    assert parse_claim("- Suppose your loss is ₹3,00,000 [2][eg].").type is ClaimType.EXAMPLE
+    assert (
+        parse_claim("- Suppose your loss is ₹3,00,000 [2][eg].").type
+        is ClaimType.EXAMPLE
+    )
 
 
 def test_an_equation_operand_with_no_source_is_caught():
@@ -585,10 +631,18 @@ def test_a_nil_rate_in_the_passage_grounds_zero_and_only_there():
     # R21 Part B: section 202(1)'s first slab reads "Nil", not "0%".
     nil = ("202", "202. Up to 4,00,000 rupees: Nil. Above that: five per cent.", [])
     chunks = {c.node_path: c for c in build(nil, "202")}
-    pack = EvidencePacker(chunks.values()).pack([ScoredChunk(chunk=chunks["202"], score=1.0)])
-    assert Verifier(pack).verify(content("- Income up to ₹4,00,000 is taxed at 0% [1].")).passed
+    pack = EvidencePacker(chunks.values()).pack(
+        [ScoredChunk(chunk=chunks["202"], score=1.0)]
+    )
+    assert (
+        Verifier(pack)
+        .verify(content("- Income up to ₹4,00,000 is taxed at 0% [1]."))
+        .passed
+    )
     # A passage without "Nil" still cannot ground a zero rate.
-    assert Violation.UNSUPPORTED_NUMBER in violations_of(content("- Arrears are taxed at 0% [2]."))
+    assert Violation.UNSUPPORTED_NUMBER in violations_of(
+        content("- Arrears are taxed at 0% [2].")
+    )
 
 
 # --- R21: chained, parenthesised equations (the slab-example shape) -----------
@@ -656,7 +710,5 @@ def test_a_band_width_worked_out_from_known_figures_is_a_valid_operand():
 
 
 def test_an_operand_that_is_not_derivable_is_still_caught():
-    line = (
-        "- Suppose your income is ₹10,00,000. The top band tax is ₹3,33,333 × 10% = ₹33,333 [1][eg]."
-    )
+    line = "- Suppose your income is ₹10,00,000. The top band tax is ₹3,33,333 × 10% = ₹33,333 [1][eg]."
     assert Violation.UNSUPPORTED_NUMBER in slab_violations(line)

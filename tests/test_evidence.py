@@ -99,9 +99,17 @@ S21 = (
     "21",
     "21. Annual value.",
     [
-        ("21(1)", "(1) The annual value shall be the sum for which the property "
-                  "might reasonably be expected to let from year to year.", []),
-        ("21(6)", "(6) Where the property is self-occupied, its annual value is nil.", []),
+        (
+            "21(1)",
+            "(1) The annual value shall be the sum for which the property "
+            "might reasonably be expected to let from year to year.",
+            [],
+        ),
+        (
+            "21(6)",
+            "(6) Where the property is self-occupied, its annual value is nil.",
+            [],
+        ),
     ],
 )
 REFS = {
@@ -198,7 +206,9 @@ def test_absorbing_costs_only_the_difference():
     """Two siblings each repeat their ancestors' lead-ins, so their parent is
     cheaper than the pair. It must fit where the pair did."""
     budget = cost("22(1)(a)") + cost("22(1)(b)")
-    pack = EvidencePacker(CHUNKS, budget=budget).pack(hits("22(1)(a)", "22(1)(b)", "22(1)"))
+    pack = EvidencePacker(CHUNKS, budget=budget).pack(
+        hits("22(1)(a)", "22(1)(b)", "22(1)")
+    )
     assert delivered(pack) == ["22(1)"]
     assert pack.tokens <= budget
 
@@ -284,7 +294,7 @@ def test_expansion_follows_one_hop_only():
 
 
 def test_a_reference_to_the_citers_own_ancestor_adds_nothing():
-    """"this section": the lead-in already carries its lines."""
+    """ "this section": the lead-in already carries its lines."""
     pack = EvidencePacker(XCHUNKS).pack(xhits("22(2)"), expand=True)
     assert delivered(pack) == ["22(2)"]
 
@@ -362,7 +372,11 @@ def test_a_referenced_unit_must_name_its_citer_and_only_it_may():
         EvidenceUnit(**{**unit.model_dump(), "chunk": unit.chunk, "cited_by": "22"})
     with pytest.raises(ValueError, match="cited_by"):
         EvidenceUnit(
-            **{**unit.model_dump(), "chunk": unit.chunk, "role": EvidenceRole.REFERENCED}
+            **{
+                **unit.model_dump(),
+                "chunk": unit.chunk,
+                "role": EvidenceRole.REFERENCED,
+            }
         )
 
 
@@ -393,27 +407,39 @@ def test_delivery_holding_every_slice_is_adopted_without_needing_a_rise():
 
 
 def test_a_slice_losing_evidence_rejects_even_with_an_overall_rise():
-    verdict = judge_delivery(report(0.82, crossref=0.50, k=20), report(0.797, crossref=0.562))
+    verdict = judge_delivery(
+        report(0.82, crossref=0.50, k=20), report(0.797, crossref=0.562)
+    )
     assert verdict.reasons == ("crossref slice lenient recall fell 0.562 -> 0.500",)
 
 
 def test_an_overall_fall_rejects():
-    verdict = judge_delivery(report(0.70, crossref=0.9, k=20), report(0.797, crossref=0.9))
+    verdict = judge_delivery(
+        report(0.70, crossref=0.9, k=20), report(0.797, crossref=0.9)
+    )
     assert "lenient recall fell 0.797 -> 0.700" in verdict.reasons
 
 
 def test_expansion_raising_the_crossref_slice_is_adopted():
-    verdict = judge_expansion(report(0.82, crossref=0.70, k=20), report(0.82, crossref=0.594, k=20))
+    verdict = judge_expansion(
+        report(0.82, crossref=0.70, k=20), report(0.82, crossref=0.594, k=20)
+    )
     assert verdict.adopted and verdict.reasons == ()
 
 
 def test_expansion_that_does_not_raise_the_crossref_slice_rejects():
-    verdict = judge_expansion(report(0.83, crossref=0.594, k=20), report(0.82, crossref=0.594, k=20))
-    assert verdict.reasons == ("crossref slice lenient recall did not rise (0.594 -> 0.594)",)
+    verdict = judge_expansion(
+        report(0.83, crossref=0.594, k=20), report(0.82, crossref=0.594, k=20)
+    )
+    assert verdict.reasons == (
+        "crossref slice lenient recall did not rise (0.594 -> 0.594)",
+    )
 
 
 def test_expansion_displacing_evidence_elsewhere_rejects_despite_a_crossref_rise():
-    verdict = judge_expansion(report(0.80, crossref=0.70, k=20), report(0.82, crossref=0.594, k=20))
+    verdict = judge_expansion(
+        report(0.80, crossref=0.70, k=20), report(0.82, crossref=0.594, k=20)
+    )
     assert "lenient recall fell 0.820 -> 0.800" in verdict.reasons
     assert "paraphrase slice lenient recall fell 0.820 -> 0.800" in verdict.reasons
 
@@ -425,14 +451,20 @@ def test_expansion_displacing_evidence_elsewhere_rejects_despite_a_crossref_rise
 def ranked_pool(gold, stored_chunks, retrieval_legs):
     index, dense, bm25, shortcut = retrieval_legs
     hybrid = ShortcutRetriever(shortcut, FusionRetriever([dense, bm25]))
-    pool = {query.query_id: hybrid.search(query.question, EVIDENCE_POOL) for query in gold}
+    pool = {
+        query.query_id: hybrid.search(query.question, EVIDENCE_POOL) for query in gold
+    }
     return hybrid, index, EvidencePacker(stored_chunks[1]), pool
 
 
 @pytest.fixture(scope="module")
 def packs(ranked_pool):
     hybrid, index, packer, pool = ranked_pool
-    return hybrid, index, {qid: packer.pack(results, expand=False) for qid, results in pool.items()}
+    return (
+        hybrid,
+        index,
+        {qid: packer.pack(results, expand=False) for qid, results in pool.items()},
+    )
 
 
 @pytest.fixture(scope="module")
@@ -463,7 +495,9 @@ def test_delivery_loses_no_evidence_the_adopted_ranking_held(gold, packs):
     assert delivered_report.overall[CreditMode.LENIENT].recall >= 0.79
 
 
-def test_expansion_is_rejected_by_its_rule_on_the_real_ranking(gold, packs, expanded_packs):
+def test_expansion_is_rejected_by_its_rule_on_the_real_ranking(
+    gold, packs, expanded_packs
+):
     """The rule registered for Step 5.4 and its measured outcome (ADR-083): the
     crossref slice rises, but referenced text displaces a paraphrase label from
     the pool's tail. If this flips (Step 5.6's reranker reorders the pool),

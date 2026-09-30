@@ -84,12 +84,16 @@ def test_hit_credits_a_retrieved_section_root_leniently():
     """ADR-060: a section root carries a sub-section's text too (ADR-055), so
     it is imprecise, not wrong — the same credit every other retrieval eval in
     this project gives."""
-    root_only = RECORD.model_copy(update={"expected": ("134(1)",), "retrieved": ("134",)})
+    root_only = RECORD.model_copy(
+        update={"expected": ("134(1)",), "retrieved": ("134",)}
+    )
     assert root_only.hit is True
 
 
 def test_hit_never_credits_a_descendant_of_the_expected_citation():
-    descendant = RECORD.model_copy(update={"expected": ("134",), "retrieved": ("134(1)",)})
+    descendant = RECORD.model_copy(
+        update={"expected": ("134",), "retrieved": ("134(1)",)}
+    )
     assert descendant.hit is False
 
 

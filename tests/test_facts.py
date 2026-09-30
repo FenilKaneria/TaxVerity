@@ -210,7 +210,9 @@ def test_an_assessment_year_is_shifted_back_to_its_tax_year(raw, span, expected)
 
 
 def test_the_shift_touches_no_other_field():
-    assert fact_value(FactField.SALARY_INCOME, "800000", "A.Y. 2025-26 salary 800000") == Decimal(800000)
+    assert fact_value(
+        FactField.SALARY_INCOME, "800000", "A.Y. 2025-26 salary 800000"
+    ) == Decimal(800000)
 
 
 def test_a_parsed_assessment_year_comes_out_as_a_tax_year():
@@ -368,7 +370,9 @@ def test_loss_words_match_whole_words_only():
 
 def test_an_inferred_loss_head_has_no_span_to_check():
     extraction = parse_facts(
-        payload(entry(name="business_income", value="30000", status="inferred", span="")),
+        payload(
+            entry(name="business_income", value="30000", status="inferred", span="")
+        ),
         "my shop did fine after last year's losses",
     )
 
@@ -478,28 +482,78 @@ def sign_issues(turn, name, value, span):
 @pytest.mark.parametrize(
     ("turn", "name", "span"),
     [
-        ("My business made a loss of 3,00,000 last year.", "business_income", "3,00,000"),
-        ("My tuition classes lost 60,000 during the year.", "business_income", "60,000"),
-        ("Long-term capital gains: 2.5 lakh loss on my old plot.", "capital_gains_long_term", "2.5 lakh"),
-        ("My let-out flat ran up a net loss of Rs. 1,60,000.", "house_property_income", "1,60,000"),
-        ("Salary 14,20,000, business loss of 2,10,000 and TDS of 1,05,000.", "business_income", "2,10,000"),
+        (
+            "My business made a loss of 3,00,000 last year.",
+            "business_income",
+            "3,00,000",
+        ),
+        (
+            "My tuition classes lost 60,000 during the year.",
+            "business_income",
+            "60,000",
+        ),
+        (
+            "Long-term capital gains: 2.5 lakh loss on my old plot.",
+            "capital_gains_long_term",
+            "2.5 lakh",
+        ),
+        (
+            "My let-out flat ran up a net loss of Rs. 1,60,000.",
+            "house_property_income",
+            "1,60,000",
+        ),
+        (
+            "Salary 14,20,000, business loss of 2,10,000 and TDS of 1,05,000.",
+            "business_income",
+            "2,10,000",
+        ),
         ("Rs. 90,000 was the deficit on my shop.", "business_income", "90,000"),
     ],
 )
-def test_a_positive_figure_in_a_loss_clause_is_refused_when_the_span_omits_the_word(turn, name, span):
+def test_a_positive_figure_in_a_loss_clause_is_refused_when_the_span_omits_the_word(
+    turn, name, span
+):
     assert sign_issues(turn, name, "1", span) == [FactIssue.SIGN_CONTRADICTS_SPAN]
 
 
 @pytest.mark.parametrize(
     ("turn", "name", "span"),
     [
-        ("My house property income is 2,10,000, no loss this time.", "house_property_income", "2,10,000"),
-        ("Last year's business loss is behind me; this year the business earned 3,40,000.", "business_income", "3,40,000"),
-        ("No capital loss this time, and my long-term capital gain was 1,25,000.", "capital_gains_long_term", "1,25,000"),
-        ("I lost my tenant for two months, but my house property income this year is 1,80,000.", "house_property_income", "1,80,000"),
-        ("My shop made a profit of 2,20,000, unlike the losses of the last two years.", "business_income", "2,20,000"),
-        ("We lost money. The business then earned 50,000.", "business_income", "50,000"),
-        ("Last year was a loss but this year the shop earned 3,40,000.", "business_income", "3,40,000"),
+        (
+            "My house property income is 2,10,000, no loss this time.",
+            "house_property_income",
+            "2,10,000",
+        ),
+        (
+            "Last year's business loss is behind me; this year the business earned 3,40,000.",
+            "business_income",
+            "3,40,000",
+        ),
+        (
+            "No capital loss this time, and my long-term capital gain was 1,25,000.",
+            "capital_gains_long_term",
+            "1,25,000",
+        ),
+        (
+            "I lost my tenant for two months, but my house property income this year is 1,80,000.",
+            "house_property_income",
+            "1,80,000",
+        ),
+        (
+            "My shop made a profit of 2,20,000, unlike the losses of the last two years.",
+            "business_income",
+            "2,20,000",
+        ),
+        (
+            "We lost money. The business then earned 50,000.",
+            "business_income",
+            "50,000",
+        ),
+        (
+            "Last year was a loss but this year the shop earned 3,40,000.",
+            "business_income",
+            "3,40,000",
+        ),
     ],
 )
 def test_a_loss_word_in_a_neighbouring_clause_does_not_fire(turn, name, span):
@@ -508,12 +562,16 @@ def test_a_loss_word_in_a_neighbouring_clause_does_not_fire(turn, name, span):
 
 def test_a_span_that_crosses_a_clause_is_read_whole():
     turn = "My house property income is 2,10,000, no loss this time."
-    assert sign_issues(turn, "house_property_income", "210000", turn) == [FactIssue.SIGN_CONTRADICTS_SPAN]
+    assert sign_issues(turn, "house_property_income", "210000", turn) == [
+        FactIssue.SIGN_CONTRADICTS_SPAN
+    ]
 
 
 def test_a_figure_repeated_in_a_loss_clause_and_a_gain_clause_is_refused():
     turn = "I made 50,000 on shares and lost 50,000 on bonds."
-    assert sign_issues(turn, "capital_gains_short_term", "50000", "50,000") == [FactIssue.SIGN_CONTRADICTS_SPAN]
+    assert sign_issues(turn, "capital_gains_short_term", "50000", "50,000") == [
+        FactIssue.SIGN_CONTRADICTS_SPAN
+    ]
 
 
 def test_a_negative_figure_in_a_loss_clause_is_accepted():
@@ -567,7 +625,9 @@ def test_a_fabricated_situation_span_is_refused():
         situation_payload(situation_entry(span="invented words")), SITUATION_TURN
     )
     assert result.situation_facts == ()
-    assert [r.issue for r in result.situation_rejections] == [FactIssue.SPAN_NOT_IN_TURN]
+    assert [r.issue for r in result.situation_rejections] == [
+        FactIssue.SPAN_NOT_IN_TURN
+    ]
 
 
 def test_an_inferred_situation_fact_needs_no_span():
@@ -604,9 +664,7 @@ def test_a_situation_fact_with_an_empty_name_or_value_is_refused():
 def test_situation_facts_never_touch_the_closed_field_rejections():
     """A bad situation entry must not be treated as repairable by
     `llm/extract.py`'s closed-field repair pass."""
-    result = parse_facts(
-        situation_payload(situation_entry(span="")), SITUATION_TURN
-    )
+    result = parse_facts(situation_payload(situation_entry(span="")), SITUATION_TURN)
     assert result.rejections == ()
     assert result.situation_rejections != ()
 
@@ -616,7 +674,7 @@ def test_the_schema_requires_both_arrays():
 
 
 def test_the_situation_schema_has_no_missing_status():
-    statuses = FACTS_JSON_SCHEMA["properties"]["situation_facts"]["items"]["properties"][
-        "status"
-    ]["enum"]
+    statuses = FACTS_JSON_SCHEMA["properties"]["situation_facts"]["items"][
+        "properties"
+    ]["status"]["enum"]
     assert set(statuses) == {"stated", "inferred"}

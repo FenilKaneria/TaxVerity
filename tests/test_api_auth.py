@@ -31,6 +31,7 @@ def _client(schema) -> tuple[TestClient, NullMailer]:
         settings=SimpleNamespace(app_base_url="http://t"),
         access_tokens=AccessTokens(JWT_SECRET),
     )
+
     def _get_conn_override():
         yield schema
 
@@ -53,7 +54,8 @@ def client(schema):
 def test_register_is_silent_and_sends_a_verification_link(client):
     api, mailer = client
     response = api.post(
-        "/v1/auth/register", json={"email": "a@example.com", "password": "correct-horse-1"}
+        "/v1/auth/register",
+        json={"email": "a@example.com", "password": "correct-horse-1"},
     )
     assert response.status_code == 202
     assert len(mailer.sent) == 1
@@ -70,7 +72,10 @@ def test_a_weak_password_is_refused(client):
 
 def test_login_before_verification_fails_with_the_generic_error(client):
     api, _mailer = client
-    api.post("/v1/auth/register", json={"email": "c@example.com", "password": "correct-horse-1"})
+    api.post(
+        "/v1/auth/register",
+        json={"email": "c@example.com", "password": "correct-horse-1"},
+    )
     response = api.post(
         "/v1/auth/login", json={"email": "c@example.com", "password": "correct-horse-1"}
     )
@@ -80,7 +85,10 @@ def test_login_before_verification_fails_with_the_generic_error(client):
 
 def test_verify_then_login_issues_an_access_token_and_a_refresh_cookie(client):
     api, mailer = client
-    api.post("/v1/auth/register", json={"email": "d@example.com", "password": "correct-horse-1"})
+    api.post(
+        "/v1/auth/register",
+        json={"email": "d@example.com", "password": "correct-horse-1"},
+    )
     token = _token_from(mailer.sent[0].body)
 
     verify = api.post("/v1/auth/verify-email", json={"token": token})
@@ -96,7 +104,10 @@ def test_verify_then_login_issues_an_access_token_and_a_refresh_cookie(client):
 
 def test_refresh_rotates_the_cookie_and_reuse_is_refused(client):
     api, mailer = client
-    api.post("/v1/auth/register", json={"email": "e@example.com", "password": "correct-horse-1"})
+    api.post(
+        "/v1/auth/register",
+        json={"email": "e@example.com", "password": "correct-horse-1"},
+    )
     api.post("/v1/auth/verify-email", json={"token": _token_from(mailer.sent[0].body)})
     login = api.post(
         "/v1/auth/login", json={"email": "e@example.com", "password": "correct-horse-1"}
@@ -120,7 +131,10 @@ def test_refresh_rotates_the_cookie_and_reuse_is_refused(client):
 
 def test_logout_revokes_the_refresh_token(client):
     api, mailer = client
-    api.post("/v1/auth/register", json={"email": "f@example.com", "password": "correct-horse-1"})
+    api.post(
+        "/v1/auth/register",
+        json={"email": "f@example.com", "password": "correct-horse-1"},
+    )
     api.post("/v1/auth/verify-email", json={"token": _token_from(mailer.sent[0].body)})
     login = api.post(
         "/v1/auth/login", json={"email": "f@example.com", "password": "correct-horse-1"}
@@ -136,7 +150,10 @@ def test_logout_revokes_the_refresh_token(client):
 
 def test_reset_password_revokes_every_existing_session(client):
     api, mailer = client
-    api.post("/v1/auth/register", json={"email": "g@example.com", "password": "correct-horse-1"})
+    api.post(
+        "/v1/auth/register",
+        json={"email": "g@example.com", "password": "correct-horse-1"},
+    )
     api.post("/v1/auth/verify-email", json={"token": _token_from(mailer.sent[0].body)})
     login = api.post(
         "/v1/auth/login", json={"email": "g@example.com", "password": "correct-horse-1"}
@@ -155,6 +172,7 @@ def test_reset_password_revokes_every_existing_session(client):
     assert stale.status_code == 401
 
     relogin = api.post(
-        "/v1/auth/login", json={"email": "g@example.com", "password": "another-correct-1"}
+        "/v1/auth/login",
+        json={"email": "g@example.com", "password": "another-correct-1"},
     )
     assert relogin.status_code == 200

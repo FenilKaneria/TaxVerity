@@ -52,10 +52,14 @@ def test_the_stage_version_is_declared():
         ("1000000", "500000", True, "93750", None, "93750"),
     ],
 )
-def test_the_tax_matches_the_act_worked_by_hand(rates, salary, other, resident, slab_tax, rebate, payable):
+def test_the_tax_matches_the_act_worked_by_hand(
+    rates, salary, other, resident, slab_tax, rebate, payable
+):
     result = tax(rates, salary, other, resident)
     assert result.slab.tax == D(slab_tax)
-    assert (result.rebate.amount if result.rebate else None) == (D(rebate) if rebate else None)
+    assert (result.rebate.amount if result.rebate else None) == (
+        D(rebate) if rebate else None
+    )
     assert result.payable.amount == D(payable)
 
 
@@ -82,14 +86,21 @@ def test_each_line_cites_the_provision_it_applies(rates):
 
 def test_a_claimed_chapter_viii_deduction_is_recorded_and_changes_nothing(rates):
     plain = tax(rates, "1800000")
-    claimed = tax(rates, "1800000", deduction_savings_insurance="150000", deduction_health_insurance="25000")
+    claimed = tax(
+        rates,
+        "1800000",
+        deduction_savings_insurance="150000",
+        deduction_health_insurance="25000",
+    )
     assert claimed.payable == plain.payable
     assert claimed.slab == plain.slab
     assert [line.label for line in claimed.not_allowed] == [
         "Deduction under section 126 (Chapter VIII) not allowed",
         "Deduction under section 123 (Chapter VIII) not allowed",
     ]
-    assert {line.provenance.citation for line in claimed.not_allowed} == {"202(2)(a)(xii)"}
+    assert {line.provenance.citation for line in claimed.not_allowed} == {
+        "202(2)(a)(xii)"
+    }
     assert [line.amount for line in claimed.not_allowed] == [D(25000), D(150000)]
 
 
@@ -103,7 +114,10 @@ def test_an_unknown_claimed_deduction_is_refused_rather_than_ignored(rates):
 
 @pytest.fixture(scope="module")
 def sweep(rates):
-    incomes = sorted({D(n) for n in range(1_100_000, 1_400_001, 370)} | {D(1_200_000), D(1_200_010), D(1_270_590)})
+    incomes = sorted(
+        {D(n) for n in range(1_100_000, 1_400_001, 370)}
+        | {D(1_200_000), D(1_200_010), D(1_270_590)}
+    )
     return [tax(rates, "0", str(income)) for income in incomes]
 
 
@@ -118,7 +132,9 @@ def test_marginal_relief_keeps_the_tax_within_the_income_above_twelve_lakh(sweep
         above = result.slab.rounded_income.amount - D(1_200_000)
         if above > 0:
             checked += 1
-            assert result.payable.amount == round_to_multiple(min(result.slab.tax, above), D(10))
+            assert result.payable.amount == round_to_multiple(
+                min(result.slab.tax, above), D(10)
+            )
     assert checked
 
 
@@ -131,7 +147,10 @@ def test_the_rebate_never_exceeds_the_slab_tax(sweep):
 
 def test_a_resident_never_pays_more_than_a_non_resident(rates):
     for income in range(1_150_000, 1_300_001, 1_010):
-        assert tax(rates, "0", str(income)).payable.amount <= tax(rates, "0", str(income), False).payable.amount
+        assert (
+            tax(rates, "0", str(income)).payable.amount
+            <= tax(rates, "0", str(income), False).payable.amount
+        )
 
 
 # --- refusals -----------------------------------------------------------------
@@ -144,7 +163,9 @@ def test_residence_has_no_default(rates):
         new_regime_tax(rates, salary=D(0), other_income=D(0), resident_individual="yes")  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize(("field", "bad"), [("salary", 100.0), ("other_income", D(-1)), ("salary", D("NaN"))])
+@pytest.mark.parametrize(
+    ("field", "bad"), [("salary", 100.0), ("other_income", D(-1)), ("salary", D("NaN"))]
+)
 def test_a_bad_amount_is_refused(rates, field, bad):
     arguments = {"salary": D(0), "other_income": D(0), field: bad}
     with pytest.raises(SlabInputError):

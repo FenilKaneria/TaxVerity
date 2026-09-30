@@ -65,9 +65,7 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._max_bytes = max_bytes
 
-    async def dispatch(
-        self, request: StarletteRequest, call_next
-    ) -> StarletteResponse:  # type: ignore[no-untyped-def]
+    async def dispatch(self, request: StarletteRequest, call_next) -> StarletteResponse:  # type: ignore[no-untyped-def]
         content_length = request.headers.get("content-length")
         if content_length is not None and int(content_length) > self._max_bytes:
             return JSONResponse({"detail": "invalid_request"}, status_code=413)

@@ -218,9 +218,13 @@ class LangfuseTracer:
             _str_attr("langfuse.observation.metadata", json.dumps(metadata)),
         ]
         if output is not None:
-            attributes.append(_str_attr("langfuse.observation.output", json.dumps(output)))
+            attributes.append(
+                _str_attr("langfuse.observation.output", json.dumps(output))
+            )
         if completion is not None:
-            attributes.append(_str_attr("langfuse.observation.model.name", completion.model))
+            attributes.append(
+                _str_attr("langfuse.observation.model.name", completion.model)
+            )
             attributes.append(
                 _str_attr(
                     "langfuse.observation.usage_details",
@@ -282,9 +286,7 @@ class LangfuseTracer:
             ]
         }
         try:
-            response = self._client.post(
-                self._url, json=payload, headers=self._headers
-            )
+            response = self._client.post(self._url, json=payload, headers=self._headers)
         except httpx2.RequestError as error:
             self.dropped += len(batch)
             # The batch is not requeued: an unreachable Langfuse would otherwise
@@ -381,7 +383,9 @@ class TracedLLMClient:
         if temperature is not None:
             parameters["temperature"] = temperature
         inner = self._inner.stream(
-            messages, max_completion_tokens=max_completion_tokens, temperature=temperature
+            messages,
+            max_completion_tokens=max_completion_tokens,
+            temperature=temperature,
         )
         started = time.perf_counter()
         try:
@@ -396,7 +400,9 @@ class TracedLLMClient:
             raise
         # A cache hit replays stored text and carries no completion record.
         completion = getattr(inner, "completion", None)
-        self._trace(messages, parameters, time.perf_counter() - started, completion=completion)
+        self._trace(
+            messages, parameters, time.perf_counter() - started, completion=completion
+        )
 
     def _trace(
         self,

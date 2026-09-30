@@ -55,7 +55,10 @@ INPUT_FIELDS = tuple(f for f in FactField if f not in NOT_INPUTS)
 # Section 156 says "individual resident in India", which a resident but not
 # ordinarily resident individual is. The vocabulary carries no person type, so
 # the person is taken to be an individual.
-_RESIDENT = {ResidentialStatus.RESIDENT, ResidentialStatus.RESIDENT_NOT_ORDINARILY_RESIDENT}
+_RESIDENT = {
+    ResidentialStatus.RESIDENT,
+    ResidentialStatus.RESIDENT_NOT_ORDINARILY_RESIDENT,
+}
 
 
 @dataclass(frozen=True)
@@ -112,7 +115,9 @@ class Computation:
 
 def route(facts: UserFacts) -> ScopeDecision:
     blockers = [
-        Blocker(OutOfScope.UNMAPPED_FACT, f"{fact.name} is not a fact the calculator models")
+        Blocker(
+            OutOfScope.UNMAPPED_FACT, f"{fact.name} is not a fact the calculator models"
+        )
         for fact in facts.unmapped
     ]
     usable: dict[FactField, Fact] = {}
@@ -129,16 +134,36 @@ def route(facts: UserFacts) -> ScopeDecision:
 
     for name, fact in usable.items():
         if name is FactField.TAX_YEAR and fact.value not in supported_tax_years():
-            blockers.append(Blocker(OutOfScope.UNSUPPORTED_TAX_YEAR, f"no rate data for tax year {fact.value}", name))
+            blockers.append(
+                Blocker(
+                    OutOfScope.UNSUPPORTED_TAX_YEAR,
+                    f"no rate data for tax year {fact.value}",
+                    name,
+                )
+            )
         elif name in HEADS_NOT_COMPUTED and fact.value != 0:
-            blockers.append(Blocker(OutOfScope.HEAD_NOT_COMPUTED, f"{name} is not computed", name))
+            blockers.append(
+                Blocker(OutOfScope.HEAD_NOT_COMPUTED, f"{name} is not computed", name)
+            )
         elif name is FactField.DEDUCTION_OTHER and fact.value != 0:
             # 202(2)(a)(xii) still allows 124(1), 124(2), 125(2) and 146, so an
             # unnamed deduction may or may not change the tax.
-            blockers.append(Blocker(OutOfScope.DEDUCTION_NOT_IDENTIFIED, "the claimed deduction is not named", name))
+            blockers.append(
+                Blocker(
+                    OutOfScope.DEDUCTION_NOT_IDENTIFIED,
+                    "the claimed deduction is not named",
+                    name,
+                )
+            )
 
-    inferred = tuple(name for name, fact in usable.items() if fact.status is FactStatus.INFERRED)
-    common = {"unknown": tuple(unknown), "unconfirmed": tuple(unconfirmed), "inferred": inferred}
+    inferred = tuple(
+        name for name, fact in usable.items() if fact.status is FactStatus.INFERRED
+    )
+    common = {
+        "unknown": tuple(unknown),
+        "unconfirmed": tuple(unconfirmed),
+        "inferred": inferred,
+    }
     if blockers:
         return ScopeDecision(Route.TEXT_ONLY, blockers=tuple(blockers), **common)
     if unknown:
@@ -156,8 +181,12 @@ def inputs_from(values: dict[FactField, object]) -> CalculatorInputs:
         other_income=values[FactField.OTHER_SOURCES_INCOME],
         resident_individual=values[FactField.RESIDENTIAL_STATUS] in _RESIDENT,
         claimed={
-            FactField.DEDUCTION_SAVINGS_INSURANCE.value: values[FactField.DEDUCTION_SAVINGS_INSURANCE],
-            FactField.DEDUCTION_HEALTH_INSURANCE.value: values[FactField.DEDUCTION_HEALTH_INSURANCE],
+            FactField.DEDUCTION_SAVINGS_INSURANCE.value: values[
+                FactField.DEDUCTION_SAVINGS_INSURANCE
+            ],
+            FactField.DEDUCTION_HEALTH_INSURANCE.value: values[
+                FactField.DEDUCTION_HEALTH_INSURANCE
+            ],
         },
         tax_deducted_at_source=values.get(FactField.TDS_PAID),
         advance_tax=values.get(FactField.ADVANCE_TAX_PAID),
@@ -190,5 +219,8 @@ def run(inputs: CalculatorInputs) -> Computation:
     return Computation(
         comparison=comparison,
         settlement=settlement,
-        not_computed=(rates.outside_act["surcharge"], rates.outside_act["health_and_education_cess"]),
+        not_computed=(
+            rates.outside_act["surcharge"],
+            rates.outside_act["health_and_education_cess"],
+        ),
     )

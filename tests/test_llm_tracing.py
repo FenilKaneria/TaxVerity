@@ -284,7 +284,10 @@ def test_a_failed_call_is_traced_at_error_level_with_no_output():
 
     span = handler.spans[0][0]
     assert span["status"]["code"] == 2
-    assert attr(span, "langfuse.observation.status_message") == "LLMUnavailable: groq failed"
+    assert (
+        attr(span, "langfuse.observation.status_message")
+        == "LLMUnavailable: groq failed"
+    )
     assert attr(span, "langfuse.observation.output") is None
 
 

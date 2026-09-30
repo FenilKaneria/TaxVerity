@@ -35,9 +35,7 @@ OUTSIDE_ACT = {
 
 @pytest.fixture(scope="module")
 def payload():
-    return json.loads(
-        (RATES_DIR / "tax_year_2026_27.json").read_text(encoding="utf-8")
-    )
+    return json.loads((RATES_DIR / "tax_year_2026_27.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -130,7 +128,10 @@ def test_an_unknown_rate_is_a_key_error_not_an_outside_act_one(rates):
 
 def test_number_words_are_read_back(rates):
     assert rates.value("rebate_new_regime_income_limit").unit is Unit.RUPEES
-    assert "twelve lakh rupees" in rates.value("rebate_new_regime_income_limit").provenance.source_text
+    assert (
+        "twelve lakh rupees"
+        in rates.value("rebate_new_regime_income_limit").provenance.source_text
+    )
     assert rates.value("senior_citizen_age").unit is Unit.YEARS
 
 
@@ -144,19 +145,26 @@ def edited(payload, change):
 
 
 def test_a_value_that_is_not_what_its_quote_says_is_refused(payload):
-    bad = edited(payload, lambda p: p["values"]["rebate_new_regime_maximum"].update(value="65000"))
+    bad = edited(
+        payload,
+        lambda p: p["values"]["rebate_new_regime_maximum"].update(value="65000"),
+    )
     with pytest.raises(RatesError, match="not what its quote says"):
         parse_rates(bad)
 
 
 def test_a_number_word_that_disagrees_with_the_value_is_refused(payload):
-    bad = edited(payload, lambda p: p["values"]["senior_citizen_age"].update(value="65"))
+    bad = edited(
+        payload, lambda p: p["values"]["senior_citizen_age"].update(value="65")
+    )
     with pytest.raises(RatesError, match="not what its quote says"):
         parse_rates(bad)
 
 
 def test_a_json_number_is_refused_because_it_was_a_float_first(payload):
-    bad = edited(payload, lambda p: p["values"]["rebate_other_maximum"].update(value=12500))
+    bad = edited(
+        payload, lambda p: p["values"]["rebate_other_maximum"].update(value=12500)
+    )
     with pytest.raises(RatesError, match="must be a string"):
         parse_rates(bad)
 
@@ -186,7 +194,10 @@ def test_a_capped_top_slab_is_refused(payload):
 
 
 def test_an_entry_without_a_quote_is_refused(payload):
-    bad = edited(payload, lambda p: p["values"]["savings_insurance_deduction_cap"].pop("source_text"))
+    bad = edited(
+        payload,
+        lambda p: p["values"]["savings_insurance_deduction_cap"].pop("source_text"),
+    )
     with pytest.raises(RatesError, match="citation or source text"):
         parse_rates(bad)
 
@@ -209,7 +220,9 @@ def test_an_outside_act_entry_cannot_smuggle_a_number(payload):
 
 def test_the_data_file_is_canonical(payload):
     text = (RATES_DIR / "tax_year_2026_27.json").read_text(encoding="utf-8")
-    assert text == json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=1) + "\n"
+    assert (
+        text == json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=1) + "\n"
+    )
 
 
 # --- provenance against the corpus ------------------------------------------
@@ -242,13 +255,20 @@ def test_every_fact_field_section_names_a_chunk(chunk_text):
             assert spec.section in chunk_text, field
 
 
-def test_a_deduction_not_allowed_under_202_1_sits_in_the_chapter_the_quote_excludes(rates, stored_chunks):
+def test_a_deduction_not_allowed_under_202_1_sits_in_the_chapter_the_quote_excludes(
+    rates, stored_chunks
+):
     # Section 202(2)(a)(xii) names a chapter, not these sections; the chunk's own
     # chapter metadata is what ties section 123 and 126 to that quote.
     _, chunks = stored_chunks
     chapter_of = {chunk.node_path: chunk.chapter_numeral for chunk in chunks}
-    assert set(rates.not_allowed_under_202_1) == {"deduction_savings_insurance", "deduction_health_insurance"}
+    assert set(rates.not_allowed_under_202_1) == {
+        "deduction_savings_insurance",
+        "deduction_health_insurance",
+    }
     for entry in rates.not_allowed_under_202_1.values():
         assert chapter_of[entry.section] == entry.chapter
         assert f"Chapter {entry.chapter} other than" in entry.provenance.source_text
-        assert entry.section not in re.findall(r"section (\d+)", entry.provenance.source_text)
+        assert entry.section not in re.findall(
+            r"section (\d+)", entry.provenance.source_text
+        )

@@ -193,8 +193,7 @@ def request_password_reset(
     except InvalidEmail:
         return None
     row = conn.execute(
-        "SELECT user_id FROM users "
-        "WHERE email = %s AND email_verified_at IS NOT NULL",
+        "SELECT user_id FROM users WHERE email = %s AND email_verified_at IS NOT NULL",
         (address,),
     ).fetchone()
     if row is not None and _send_allowed(conn, address, ip):

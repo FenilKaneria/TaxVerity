@@ -40,7 +40,9 @@ def test_the_202_1_side_is_the_step_9_3_computation(rates):
     # not allowed under 202(1).
     result = compare(rates, "1800000", deduction_savings_insurance="150000")
     assert result.under_202_1.payable.amount == D(145000)
-    assert [line.provenance.citation for line in result.under_202_1.not_allowed] == ["202(2)(a)(xii)"]
+    assert [line.provenance.citation for line in result.under_202_1.not_allowed] == [
+        "202(2)(a)(xii)"
+    ]
 
 
 # Worked by hand: salary less Rs. 50000 (19(1) "any other case"), plus other
@@ -57,7 +59,9 @@ def test_the_202_1_side_is_the_step_9_3_computation(rates):
         ("600000", "200000", "150000", "750000", "150000", "600000"),
     ],
 )
-def test_opted_out_total_income_matches_the_act_worked_by_hand(rates, salary, other, savings, gross, deducted, total):
+def test_opted_out_total_income_matches_the_act_worked_by_hand(
+    rates, salary, other, savings, gross, deducted, total
+):
     claimed = {"deduction_savings_insurance": savings} if savings else {}
     side = compare(rates, salary, other, **claimed).opted_out
     assert side.gross_total_income == D(gross)
@@ -74,11 +78,17 @@ def test_the_opted_out_tax_is_never_a_number(rates):
 
 def test_the_limit_to_gross_total_income_cites_section_122_2(rates):
     side = compare(rates, "0", "100000", deduction_savings_insurance="150000").opted_out
-    assert [(line.amount, line.provenance.citation) for line in side.deductions] == [(D(100000), "122(2)")]
+    assert [(line.amount, line.provenance.citation) for line in side.deductions] == [
+        (D(100000), "122(2)")
+    ]
 
 
-def test_a_capped_deduction_cites_section_123_and_states_only_figures_its_quote_prints(rates):
-    (line,) = compare(rates, "1800000", deduction_savings_insurance="200000").opted_out.deductions
+def test_a_capped_deduction_cites_section_123_and_states_only_figures_its_quote_prints(
+    rates,
+):
+    (line,) = compare(
+        rates, "1800000", deduction_savings_insurance="200000"
+    ).opted_out.deductions
     assert line.provenance.citation == "123"
     for figure in re.findall(r"\d+", line.label.replace("section 123", "")):
         assert figure in line.provenance.source_text
@@ -112,4 +122,6 @@ def test_an_opted_out_side_that_does_not_add_up_cannot_be_built(rates):
     with pytest.raises(ValueError, match="gross total income less"):
         replace(side, total_income=side.total_income + 1)
     with pytest.raises(ValueError, match="exceed gross total income"):
-        replace(side, gross_total_income=D(100), salary=D(50100), total_income=D(-149900))
+        replace(
+            side, gross_total_income=D(100), salary=D(50100), total_income=D(-149900)
+        )

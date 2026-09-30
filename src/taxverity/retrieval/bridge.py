@@ -60,7 +60,9 @@ class BridgeMap(BaseModel):
 def load_bridge_map(path: Path = BRIDGE_MAP) -> tuple[BridgeEntry, ...]:
     loaded = BridgeMap.model_validate_json(path.read_text(encoding="utf-8"))
     if loaded.version != BRIDGE_MAP_VERSION:
-        raise BridgeMapError(f"{path} is map version {loaded.version}, not {BRIDGE_MAP_VERSION}")
+        raise BridgeMapError(
+            f"{path} is map version {loaded.version}, not {BRIDGE_MAP_VERSION}"
+        )
     return loaded.entries
 
 
@@ -69,7 +71,9 @@ def terms(text: str) -> tuple[str, ...]:
     meets "instalment". Both sides fold the same way, so a mangled stem
     ("taxe") still meets itself."""
     return tuple(
-        token[:-1] if len(token) > 3 and token.endswith("s") and not token.endswith("ss") else token
+        token[:-1]
+        if len(token) > 3 and token.endswith("s") and not token.endswith("ss")
+        else token
         for token in tokenize(text)
     )
 
@@ -87,7 +91,9 @@ class TermBridge:
         started = time.perf_counter()
         chunks = tuple(chunks)
         by_path = {chunk.node_path: chunk for chunk in chunks}
-        self._roots = [terms(chunk.embed_text()) for chunk in chunks if chunk.parent_id is None]
+        self._roots = [
+            terms(chunk.embed_text()) for chunk in chunks if chunk.parent_id is None
+        ]
         self._root_sets = [frozenset(root) for root in self._roots]
 
         self._lay: dict[tuple[str, ...], str] = {}
@@ -98,9 +104,13 @@ class TermBridge:
             if not target or entry.statutory in self._targets:
                 raise BridgeMapError(f"{entry.statutory!r}: empty or mapped twice")
             if source is None:
-                raise BridgeMapError(f"{entry.statutory!r}: source {entry.source} names no chunk")
+                raise BridgeMapError(
+                    f"{entry.statutory!r}: source {entry.source} names no chunk"
+                )
             if find(terms(source.embed_text()), target) is None:
-                raise BridgeMapError(f"{entry.statutory!r} does not appear in {entry.source}")
+                raise BridgeMapError(
+                    f"{entry.statutory!r} does not appear in {entry.source}"
+                )
             share = self.root_share(entry.statutory)
             if share > MAX_ROOT_SHARE:
                 raise BridgeMapError(
@@ -110,9 +120,13 @@ class TermBridge:
             for phrase in entry.lay:
                 key = terms(phrase)
                 if not key or key in self._lay:
-                    raise BridgeMapError(f"lay phrase {phrase!r}: empty or mapped twice")
+                    raise BridgeMapError(
+                        f"lay phrase {phrase!r}: empty or mapped twice"
+                    )
                 if find(key, target) is not None:
-                    raise BridgeMapError(f"lay phrase {phrase!r} already says {entry.statutory!r}")
+                    raise BridgeMapError(
+                        f"lay phrase {phrase!r} already says {entry.statutory!r}"
+                    )
                 self._lay[key] = entry.statutory
 
         # The definitions pull: section 2 clauses whose term is specific enough
@@ -174,9 +188,13 @@ class TermBridge:
         bridge added is defined too."""
         words = terms(query)
         placed = [(find(words, term), chunk) for term, chunk in self._glossary]
-        return tuple(chunk for at, chunk in sorted(
-            ((at, chunk) for at, chunk in placed if at is not None), key=lambda pair: pair[0]
-        ))
+        return tuple(
+            chunk
+            for at, chunk in sorted(
+                ((at, chunk) for at, chunk in placed if at is not None),
+                key=lambda pair: pair[0],
+            )
+        )
 
 
 class BridgedRetriever:

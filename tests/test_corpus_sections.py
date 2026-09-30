@@ -46,7 +46,9 @@ def page(number, rows):
         spans.extend(placed)
         text_lines.append("".join(s.text for s in placed))
         y += LINE_HEIGHT
-    return PageArtifact(page=number, text="\n".join(text_lines) + "\n", spans=tuple(spans))
+    return PageArtifact(
+        page=number, text="\n".join(text_lines) + "\n", spans=tuple(spans)
+    )
 
 
 def load(page_number):
@@ -92,8 +94,13 @@ def test_a_line_is_bold_only_when_all_of_its_spans_are():
 
 
 def test_both_cues_together_find_a_section():
-    artifact = page(1, [[span("Charge of Income-tax.", bold=True)],
-                        [span("4.", bold=True), span(" (1) Where any Central Act")]])
+    artifact = page(
+        1,
+        [
+            [span("Charge of Income-tax.", bold=True)],
+            [span("4.", bold=True), span(" (1) Where any Central Act")],
+        ],
+    )
     assert markers_on(artifact) == ["4"]
 
 
@@ -121,7 +128,9 @@ def test_a_bold_marker_without_its_period_still_counts():
 
 
 def test_a_space_between_number_and_period_still_counts():
-    artifact = page(1, [[span("94 ", bold=True), span(". (1) Irrespective of anything")]])
+    artifact = page(
+        1, [[span("94 ", bold=True), span(". (1) Irrespective of anything")]]
+    )
     assert markers_on(artifact) == ["94"]
 
 
@@ -144,33 +153,53 @@ def test_a_letter_suffixed_marker_is_kept_whole():
 
 
 def test_the_title_is_the_bold_line_above_the_number():
-    artifact = page(1, [[span("Charge of Income-tax.", bold=True)],
-                        [span("4.", bold=True), span(" (1) Where")]])
+    artifact = page(
+        1,
+        [
+            [span("Charge of Income-tax.", bold=True)],
+            [span("4.", bold=True), span(" (1) Where")],
+        ],
+    )
     lines = align_lines(artifact)
     assert title_above(lines, 1) == ("Charge of Income-tax.", 0)
 
 
 def test_a_title_may_run_over_two_lines():
-    artifact = page(1, [[span("Penalty for failure to comply with", bold=True)],
-                        [span("[sections 262 and 397].", bold=True)],
-                        [span("467.", bold=True), span(" (1) If a person")]])
+    artifact = page(
+        1,
+        [
+            [span("Penalty for failure to comply with", bold=True)],
+            [span("[sections 262 and 397].", bold=True)],
+            [span("467.", bold=True), span(" (1) If a person")],
+        ],
+    )
     title, first = title_above(align_lines(artifact), 2)
     assert title == "Penalty for failure to comply with [sections 262 and 397]."
     assert first == 0
 
 
 def test_the_chapter_banner_does_not_bleed_into_the_title():
-    artifact = page(1, [[span("CHAPTER II", bold=True)],
-                        [span("BASIS OF CHARGE", bold=True)],
-                        [span("Charge of Income-tax.", bold=True)],
-                        [span("4.", bold=True), span(" (1) Where")]])
+    artifact = page(
+        1,
+        [
+            [span("CHAPTER II", bold=True)],
+            [span("BASIS OF CHARGE", bold=True)],
+            [span("Charge of Income-tax.", bold=True)],
+            [span("4.", bold=True), span(" (1) Where")],
+        ],
+    )
     assert title_above(align_lines(artifact), 3) == ("Charge of Income-tax.", 2)
 
 
 def test_roman_body_above_a_section_is_not_taken_as_its_title():
-    artifact = page(1, [[span("and ending with the said financial year.")],
-                        [span("Definitions.", bold=True)],
-                        [span("2.", bold=True), span(" In this Act,")]])
+    artifact = page(
+        1,
+        [
+            [span("and ending with the said financial year.")],
+            [span("Definitions.", bold=True)],
+            [span("2.", bold=True), span(" In this Act,")],
+        ],
+    )
     assert title_above(align_lines(artifact), 2) == ("Definitions.", 1)
 
 
@@ -237,8 +266,7 @@ def test_page_548_ignores_the_bold_footnote_digit():
     act = parse([load(548)])
     assert act.markers == ("467",)
     assert act.section("467").title == (
-        "Penalty for failure to comply with the provisions of "
-        "[sections 262 and 397]."
+        "Penalty for failure to comply with the provisions of [sections 262 and 397]."
     )
 
 
@@ -309,7 +337,9 @@ def test_repealed_wording_stays_out_of_section_text(act):
 
 
 def test_schedules_are_excluded_from_section_parsing(act):
-    assert max(page for node in act.sections for page in node.pages) < FIRST_SCHEDULE_PAGE
+    assert (
+        max(page for node in act.sections for page in node.pages) < FIRST_SCHEDULE_PAGE
+    )
 
 
 def test_sections_are_section_nodes_carrying_a_citable_path(act):
@@ -407,7 +437,7 @@ def test_the_apparatus_carries_its_quoted_repeal_onto_the_next_page():
             [span("2.", bold=True), span(" In this Act, unless the context")],
             [span("(1) 'accountant' shall have the meaning assigned")],
             [span("1. Sub. by the Act No. 4 of 2026, w.e.f. 1-4-2026. Prior to its")],
-            [span("'(32) \"co-operative society\" means a co-operative society")],
+            [span('\'(32) "co-operative society" means a co-operative society')],
         ],
         gap_before_last_block=63.0,
     )

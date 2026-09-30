@@ -64,14 +64,18 @@ class VectorIndex(Protocol):
     """Both dense indexes, the NumPy one and Step 6.4's Postgres one, so a
     cached-vector run can be pointed at either (Step 6.5)."""
 
-    def search_vector(self, vector: Sequence[float], k: int) -> Sequence[ScoredChunk]: ...
+    def search_vector(
+        self, vector: Sequence[float], k: int
+    ) -> Sequence[ScoredChunk]: ...
 
 
 class CachedQueryRetriever:
     """A dense index searched with stored question vectors. A question with no
     vector raises KeyError; it never reaches the network."""
 
-    def __init__(self, dense: VectorIndex, vectors: Mapping[str, Sequence[float]]) -> None:
+    def __init__(
+        self, dense: VectorIndex, vectors: Mapping[str, Sequence[float]]
+    ) -> None:
         self._dense = dense
         self._vectors = vectors
 

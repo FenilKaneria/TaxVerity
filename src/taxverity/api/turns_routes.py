@@ -83,7 +83,11 @@ def create_turn_route(
             with request_deps(state) as deps:
                 graph = build_graph(deps)
                 for _mode, chunk in graph.stream(
-                    {"user_id": user_id, "thread_id": thread_id, "question": body.question},
+                    {
+                        "user_id": user_id,
+                        "thread_id": thread_id,
+                        "question": body.question,
+                    },
                     stream_mode=["custom"],
                 ):
                     yield _sse(chunk)

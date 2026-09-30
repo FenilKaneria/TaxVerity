@@ -111,7 +111,9 @@ class Reasoner:
         """Same composition as `FactExtractor`/`IntentClassifier`: tracing
         outside the cache (ADR-095). `primary`/`fallback` default to
         `LLMClient`'s own class defaults (Groq 120b / Gemini)."""
-        client: Any = LLMClient.from_settings(settings, primary=primary, fallback=fallback)
+        client: Any = LLMClient.from_settings(
+            settings, primary=primary, fallback=fallback
+        )
         if cache:
             client = CachedLLMClient(client, settings.llm_cache_dir)
         if trace:

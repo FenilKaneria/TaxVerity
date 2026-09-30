@@ -290,9 +290,7 @@ def test_no_token_or_password_ever_reaches_a_log_record(schema, caplog):
         assert sent.body not in text
 
 
-def test_accounts_need_an_autocommit_connection_for_every_email_flow(
-    schema, admin_url
-):
+def test_accounts_need_an_autocommit_connection_for_every_email_flow(schema, admin_url):
     url = make_conninfo(admin_url, dbname=schema.info.dbname)
     with psycopg.connect(url) as conn:
         with pytest.raises(ValueError, match="autocommit"):

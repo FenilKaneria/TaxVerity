@@ -71,7 +71,9 @@ CHUNKS = [section(n) for n in range(1, 31)]
 
 
 def scored(chunks) -> list[ScoredChunk]:
-    return [ScoredChunk(chunk=c, score=float(len(chunks) - i)) for i, c in enumerate(chunks)]
+    return [
+        ScoredChunk(chunk=c, score=float(len(chunks) - i)) for i, c in enumerate(chunks)
+    ]
 
 
 def ok(scores: list[float], *, order=None, tokens=11) -> httpx2.Response:
@@ -152,7 +154,11 @@ def captured():
 def test_scores_come_back_by_chunk_id_whatever_order_the_api_answers_in():
     handler = Recorder(ok([0.1, 0.9, 0.5], order=[1, 2, 0]))
     scores = make(handler).score("rent", CHUNKS[:3])
-    assert scores == {CHUNKS[0].chunk_id: 0.1, CHUNKS[1].chunk_id: 0.9, CHUNKS[2].chunk_id: 0.5}
+    assert scores == {
+        CHUNKS[0].chunk_id: 0.1,
+        CHUNKS[1].chunk_id: 0.9,
+        CHUNKS[2].chunk_id: 0.5,
+    }
 
 
 def test_the_request_scores_every_document_as_it_is_indexed():
@@ -193,7 +199,9 @@ def test_with_attempts_a_rate_limit_is_ridden_out(no_sleep, captured):
     scores = make(handler, max_attempts=3).score("rent", CHUNKS[:2])
     assert len(scores) == 2 and len(handler.requests) == 2
     assert no_sleep == [3.0]
-    assert [r.levelno for r in captured if "retrying" in r.getMessage()] == [logging.WARNING]
+    assert [r.levelno for r in captured if "retrying" in r.getMessage()] == [
+        logging.WARNING
+    ]
 
 
 def test_a_client_error_is_not_retried(no_sleep):
@@ -230,7 +238,9 @@ def test_tokens_and_latency_are_recorded():
     reranker.score("a", CHUNKS[:1])
     reranker.score("b", CHUNKS[:1])
     assert reranker.tokens_used == 42
-    assert len(reranker.latencies_ms) == 2 and all(ms >= 0 for ms in reranker.latencies_ms)
+    assert len(reranker.latencies_ms) == 2 and all(
+        ms >= 0 for ms in reranker.latencies_ms
+    )
 
 
 def test_the_request_body_is_never_logged(no_sleep, captured):
@@ -318,7 +328,9 @@ class Fixed:
 
 
 class ByScore:
-    def __init__(self, scores: dict[str, float] | None = None, error: Exception | None = None):
+    def __init__(
+        self, scores: dict[str, float] | None = None, error: Exception | None = None
+    ):
         self.scores = scores or {}
         self.error = error
         self.seen: list[list[str]] = []
@@ -349,9 +361,13 @@ def test_the_whole_depth_is_reranked_even_when_fewer_results_are_asked_for():
 
 
 def test_the_scores_are_ordinal_and_rank_cleanly():
-    results = RerankRetriever(Fixed(CHUNKS), ByScore({"9": 2.0, "4": 1.0})).search("q", 10)
+    results = RerankRetriever(Fixed(CHUNKS), ByScore({"9": 2.0, "4": 1.0})).search(
+        "q", 10
+    )
     as_ranked_citations(results)
-    assert [r.score for r in results] == sorted((r.score for r in results), reverse=True)
+    assert [r.score for r in results] == sorted(
+        (r.score for r in results), reverse=True
+    )
 
 
 def test_a_vendor_failure_keeps_the_fusion_order_and_warns_without_the_query(captured):
@@ -411,7 +427,9 @@ def report(ndcg: float, k: int = 5) -> RunReport:
 
 
 def test_holding_ndcg_within_the_budget_is_adopted():
-    assert judge_rerank(report(0.70), report(0.70), 900.0) == Verdict(adopted=True, reasons=())
+    assert judge_rerank(report(0.70), report(0.70), 900.0) == Verdict(
+        adopted=True, reasons=()
+    )
 
 
 def test_an_ndcg_fall_rejects():
@@ -446,7 +464,11 @@ def test_stored_scores_round_trip_and_refuse_a_mismatch(tmp_path):
     write_rerank_scores(path, stored())
     want = dict(model_id=MODEL_ID, corpus_version=CORPUS_VERSION, depth=RERANK_DEPTH)
     assert load_rerank_scores(path, **want, questions=["q1"]) == stored()
-    for field, value in (("model_id", "other"), ("corpus_version", "x" * 64), ("depth", 10)):
+    for field, value in (
+        ("model_id", "other"),
+        ("corpus_version", "x" * 64),
+        ("depth", 10),
+    ):
         with pytest.raises(StaleRerankScoresError, match=field):
             load_rerank_scores(path, **{**want, field: value}, questions=["q1"])
     with pytest.raises(StaleRerankScoresError, match="no scores"):
@@ -483,7 +505,9 @@ def reranked_legs(gold, stored_chunks, retrieval_legs):
     index, dense, bm25, shortcut = retrieval_legs
     fusion = FusionRetriever([dense, bm25])
     base = ShortcutRetriever(shortcut, fusion)
-    reranked = ShortcutRetriever(shortcut, RerankRetriever(fusion, StoredReranker(loaded.scores)))
+    reranked = ShortcutRetriever(
+        shortcut, RerankRetriever(fusion, StoredReranker(loaded.scores))
+    )
     return index, base, reranked, loaded
 
 
@@ -517,7 +541,9 @@ def test_the_rerank_cache_is_safe_to_share_across_threads():
         try:
             for i in range(200):
                 cache.score(f"q{(n + i) % 12}", chunks_for[i % 4])
-        except BaseException as error:  # pragma: no cover - the assertion is that none happen
+        except (
+            BaseException
+        ) as error:  # pragma: no cover - the assertion is that none happen
             errors.append(error)
 
     threads = [threading.Thread(target=hammer, args=(n,)) for n in range(4)]

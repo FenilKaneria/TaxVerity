@@ -45,7 +45,9 @@ def fact(name, value, status=FactStatus.STATED):
     if status is FactStatus.MISSING:
         return Fact(field=name, status=status, raw_value="", value=None, source_span="")
     span = "" if status is FactStatus.PROFILE_DEFAULT else str(value)
-    return Fact(field=name, status=status, raw_value=str(value), value=value, source_span=span)
+    return Fact(
+        field=name, status=status, raw_value=str(value), value=value, source_span=span
+    )
 
 
 def facts(unmapped=(), statuses=None, **changes):
@@ -84,7 +86,9 @@ def test_income_under_another_head_routes_text_only_gain_or_loss(head, amount):
     # A loss read with its sign dropped is still non-zero, so it routes out too.
     decision = route(facts(**{head.value: D(amount)}))
     assert decision.route is Route.TEXT_ONLY
-    assert decision.blockers == (Blocker(OutOfScope.HEAD_NOT_COMPUTED, f"{head} is not computed", head),)
+    assert decision.blockers == (
+        Blocker(OutOfScope.HEAD_NOT_COMPUTED, f"{head} is not computed", head),
+    )
     assert decision.inputs is None
 
 
@@ -94,7 +98,9 @@ def test_a_stated_nil_under_another_head_is_not_income():
 
 def test_an_unnamed_deduction_routes_text_only():
     decision = route(facts(deduction_other=D("50000")))
-    assert [b.reason for b in decision.blockers] == [OutOfScope.DEDUCTION_NOT_IDENTIFIED]
+    assert [b.reason for b in decision.blockers] == [
+        OutOfScope.DEDUCTION_NOT_IDENTIFIED
+    ]
 
 
 @pytest.mark.parametrize("year", ["2025-26", "2027-28"])
@@ -104,7 +110,11 @@ def test_a_tax_year_without_rate_data_routes_text_only(year):
 
 
 def test_an_unmapped_fact_routes_text_only():
-    unmapped = UnmappedFact(name="agricultural_income", raw_value="200000", source_span="2 lakh from farming")
+    unmapped = UnmappedFact(
+        name="agricultural_income",
+        raw_value="200000",
+        source_span="2 lakh from farming",
+    )
     decision = route(facts(unmapped=[unmapped]))
     assert decision.route is Route.TEXT_ONLY
     assert decision.blockers[0].reason is OutOfScope.UNMAPPED_FACT
@@ -113,7 +123,14 @@ def test_an_unmapped_fact_routes_text_only():
 
 def test_every_blocker_is_reported_not_just_the_first():
     unmapped = UnmappedFact(name="hra", raw_value="1", source_span="1")
-    decision = route(facts(unmapped=[unmapped], tax_year="2025-26", business_income=D(1), deduction_other=D(1)))
+    decision = route(
+        facts(
+            unmapped=[unmapped],
+            tax_year="2025-26",
+            business_income=D(1),
+            deduction_other=D(1),
+        )
+    )
     assert {b.reason for b in decision.blockers} == set(OutOfScope)
 
 
@@ -156,10 +173,18 @@ def test_an_inferred_fact_is_used_and_named():
 
 @pytest.mark.parametrize(
     ("status", "resident"),
-    [("resident", True), ("resident_not_ordinarily_resident", True), ("non_resident", False)],
+    [
+        ("resident", True),
+        ("resident_not_ordinarily_resident", True),
+        ("non_resident", False),
+    ],
 )
-def test_residential_status_maps_onto_the_section_156_individual_resident(status, resident):
-    assert route(facts(residential_status=status)).inputs.resident_individual is resident
+def test_residential_status_maps_onto_the_section_156_individual_resident(
+    status, resident
+):
+    assert (
+        route(facts(residential_status=status)).inputs.resident_individual is resident
+    )
 
 
 @pytest.mark.parametrize("regime", ["old", "new"])
@@ -195,11 +220,21 @@ def test_compute_runs_the_comparison_and_settles_what_was_paid():
     result = compute(route(facts(tds_paid=D("12000"))))
     assert result.comparison.under_202_1.payable.amount == D(0)
     assert result.settlement.refund_due.amount == D("12000")
-    assert [c.provenance.citation for c in result.not_computed] == ["206(1)(c)(i)(B)", "206(1)(c)(i)(C)"]
+    assert [c.provenance.citation for c in result.not_computed] == [
+        "206(1)(c)(i)(B)",
+        "206(1)(c)(i)(C)",
+    ]
 
 
 def test_compute_passes_the_claims_through_to_both_routes():
-    result = compute(route(facts(deduction_savings_insurance=D("150000"), deduction_health_insurance=D("20000"))))
+    result = compute(
+        route(
+            facts(
+                deduction_savings_insurance=D("150000"),
+                deduction_health_insurance=D("20000"),
+            )
+        )
+    )
     assert len(result.comparison.under_202_1.not_allowed) == 2
     assert result.comparison.opted_out.total_income == D("800000")
     assert result.comparison.opted_out.total_income_is_upper_bound

@@ -56,7 +56,9 @@ def content_event(claim_id: int = 1) -> ClaimEvent:
         id=claim_id,
         type=ClaimType.CONTENT,
         text="Thirty per cent of the annual value is deductible [1].",
-        citations=(Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),),
+        citations=(
+            Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),
+        ),
     )
 
 
@@ -66,7 +68,9 @@ def uncited_content_event(claim_id: int = 1) -> ClaimEvent:
     building it, ADR-120), but this shape is still worth a defensive test:
     should any future change reopen an uncited-content path, it still must
     not satisfy the gate on its own."""
-    return ClaimEvent(id=claim_id, type=ClaimType.CONTENT, text="Here's what applies.", citations=())
+    return ClaimEvent(
+        id=claim_id, type=ClaimType.CONTENT, text="Here's what applies.", citations=()
+    )
 
 
 def no_basis_event(claim_id: int = 1) -> ClaimEvent:
@@ -79,7 +83,9 @@ def no_basis_event(claim_id: int = 1) -> ClaimEvent:
 
 
 def computation_event(claim_id: int = 1) -> ClaimEvent:
-    return ClaimEvent(id=claim_id, type=ClaimType.COMPUTATION, text="Tax is 50000.", citations=())
+    return ClaimEvent(
+        id=claim_id, type=ClaimType.COMPUTATION, text="Tax is 50000.", citations=()
+    )
 
 
 def application_event(claim_id: int = 1) -> ClaimEvent:
@@ -90,7 +96,9 @@ def application_event(claim_id: int = 1) -> ClaimEvent:
         id=claim_id,
         type=ClaimType.APPLICATION,
         text="You can deduct thirty per cent of the annual value [1][fact].",
-        citations=(Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),),
+        citations=(
+            Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),
+        ),
     )
 
 
@@ -101,7 +109,9 @@ def unknown_event(claim_id: int = 1) -> ClaimEvent:
         id=claim_id,
         type=ClaimType.UNKNOWN,
         text="This can't yet be determined because the condition is unresolved [1].",
-        citations=(Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),),
+        citations=(
+            Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),
+        ),
     )
 
 
@@ -218,7 +228,9 @@ def example_event(claim_id: int = 1) -> ClaimEvent:
         id=claim_id,
         type=ClaimType.EXAMPLE,
         text="Suppose the annual value is ₹1,00,000 [1][eg].",
-        citations=(Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),),
+        citations=(
+            Citation(marker=1, path="22", quote="Thirty per cent of the annual value"),
+        ),
     )
 
 

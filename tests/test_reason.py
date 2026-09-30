@@ -123,7 +123,10 @@ def test_a_malformed_completion_degrades_to_no_analysis_not_an_exception():
             json={
                 "model": GROQ.model,
                 "choices": [
-                    {"message": {"role": "assistant", "content": "not json at all"}, "finish_reason": "stop"}
+                    {
+                        "message": {"role": "assistant", "content": "not json at all"},
+                        "finish_reason": "stop",
+                    }
                 ],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5},
             },

@@ -50,7 +50,7 @@ from taxverity.db.serving import ServedCorpus, resolve_serving
 from taxverity.embedding.jina_api import JinaAPIEmbedder
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph import nodes
-from taxverity.graph.state import GraphDeps, GraphState
+from taxverity.graph.state import CALC_PIN_CITATIONS, GraphDeps, GraphState
 from taxverity.llm.client import GEMINI, GROQ_20B, LLMClient
 from taxverity.llm.conversational import Conversationalist
 from taxverity.llm.extract import FactExtractor
@@ -138,7 +138,13 @@ def build_deps(
     bridge = TermBridge(load_bridge_map(), chunks)
     reranker = CachedReranker(JinaReranker.from_settings(settings))
     ranked = BridgedRetriever(bridge, RerankRetriever(fusion, reranker))
-    retriever = ShortcutRetriever(CitationRetriever(chunks), ranked)
+    citations = CitationRetriever(chunks)
+    retriever = ShortcutRetriever(citations, ranked)
+    calc_pins = tuple(
+        found
+        for citation in CALC_PIN_CITATIONS
+        if (found := citations.lookup(citation))
+    )
 
     by_path = {chunk.node_path: chunk for chunk in chunks}
     llm: object = LLMClient.from_settings(settings)
@@ -180,6 +186,7 @@ def build_deps(
         # exactly the kind of correctness-adjacent node rule 01's
         # must-stay-rigorous list is cautious about, and R18 never gated it.
         reasoner=Reasoner.from_settings(settings, cache=False),
+        calc_pins=calc_pins,
     )
     return deps, served
 
@@ -226,7 +233,9 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph:
         # this needs. `decide` and `generate_verify` each have exactly one
         # predecessor now, so neither needs it.
         defer = name == "reason"
-        graph.add_node(name, _timed(name, partial(getattr(nodes, name), deps=deps)), defer=defer)
+        graph.add_node(
+            name, _timed(name, partial(getattr(nodes, name), deps=deps)), defer=defer
+        )
 
     graph.add_edge(START, "load_thread")
     graph.add_edge("load_thread", "contextualize")

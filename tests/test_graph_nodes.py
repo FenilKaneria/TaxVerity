@@ -36,6 +36,7 @@ from taxverity.graph.nodes import (
     route_calc,
 )
 from taxverity.graph.state import (
+    CALCULATION_CLARIFY,
     CLARIFY_TEMPLATES,
     ClarifyEvent,
     FinalEvent,
@@ -149,7 +150,9 @@ def test_route_calc_asks_via_deterministic_templates_never_the_llm():
     assert result["scope_decision"].route is Route.INCOMPLETE
     assert result["computation"] is None
     assert result["clarify_questions"] == (CLARIFY_TEMPLATES[FactField.SALARY_INCOME],)
-    assert recorder.events == [ClarifyEvent(questions=result["clarify_questions"]).model_dump()]
+    assert recorder.events == [
+        ClarifyEvent(questions=result["clarify_questions"]).model_dump()
+    ]
 
 
 def test_route_calc_skips_the_probe_when_the_thread_has_stated_no_amount_yet():
@@ -167,7 +170,9 @@ def test_route_calc_probes_once_any_amount_is_stated():
     """The skip is specific to "nothing quantitative said yet" — a thread
     naming even one amount field still gets the full deterministic probe."""
     state = ThreadFactState(
-        facts={FactField.SALARY_INCOME: fact(FactField.SALARY_INCOME, Decimal("1000000"))},
+        facts={
+            FactField.SALARY_INCOME: fact(FactField.SALARY_INCOME, Decimal("1000000"))
+        },
         provenance={FactField.SALARY_INCOME: "stated in turn 1"},
     )
     recorder = Recorder()
@@ -224,7 +229,8 @@ def test_respond_conversational_carries_the_guarded_reply_and_touches_nothing_el
 def test_classify_reads_the_category_and_response_off_the_classifier():
     classifier = SimpleNamespace(
         classify=lambda q: SimpleNamespace(
-            category=ScopeCategory.PROHIBITED, response=FIXED_RESPONSES[ScopeCategory.PROHIBITED]
+            category=ScopeCategory.PROHIBITED,
+            response=FIXED_RESPONSES[ScopeCategory.PROHIBITED],
         )
     )
     result = classify({"query": "how do I hide income?"}, deps(classifier=classifier))
@@ -272,15 +278,21 @@ def test_classify_carries_the_classifiers_intent():
             intent=Intent.CALCULATION,
         )
     )
-    result = classify({"query": "what tax do I pay on 18L salary?"}, deps(classifier=classifier))
+    result = classify(
+        {"query": "what tax do I pay on 18L salary?"}, deps(classifier=classifier)
+    )
     assert result["intent"] is Intent.CALCULATION
 
 
 def test_classify_intent_defaults_to_explanation_for_a_stub_predating_it():
     classifier = SimpleNamespace(
-        classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None)
+        classify=lambda q: SimpleNamespace(
+            category=ScopeCategory.IN_SCOPE, response=None
+        )
     )
-    result = classify({"query": "what does section 19 say?"}, deps(classifier=classifier))
+    result = classify(
+        {"query": "what does section 19 say?"}, deps(classifier=classifier)
+    )
     assert result["intent"] is Intent.EXPLANATION
 
 
@@ -432,7 +444,12 @@ GOVERNING_RULE = LegalRule(
 
 
 def test_reason_skips_explanation_questions_without_touching_the_reasoner():
-    state = {"intent": Intent.EXPLANATION, "query": "x", "pack": PACK, "fact_state": ThreadFactState()}
+    state = {
+        "intent": Intent.EXPLANATION,
+        "query": "x",
+        "pack": PACK,
+        "fact_state": ThreadFactState(),
+    }
     result = reason(state, deps(reasoner=Boom()))
     assert result == {
         "legal_rules": (),
@@ -457,7 +474,12 @@ def test_reason_calls_the_reasoner_for_a_reasoning_intent():
 
 def test_reason_falls_back_when_the_completion_does_not_parse():
     stub = StubReasoner(reason_result(None))
-    state = {"intent": Intent.CALCULATION, "query": "x", "pack": PACK, "fact_state": ThreadFactState()}
+    state = {
+        "intent": Intent.CALCULATION,
+        "query": "x",
+        "pack": PACK,
+        "fact_state": ThreadFactState(),
+    }
     result = reason(state, deps(reasoner=stub))
     assert result["answer_plan"] is None
     assert result["legal_rules"] == ()
@@ -469,7 +491,12 @@ def test_reason_falls_back_when_nothing_survives_validation():
         answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.NO_BASIS),
     )
     stub = StubReasoner(reason_result(bad_analysis))
-    state = {"intent": Intent.COMPARISON, "query": "x", "pack": PACK, "fact_state": ThreadFactState()}
+    state = {
+        "intent": Intent.COMPARISON,
+        "query": "x",
+        "pack": PACK,
+        "fact_state": ThreadFactState(),
+    }
     result = reason(state, deps(reasoner=stub))
     assert result["legal_rules"] == ()
     assert result["answer_plan"] is None
@@ -482,7 +509,12 @@ def test_reason_returns_the_validated_analysis_when_a_rule_survives():
         answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
     )
     stub = StubReasoner(reason_result(analysis))
-    state = {"intent": Intent.MULTI_ISSUE, "query": "x", "pack": PACK, "fact_state": ThreadFactState()}
+    state = {
+        "intent": Intent.MULTI_ISSUE,
+        "query": "x",
+        "pack": PACK,
+        "fact_state": ThreadFactState(),
+    }
     result = reason(state, deps(reasoner=stub))
     assert [r.id for r in result["legal_rules"]] == ["r1"]
     assert result["applicability"][0].status is CheckStatus.UNKNOWN
@@ -500,7 +532,9 @@ def test_decide_does_nothing_when_no_missing_facts_and_no_prior_clarify():
 def test_decide_stays_silent_on_a_non_material_missing_fact():
     state = {
         "missing_facts": (
-            MissingFact(condition_id="c1", question="Are you a resident?", material=False),
+            MissingFact(
+                condition_id="c1", question="Are you a resident?", material=False
+            ),
         )
     }
     recorder = Recorder()
@@ -512,16 +546,25 @@ def test_decide_stays_silent_on_a_non_material_missing_fact():
 def test_decide_emits_one_question_per_material_missing_fact():
     state = {
         "missing_facts": (
-            MissingFact(condition_id="c1", question="Are you a resident?", material=True),
+            MissingFact(
+                condition_id="c1", question="Are you a resident?", material=True
+            ),
             MissingFact(condition_id="c2", question="Ignore me", material=False),
-            MissingFact(condition_id="c3", question="Do you own the house?", material=True),
+            MissingFact(
+                condition_id="c3", question="Do you own the house?", material=True
+            ),
         )
     }
     recorder = Recorder()
     result = decide(state, deps(), writer=recorder)
-    assert result["clarify_questions"] == ("Are you a resident?", "Do you own the house?")
+    assert result["clarify_questions"] == (
+        "Are you a resident?",
+        "Do you own the house?",
+    )
     assert recorder.events == [
-        ClarifyEvent(questions=("Are you a resident?", "Do you own the house?")).model_dump()
+        ClarifyEvent(
+            questions=("Are you a resident?", "Do you own the house?")
+        ).model_dump()
     ]
 
 
@@ -531,7 +574,9 @@ def test_decide_leaves_calculator_clarify_questions_untouched_when_nothing_new()
     state = {"clarify_questions": ("What is your salary income for the tax year?",)}
     recorder = Recorder()
     result = decide(state, deps(), writer=recorder)
-    assert result["clarify_questions"] == ("What is your salary income for the tax year?",)
+    assert result["clarify_questions"] == (
+        "What is your salary income for the tax year?",
+    )
     assert recorder.events == []
 
 
@@ -539,7 +584,9 @@ def test_decide_appends_reasoning_questions_to_calculator_ones():
     state = {
         "clarify_questions": ("What is your salary income for the tax year?",),
         "missing_facts": (
-            MissingFact(condition_id="c1", question="Do you own the house?", material=True),
+            MissingFact(
+                condition_id="c1", question="Do you own the house?", material=True
+            ),
         ),
     }
     recorder = Recorder()
@@ -548,14 +595,18 @@ def test_decide_appends_reasoning_questions_to_calculator_ones():
         "What is your salary income for the tax year?",
         "Do you own the house?",
     )
-    assert recorder.events == [ClarifyEvent(questions=("Do you own the house?",)).model_dump()]
+    assert recorder.events == [
+        ClarifyEvent(questions=("Do you own the house?",)).model_dump()
+    ]
 
 
 def test_decide_deduplicates_a_question_already_present():
     state = {
         "clarify_questions": ("Do you own the house?",),
         "missing_facts": (
-            MissingFact(condition_id="c1", question="Do you own the house?", material=True),
+            MissingFact(
+                condition_id="c1", question="Do you own the house?", material=True
+            ),
         ),
     }
     result = decide(state, deps(), writer=Recorder())
@@ -568,7 +619,12 @@ def test_decide_deduplicates_a_question_already_present():
 def test_generate_verify_serves_a_grounded_claim_and_the_gate_stays_silent():
     llm = FakeLLM(answer(GOOD))
     d = deps(generator=AnswerGenerator(llm, CHUNKS))
-    state = {"query": QUESTION, "pack": PACK, "fact_state": thread_state(), "computation": None}
+    state = {
+        "query": QUESTION,
+        "pack": PACK,
+        "fact_state": thread_state(),
+        "computation": None,
+    }
     recorder = Recorder()
     result = generate_verify(state, d, writer=recorder)
     assert [type(e) for e in result["events"]] == [ClaimEvent]
@@ -579,7 +635,12 @@ def test_generate_verify_serves_a_grounded_claim_and_the_gate_stays_silent():
 def test_generate_verify_gates_to_insufficient_evidence_on_zero_grounded_claims():
     llm = FakeLLM("")  # the model emits nothing
     d = deps(generator=AnswerGenerator(llm, CHUNKS))
-    state = {"query": QUESTION, "pack": PACK, "fact_state": thread_state(), "computation": None}
+    state = {
+        "query": QUESTION,
+        "pack": PACK,
+        "fact_state": thread_state(),
+        "computation": None,
+    }
     result = generate_verify(state, d, writer=Recorder())
     assert result["events"] == []
     assert result["answer_text"] == INSUFFICIENT_EVIDENCE_MESSAGE
@@ -598,7 +659,9 @@ def thread_id(schema, alice):
     return create_thread(schema, alice, "House property").thread_id
 
 
-def test_load_thread_reads_the_recent_window_and_a_fresh_fact_state(schema, alice, thread_id):
+def test_load_thread_reads_the_recent_window_and_a_fresh_fact_state(
+    schema, alice, thread_id
+):
     append_message(schema, alice, thread_id, "user", "first turn")
     append_message(schema, alice, thread_id, "assistant", "first answer")
     append_message(schema, alice, thread_id, "user", "second turn")
@@ -617,14 +680,20 @@ def test_load_thread_strips_markers_from_the_previous_answer(schema, alice, thre
     # one's — carried forward as plain prose only.
     append_message(schema, alice, thread_id, "user", "q")
     append_message(
-        schema, alice, thread_id, "assistant", "## Topic\n- Loss is capped [2].\n- Suppose x [1][eg]."
+        schema,
+        alice,
+        thread_id,
+        "assistant",
+        "## Topic\n- Loss is capped [2].\n- Suppose x [1][eg].",
     )
     state = {"user_id": alice, "thread_id": thread_id}
     result = load_thread(state, deps(conn=schema), writer=Recorder())
     assert result["previous_answer"] == "## Topic\n- Loss is capped.\n- Suppose x."
 
 
-def test_merge_facts_persists_to_the_database_and_emits_the_facts_stage(schema, alice, thread_id):
+def test_merge_facts_persists_to_the_database_and_emits_the_facts_stage(
+    schema, alice, thread_id
+):
     extraction = ExtractionResult(
         facts=facts_from({FactField.SALARY_INCOME: Decimal("1500000")}),
         rejections=(),
@@ -648,7 +717,9 @@ def test_merge_facts_persists_to_the_database_and_emits_the_facts_stage(schema, 
     assert event["facts"][FactField.SALARY_INCOME.value] == "1500000"
 
 
-def test_finalize_persists_both_messages_and_composes_the_final_event(schema, alice, thread_id):
+def test_finalize_persists_both_messages_and_composes_the_final_event(
+    schema, alice, thread_id
+):
     claim = ClaimEvent(id=1, type=ClaimType.CONTENT, text=GOOD, citations=())
     state = {
         "user_id": alice,
@@ -673,7 +744,9 @@ def test_finalize_persists_both_messages_and_composes_the_final_event(schema, al
     assert result["final"].searched == ()
 
 
-def test_finalize_streams_the_gated_text_and_the_provisions_searched(schema, alice, thread_id):
+def test_finalize_streams_the_gated_text_and_the_provisions_searched(
+    schema, alice, thread_id
+):
     # advisor pivot, Step 4: the insufficient-evidence message actually
     # reaches the final event, along with the pack it was gated against —
     # not just the persisted database message.
@@ -695,7 +768,9 @@ def test_finalize_streams_the_gated_text_and_the_provisions_searched(schema, ali
     assert messages[-1].content == INSUFFICIENT_EVIDENCE_MESSAGE
 
 
-def test_finalize_never_reports_searched_provisions_for_a_fixed_refusal(schema, alice, thread_id):
+def test_finalize_never_reports_searched_provisions_for_a_fixed_refusal(
+    schema, alice, thread_id
+):
     # respond_fixed never retrieves, so there is no pack to report.
     state = {
         "user_id": alice,
@@ -718,14 +793,22 @@ def _end_to_end_deps(schema: object) -> GraphDeps:
     return deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
+            classify=lambda q: SimpleNamespace(
+                category=ScopeCategory.IN_SCOPE, response=None, search_query=q
+            )
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(
+                query=q, rewritten=False, completion=None
+            )
         ),
         extractor=SimpleNamespace(
             extract=lambda turn: ExtractionResult(
-                facts=facts_from(), rejections=(), repairable=(), repaired=False, completions=()
+                facts=facts_from(),
+                rejections=(),
+                repairable=(),
+                repaired=False,
+                completions=(),
             )
         ),
         retriever=SimpleNamespace(
@@ -749,7 +832,10 @@ def test_the_graph_answers_an_in_scope_question_end_to_end(schema, alice, thread
     assert result["final"].citations == ("22(1)",)
     messages = list_messages(schema, alice, thread_id)
     assert [m.role for m in messages] == ["user", "assistant"]
-    assert load_fact_state(schema, alice, thread_id).get(FactField.SALARY_INCOME) is not None
+    assert (
+        load_fact_state(schema, alice, thread_id).get(FactField.SALARY_INCOME)
+        is not None
+    )
 
 
 def test_the_graph_short_circuits_a_prohibited_question_with_no_llm_or_retrieval(
@@ -764,12 +850,18 @@ def test_the_graph_short_circuits_a_prohibited_question_with_no_llm_or_retrieval
             )
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(
+                query=q, rewritten=False, completion=None
+            )
         ),
     )
     graph = build_graph(prohibited)
     result = graph.invoke(
-        {"user_id": alice, "thread_id": thread_id, "question": "How do I hide freelance income?"}
+        {
+            "user_id": alice,
+            "thread_id": thread_id,
+            "question": "How do I hide freelance income?",
+        }
     )
     assert result["final"].route == "prohibited"
     assert result["events"] == []
@@ -780,7 +872,9 @@ def test_the_graph_short_circuits_a_prohibited_question_with_no_llm_or_retrieval
     assert load_fact_state(schema, alice, thread_id) == ThreadFactState()
 
 
-def test_streaming_the_graph_emits_stage_then_claim_then_final(schema, alice, thread_id):
+def test_streaming_the_graph_emits_stage_then_claim_then_final(
+    schema, alice, thread_id
+):
     graph = build_graph(_end_to_end_deps(schema))
     emitted = [
         chunk
@@ -797,3 +891,128 @@ def test_streaming_the_graph_emits_stage_then_claim_then_final(schema, alice, th
     assert set(stages[1:]) == {"facts", "evidence"}
     assert any(e.get("type") == "content" for e in emitted)
     assert emitted[-1]["disclaimer"]
+
+
+# --- calculation questions: pinned provisions and the income question ---------
+
+
+def pinning_retrieve(intent: Intent) -> list[str]:
+    class FakeRetriever:
+        def search(self, query: str, k: int) -> list[ScoredChunk]:
+            return [ScoredChunk(chunk=CHUNKS["22"], score=1.0)]
+
+    pins = (
+        ScoredChunk(chunk=CHUNKS["24"], score=1.0),
+        ScoredChunk(chunk=CHUNKS["23"], score=1.0),
+    )
+    result = retrieve(
+        {"query": "calculate my tax", "sub_queries": (), "intent": intent},
+        deps(retriever=FakeRetriever(), calc_pins=pins),
+        writer=Recorder(),
+    )
+    return [unit.citation for unit in result["pack"].units]
+
+
+def test_a_calculation_question_packs_the_calculator_provisions_first():
+    assert pinning_retrieve(Intent.CALCULATION) == ["24", "23", "22"]
+
+
+@pytest.mark.parametrize(
+    "intent", [Intent.EXPLANATION, Intent.ELIGIBILITY, Intent.PROCEDURE]
+)
+def test_no_other_intent_is_pinned(intent):
+    assert pinning_retrieve(intent) == ["22"]
+
+
+def test_a_pinned_provision_the_ranking_also_found_appears_once():
+    class FakeRetriever:
+        def search(self, query: str, k: int) -> list[ScoredChunk]:
+            return [ScoredChunk(chunk=CHUNKS["24"], score=1.0)]
+
+    result = retrieve(
+        {"query": "q", "sub_queries": (), "intent": Intent.CALCULATION},
+        deps(
+            retriever=FakeRetriever(),
+            calc_pins=(ScoredChunk(chunk=CHUNKS["24"], score=1.0),),
+        ),
+        writer=Recorder(),
+    )
+    assert [unit.citation for unit in result["pack"].units] == ["24"]
+
+
+def test_a_calculation_with_no_amount_asks_for_income_with_the_fixed_question():
+    recorder = Recorder()
+    result = route_calc(
+        {"fact_state": ThreadFactState(), "intent": Intent.CALCULATION},
+        deps(),
+        writer=recorder,
+    )
+    assert result["computation"] is None
+    assert result["clarify_questions"] == (CALCULATION_CLARIFY,)
+    assert recorder.events == [
+        ClarifyEvent(questions=(CALCULATION_CLARIFY,)).model_dump()
+    ]
+
+
+@pytest.mark.parametrize(
+    "intent", [Intent.EXPLANATION, Intent.ELIGIBILITY, Intent.COMPARISON]
+)
+def test_other_intents_keep_the_no_first_turn_question_rule(intent):
+    recorder = Recorder()
+    result = route_calc(
+        {"fact_state": ThreadFactState(), "intent": intent}, deps(), writer=recorder
+    )
+    assert result["clarify_questions"] == ()
+    assert recorder.events == []
+
+
+def test_a_calculation_with_every_input_known_still_computes():
+    result = route_calc(
+        {"fact_state": thread_state(), "intent": Intent.CALCULATION},
+        deps(),
+        writer=Recorder(),
+    )
+    assert result["computation"] is not None
+    assert result["clarify_questions"] == ()
+
+
+def test_generate_verify_tells_the_generator_only_when_income_was_asked_for():
+    seen: list[bool] = []
+
+    class SpyGenerator:
+        def generate(self, question, pack, **kwargs):
+            seen.append(kwargs["calculation_pending"])
+            return []
+
+    base = {
+        "query": "q",
+        "pack": PACK,
+        "fact_state": ThreadFactState(),
+        "computation": None,
+    }
+    generate_verify(
+        {**base, "clarify_questions": (CALCULATION_CLARIFY,)},
+        deps(generator=SpyGenerator()),
+        writer=Recorder(),
+    )
+    generate_verify(
+        {
+            **base,
+            "clarify_questions": ("What is your salary income for the tax year?",),
+        },
+        deps(generator=SpyGenerator()),
+        writer=Recorder(),
+    )
+    assert seen == [True, False]
+
+
+def test_decide_adds_no_reasoning_questions_while_the_income_question_is_pending():
+    recorder = Recorder()
+    missing = SimpleNamespace(question="What is your total income?", material=True)
+    result = decide(
+        {"clarify_questions": (CALCULATION_CLARIFY,), "missing_facts": (missing,)},
+        deps(),
+        writer=recorder,
+    )
+    assert result["clarify_questions"] == (CALCULATION_CLARIFY,)
+    assert recorder.events == []

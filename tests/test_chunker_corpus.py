@@ -108,7 +108,9 @@ def test_page_spans_sit_inside_their_root(chunks):
 
 def test_no_chunk_is_emitted_below_an_untrusted_node(chunks, untrusted):
     for chunk in chunks:
-        parent_path = chunk.node_path.rsplit("(", 1)[0] if "(" in chunk.node_path else None
+        parent_path = (
+            chunk.node_path.rsplit("(", 1)[0] if "(" in chunk.node_path else None
+        )
         if parent_path is not None:
             assert parent_path not in untrusted
 
@@ -120,7 +122,9 @@ def test_every_untrusted_root_still_appears_whole(chunks, untrusted, sub):
             assert paths[section.marker].text == section.full_text()
 
 
-def test_ids_are_stable_across_two_runs(act, sub, parsed_schedules, crossrefs, untrusted, chunks):
+def test_ids_are_stable_across_two_runs(
+    act, sub, parsed_schedules, crossrefs, untrusted, chunks
+):
     again = build_chunks(
         CHUNK_TEST_VERSION,
         [*sub.sections, *parsed_schedules.schedules],
@@ -135,10 +139,7 @@ def test_every_outgoing_ref_names_a_chunk_that_exists(chunks):
     """Plan section 2.4's metadata test: a reference must land somewhere."""
     paths = {chunk.node_path for chunk in chunks}
     missing = {
-        ref
-        for chunk in chunks
-        for ref in chunk.outgoing_refs
-        if ref not in paths
+        ref for chunk in chunks for ref in chunk.outgoing_refs if ref not in paths
     }
     # Cross-references resolve against the parsed tree, which still contains
     # the subtrees chunking declined to split. Those targets are reachable

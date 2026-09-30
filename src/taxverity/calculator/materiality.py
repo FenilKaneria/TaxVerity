@@ -53,7 +53,10 @@ INCOME_FIELDS = (FactField.SALARY_INCOME, FactField.OTHER_SOURCES_INCOME)
 ROUTE_CHANGING_FIELDS = (*HEADS_NOT_COMPUTED, FactField.DEDUCTION_OTHER)
 # Section 202(2)(a)(xii) excludes both from a 202(1) computation, so no amount
 # can move its tax. The opted-out side's total income still assumes them nil.
-CLAIM_FIELDS = (FactField.DEDUCTION_SAVINGS_INSURANCE, FactField.DEDUCTION_HEALTH_INSURANCE)
+CLAIM_FIELDS = (
+    FactField.DEDUCTION_SAVINGS_INSURANCE,
+    FactField.DEDUCTION_HEALTH_INSURANCE,
+)
 PAID_FIELDS = (FactField.TDS_PAID, FactField.ADVANCE_TAX_PAID)
 
 _OUTCOMES = {
@@ -84,7 +87,9 @@ class Finding:
         swept = self.reason in (Reason.TAX_DIFFERS, Reason.TAX_SAME)
         if swept != (self.spread is not None):
             raise ValueError("a spread is carried exactly when the field was swept")
-        if self.spread is not None and (self.spread[0] != self.spread[1]) != (self.reason is Reason.TAX_DIFFERS):
+        if self.spread is not None and (self.spread[0] != self.spread[1]) != (
+            self.reason is Reason.TAX_DIFFERS
+        ):
             raise ValueError("a field is material exactly when its spread is non-zero")
         if (self.outcome is Outcome.ASSUME) != (self.assumed is not None):
             raise ValueError("only an assumed field carries an assumed value")
@@ -100,9 +105,13 @@ class Probe:
     inputs: CalculatorInputs | None
 
     def __post_init__(self) -> None:
-        waiting = any(f.outcome in (Outcome.ASK, Outcome.DEFERRED) for f in self.findings)
+        waiting = any(
+            f.outcome in (Outcome.ASK, Outcome.DEFERRED) for f in self.findings
+        )
         if waiting == (self.inputs is not None):
-            raise ValueError("inputs are built exactly when nothing is asked or deferred")
+            raise ValueError(
+                "inputs are built exactly when nothing is asked or deferred"
+            )
 
     def by_outcome(self, outcome: Outcome) -> tuple[Finding, ...]:
         return tuple(f for f in self.findings if f.outcome is outcome)
@@ -117,7 +126,9 @@ def probe(facts: UserFacts, decision: ScopeDecision) -> Probe:
     unknown = set(decision.unknown)
     # Only stated and inferred facts reach here as known; route() already
     # counted every other status as unknown.
-    values = {name: facts.get(name).value for name in INPUT_FIELDS if name not in unknown}
+    values = {
+        name: facts.get(name).value for name in INPUT_FIELDS if name not in unknown
+    }
     reasons: dict[FactField, Reason] = {}
     assumed: dict[FactField, object] = {}
     spreads: dict[FactField, tuple[Decimal, Decimal]] = {}
@@ -135,8 +146,13 @@ def probe(facts: UserFacts, decision: ScopeDecision) -> Probe:
     if FactField.TAX_YEAR in unknown:
         years = supported_tax_years()
         if len(years) != 1:
-            raise NotImplementedError("a second tax year needs the tax year swept, not assumed")
-        reasons[FactField.TAX_YEAR], assumed[FactField.TAX_YEAR] = Reason.ONLY_TAX_YEAR_WITH_DATA, years[0]
+            raise NotImplementedError(
+                "a second tax year needs the tax year swept, not assumed"
+            )
+        reasons[FactField.TAX_YEAR], assumed[FactField.TAX_YEAR] = (
+            Reason.ONLY_TAX_YEAR_WITH_DATA,
+            years[0],
+        )
 
     if FactField.RESIDENTIAL_STATUS in unknown:
         if any(name in unknown for name in INCOME_FIELDS):
@@ -167,13 +183,18 @@ def probe(facts: UserFacts, decision: ScopeDecision) -> Probe:
     return Probe(findings=findings, inputs=inputs)
 
 
-def _sweep_residential_status(values: dict[FactField, object]) -> tuple[Decimal, Decimal]:
+def _sweep_residential_status(
+    values: dict[FactField, object],
+) -> tuple[Decimal, Decimal]:
     # Heads and the unnamed deduction are taken as nil only for the sweep: were
     # any non-zero, the question would route text-only and no tax would exist.
-    base = {name: Decimal(0) for name in (*ROUTE_CHANGING_FIELDS, *CLAIM_FIELDS)} | values
+    base = {
+        name: Decimal(0) for name in (*ROUTE_CHANGING_FIELDS, *CLAIM_FIELDS)
+    } | values
     taxes = [
-        run(inputs_from({**base, FactField.RESIDENTIAL_STATUS: status})).comparison.under_202_1.payable.amount
+        run(
+            inputs_from({**base, FactField.RESIDENTIAL_STATUS: status})
+        ).comparison.under_202_1.payable.amount
         for status in ResidentialStatus
     ]
     return min(taxes), max(taxes)
-

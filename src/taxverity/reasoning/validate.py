@@ -133,7 +133,11 @@ def _validate_rule(
     conditions = tuple(
         validated
         for raw_condition in rule.conditions
-        if (validated := _validate_condition(raw_condition, pack, valid_markers, markers))
+        if (
+            validated := _validate_condition(
+                raw_condition, pack, valid_markers, markers
+            )
+        )
         is not None
     )
     return rule.model_copy(
@@ -141,14 +145,19 @@ def _validate_rule(
             "markers": markers,
             "limits": tuple(t for t in rule.limits if numbers_in(t) <= allowed),
             "exceptions": tuple(t for t in rule.exceptions if numbers_in(t) <= allowed),
-            "definitions": tuple(t for t in rule.definitions if numbers_in(t) <= allowed),
+            "definitions": tuple(
+                t for t in rule.definitions if numbers_in(t) <= allowed
+            ),
             "conditions": conditions,
         }
     )
 
 
 def _validate_condition(
-    condition: Condition, pack: EvidencePack, valid_markers: range, rule_markers: tuple[int, ...]
+    condition: Condition,
+    pack: EvidencePack,
+    valid_markers: range,
+    rule_markers: tuple[int, ...],
 ) -> Condition | None:
     # An omitted `markers` list (the schema's own "leave empty to reuse the
     # rule's own markers") falls back to the rule's citation. A *non-empty*

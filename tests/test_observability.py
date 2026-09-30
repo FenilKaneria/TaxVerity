@@ -87,8 +87,13 @@ def test_the_filter_masks_dict_arguments():
     # Two keys deliberately: logging unwraps a single-key mapping differently.
     args = {"pan": PAN, "section": "80C"}
     record = logging.LogRecord(
-        "taxverity.test", logging.INFO, __file__, 1, "pan %(pan)s in %(section)s",
-        args, None,
+        "taxverity.test",
+        logging.INFO,
+        __file__,
+        1,
+        "pan %(pan)s in %(section)s",
+        args,
+        None,
     )
     RedactingFilter().filter(record)
     assert record.args == {"pan": PAN_MASK, "section": "80C"}

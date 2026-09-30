@@ -98,7 +98,9 @@ def test_grouping_covers_every_slice_even_when_empty():
 
 def test_a_duplicate_query_id_in_a_file_is_refused(tmp_path):
     path = tmp_path / GOLD_V1_FILENAME
-    path.write_text(to_json_line(query()) + "\n" + to_json_line(query()) + "\n", encoding="utf-8")
+    path.write_text(
+        to_json_line(query()) + "\n" + to_json_line(query()) + "\n", encoding="utf-8"
+    )
     with pytest.raises(ValueError, match="duplicate query_id"):
         load_gold_set(path)
 
@@ -168,7 +170,9 @@ def test_every_labelled_citation_exists_in_the_corpus(gold, chunks):
     """The success criterion of this step: a label naming nothing is a silent
     zero for any retriever, and would look like a retrieval failure."""
     paths = {chunk.node_path for chunk in chunks}
-    missing = {citation for q in gold for citation in q.required if citation not in paths}
+    missing = {
+        citation for q in gold for citation in q.required if citation not in paths
+    }
     assert not missing
 
 

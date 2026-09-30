@@ -31,7 +31,9 @@ from test_verifier import PACK
 FRESH = ThreadFactState()
 
 
-def with_facts(*facts: Fact, situation: tuple[SituationFact, ...] = ()) -> ThreadFactState:
+def with_facts(
+    *facts: Fact, situation: tuple[SituationFact, ...] = ()
+) -> ThreadFactState:
     return merge_turn(FRESH, UserFacts(facts=facts), turn=1, situation_facts=situation)
 
 
@@ -57,13 +59,17 @@ def analysis(**kwargs) -> ReasoningAnalysis:
 
 
 def test_a_rule_citing_a_marker_outside_the_pack_is_dropped():
-    result = validate(analysis(legal_rules=(rule(markers=(99,)),)), PACK, fact_state=FRESH)
+    result = validate(
+        analysis(legal_rules=(rule(markers=(99,)),)), PACK, fact_state=FRESH
+    )
     assert result.legal_rules == ()
     assert result.has_governing_rule is False
 
 
 def test_a_rule_with_one_valid_and_one_fabricated_marker_keeps_the_valid_one():
-    result = validate(analysis(legal_rules=(rule(markers=(2, 99)),)), PACK, fact_state=FRESH)
+    result = validate(
+        analysis(legal_rules=(rule(markers=(2, 99)),)), PACK, fact_state=FRESH
+    )
     (survivor,) = result.legal_rules
     assert survivor.markers == (2,)
 
@@ -84,7 +90,9 @@ def test_a_rule_with_a_real_number_survives():
 
 def test_an_ungrounded_limit_is_trimmed_the_rule_survives():
     good_rule = rule(limits=("Capped at Rs. 2,00,000.", "Capped at Rs. 9,99,999."))
-    (survivor,) = validate(analysis(legal_rules=(good_rule,)), PACK, fact_state=FRESH).legal_rules
+    (survivor,) = validate(
+        analysis(legal_rules=(good_rule,)), PACK, fact_state=FRESH
+    ).legal_rules
     assert survivor.limits == ("Capped at Rs. 2,00,000.",)
 
 
@@ -93,7 +101,9 @@ def test_ungrounded_exceptions_and_definitions_are_trimmed_too():
         exceptions=("Except up to 9,99,999.",),
         definitions=("The figure is Rs. 2,00,000.",),
     )
-    (survivor,) = validate(analysis(legal_rules=(good_rule,)), PACK, fact_state=FRESH).legal_rules
+    (survivor,) = validate(
+        analysis(legal_rules=(good_rule,)), PACK, fact_state=FRESH
+    ).legal_rules
     assert survivor.exceptions == ()
     assert survivor.definitions == ("The figure is Rs. 2,00,000.",)
 
@@ -130,8 +140,14 @@ def test_a_condition_whose_own_marker_is_fabricated_and_no_rule_fallback_applies
 
 def test_satisfied_with_no_fact_ref_is_downgraded_to_unknown():
     good_rule = rule(conditions=(Condition(id="c1", text="x", markers=(2,)),))
-    check = ConditionCheck(condition_id="c1", status=CheckStatus.SATISFIED, fact_refs=())
-    result = validate(analysis(legal_rules=(good_rule,), applicability=(check,)), PACK, fact_state=FRESH)
+    check = ConditionCheck(
+        condition_id="c1", status=CheckStatus.SATISFIED, fact_refs=()
+    )
+    result = validate(
+        analysis(legal_rules=(good_rule,), applicability=(check,)),
+        PACK,
+        fact_state=FRESH,
+    )
     (survivor,) = result.applicability
     assert survivor.status is CheckStatus.UNKNOWN
 
@@ -139,9 +155,15 @@ def test_satisfied_with_no_fact_ref_is_downgraded_to_unknown():
 def test_satisfied_with_a_fact_ref_naming_an_unknown_fact_is_downgraded():
     good_rule = rule(conditions=(Condition(id="c1", text="x", markers=(2,)),))
     check = ConditionCheck(
-        condition_id="c1", status=CheckStatus.SATISFIED, fact_refs=("some_unrelated_thing",)
+        condition_id="c1",
+        status=CheckStatus.SATISFIED,
+        fact_refs=("some_unrelated_thing",),
     )
-    result = validate(analysis(legal_rules=(good_rule,), applicability=(check,)), PACK, fact_state=FRESH)
+    result = validate(
+        analysis(legal_rules=(good_rule,), applicability=(check,)),
+        PACK,
+        fact_state=FRESH,
+    )
     (survivor,) = result.applicability
     assert survivor.status is CheckStatus.UNKNOWN
 
@@ -160,7 +182,11 @@ def test_satisfied_with_a_real_closed_fact_ref_survives():
     check = ConditionCheck(
         condition_id="c1", status=CheckStatus.SATISFIED, fact_refs=("salary_income",)
     )
-    result = validate(analysis(legal_rules=(good_rule,), applicability=(check,)), PACK, fact_state=state)
+    result = validate(
+        analysis(legal_rules=(good_rule,), applicability=(check,)),
+        PACK,
+        fact_state=state,
+    )
     (survivor,) = result.applicability
     assert survivor.status is CheckStatus.SATISFIED
 
@@ -178,17 +204,29 @@ def test_satisfied_with_a_situation_fact_ref_survives_case_insensitively():
     )
     good_rule = rule(conditions=(Condition(id="c1", text="x", markers=(2,)),))
     check = ConditionCheck(
-        condition_id="c1", status=CheckStatus.NOT_SATISFIED, fact_refs=("  RENT RECIPIENT  ",)
+        condition_id="c1",
+        status=CheckStatus.NOT_SATISFIED,
+        fact_refs=("  RENT RECIPIENT  ",),
     )
-    result = validate(analysis(legal_rules=(good_rule,), applicability=(check,)), PACK, fact_state=state)
+    result = validate(
+        analysis(legal_rules=(good_rule,), applicability=(check,)),
+        PACK,
+        fact_state=state,
+    )
     (survivor,) = result.applicability
     assert survivor.status is CheckStatus.NOT_SATISFIED
 
 
 def test_unknown_and_ambiguous_checks_need_no_fact_ref():
     good_rule = rule(conditions=(Condition(id="c1", text="x", markers=(2,)),))
-    check = ConditionCheck(condition_id="c1", status=CheckStatus.AMBIGUOUS, fact_refs=())
-    result = validate(analysis(legal_rules=(good_rule,), applicability=(check,)), PACK, fact_state=FRESH)
+    check = ConditionCheck(
+        condition_id="c1", status=CheckStatus.AMBIGUOUS, fact_refs=()
+    )
+    result = validate(
+        analysis(legal_rules=(good_rule,), applicability=(check,)),
+        PACK,
+        fact_state=FRESH,
+    )
     (survivor,) = result.applicability
     assert survivor.status is CheckStatus.AMBIGUOUS
 
@@ -216,9 +254,13 @@ def test_a_missing_fact_pointing_at_a_satisfied_condition_is_dropped():
     check = ConditionCheck(
         condition_id="c1", status=CheckStatus.SATISFIED, fact_refs=("salary_income",)
     )
-    missing = MissingFact(condition_id="c1", question="What is your salary?", material=True)
+    missing = MissingFact(
+        condition_id="c1", question="What is your salary?", material=True
+    )
     result = validate(
-        analysis(legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)),
+        analysis(
+            legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)
+        ),
         PACK,
         fact_state=state,
     )
@@ -228,13 +270,19 @@ def test_a_missing_fact_pointing_at_a_satisfied_condition_is_dropped():
 def test_a_missing_fact_pointing_at_a_surviving_unknown_condition_survives():
     good_rule = rule(conditions=(Condition(id="c1", text="x", markers=(2,)),))
     check = ConditionCheck(condition_id="c1", status=CheckStatus.UNKNOWN)
-    missing = MissingFact(condition_id="c1", question="Who did you pay the rent to?", material=True)
+    missing = MissingFact(
+        condition_id="c1", question="Who did you pay the rent to?", material=True
+    )
     result = validate(
-        analysis(legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)),
+        analysis(
+            legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)
+        ),
         PACK,
         fact_state=FRESH,
     )
-    assert [m.question for m in result.missing_facts] == ["Who did you pay the rent to?"]
+    assert [m.question for m in result.missing_facts] == [
+        "Who did you pay the rent to?"
+    ]
 
 
 def test_a_clarify_question_carrying_an_invented_legal_number_is_dropped():
@@ -244,7 +292,9 @@ def test_a_clarify_question_carrying_an_invented_legal_number_is_dropped():
         condition_id="c1", question="Is the amount above Rs. 9,99,999?", material=True
     )
     result = validate(
-        analysis(legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)),
+        analysis(
+            legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)
+        ),
         PACK,
         fact_state=FRESH,
     )
@@ -256,9 +306,13 @@ def test_a_clarify_question_asking_for_the_persons_own_figure_is_allowed():
     it is only forbidden to *state* a legal number the pack doesn't ground."""
     good_rule = rule(conditions=(Condition(id="c1", text="x", markers=(2,)),))
     check = ConditionCheck(condition_id="c1", status=CheckStatus.UNKNOWN)
-    missing = MissingFact(condition_id="c1", question="How much rent did you pay?", material=True)
+    missing = MissingFact(
+        condition_id="c1", question="How much rent did you pay?", material=True
+    )
     result = validate(
-        analysis(legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)),
+        analysis(
+            legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)
+        ),
         PACK,
         fact_state=FRESH,
     )
@@ -271,7 +325,9 @@ def test_a_long_clarify_question_is_capped_not_dropped():
     long_question = "Who did you pay it to, " * 30
     missing = MissingFact(condition_id="c1", question=long_question, material=True)
     result = validate(
-        analysis(legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)),
+        analysis(
+            legal_rules=(good_rule,), applicability=(check,), missing_facts=(missing,)
+        ),
         PACK,
         fact_state=FRESH,
     )
@@ -322,6 +378,8 @@ def test_no_legal_rules_at_all_means_no_governing_rule():
 
 
 def test_a_no_basis_plan_with_no_rules_is_allowed_through_unchanged():
-    result = validate(analysis(answer_plan=plan(ConclusionKind.NO_BASIS)), PACK, fact_state=FRESH)
+    result = validate(
+        analysis(answer_plan=plan(ConclusionKind.NO_BASIS)), PACK, fact_state=FRESH
+    )
     assert result.answer_plan.conclusion_kind is ConclusionKind.NO_BASIS
     assert result.has_governing_rule is False

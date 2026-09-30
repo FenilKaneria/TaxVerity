@@ -1,4 +1,3 @@
-
 import pytest
 
 from taxverity.corpus.crossrefs import (
@@ -15,14 +14,20 @@ from taxverity.corpus.nodes import NodePath, NodeType, StatutoryNode
 
 
 def referrer(text, marker="99"):
-    return StatutoryNode(type=NodeType.SECTION, marker=marker, path=NodePath.section(marker), text=text)
+    return StatutoryNode(
+        type=NodeType.SECTION, marker=marker, path=NodePath.section(marker), text=text
+    )
 
 
 def chain(root_type, root_marker, *rest):
     """A section or Schedule root with a single nested chain of descendants,
     e.g. ``chain(NodeType.SECTION, "10", NodeType.SUBSECTION, "2", NodeType.CLAUSE, "a")``
     builds 10 -> 10(2) -> 10(2)(a)."""
-    path = NodePath.section(root_marker) if root_type is NodeType.SECTION else NodePath.schedule(root_marker)
+    path = (
+        NodePath.section(root_marker)
+        if root_type is NodeType.SECTION
+        else NodePath.schedule(root_marker)
+    )
     return _chain_from(root_type, root_marker, path, list(rest))
 
 
@@ -44,7 +49,9 @@ def index_of(*roots):
 
 def test_a_bare_section_reference_resolves():
     target = chain(NodeType.SECTION, "10")
-    refs, external = extract_node_references(referrer("as per section 10."), index_of(target))
+    refs, external = extract_node_references(
+        referrer("as per section 10."), index_of(target)
+    )
     assert external == []
     assert len(refs) == 1
     ref = refs[0]
@@ -54,15 +61,21 @@ def test_a_bare_section_reference_resolves():
 
 
 def test_a_bracket_chain_resolves_to_the_exact_depth():
-    target = chain(NodeType.SECTION, "10", NodeType.SUBSECTION, "2", NodeType.CLAUSE, "a")
-    refs, _ = extract_node_references(referrer("as per section 10(2)(a)."), index_of(target))
+    target = chain(
+        NodeType.SECTION, "10", NodeType.SUBSECTION, "2", NodeType.CLAUSE, "a"
+    )
+    refs, _ = extract_node_references(
+        referrer("as per section 10(2)(a)."), index_of(target)
+    )
     assert refs[0].target_path == "10(2)(a)"
     assert refs[0].resolved is True
 
 
 def test_a_numeric_range_expands_to_every_section_in_between():
     targets = [chain(NodeType.SECTION, str(n)) for n in (5, 6, 7)]
-    refs, _ = extract_node_references(referrer("as per sections 5 to 7."), index_of(*targets))
+    refs, _ = extract_node_references(
+        referrer("as per sections 5 to 7."), index_of(*targets)
+    )
     assert [r.target_path for r in refs] == ["5", "6", "7"]
     assert all(r.resolved for r in refs)
 
@@ -71,16 +84,40 @@ def test_a_bracket_only_continuation_inherits_the_full_prefix():
     """'section 70(1)(a), (c) and (d)' means clauses (a), (c), (d) all of
     sub-section (1) -- the whole prefix carries over, not just the number."""
     clause_a = StatutoryNode(
-        type=NodeType.CLAUSE, marker="a",
-        path=NodePath.section("70").child(NodeType.SUBSECTION, "1").child(NodeType.CLAUSE, "a"),
+        type=NodeType.CLAUSE,
+        marker="a",
+        path=NodePath.section("70")
+        .child(NodeType.SUBSECTION, "1")
+        .child(NodeType.CLAUSE, "a"),
     )
-    clause_c = clause_a.model_copy(update={"marker": "c", "path": NodePath.section("70").child(NodeType.SUBSECTION, "1").child(NodeType.CLAUSE, "c")})
-    clause_d = clause_a.model_copy(update={"marker": "d", "path": NodePath.section("70").child(NodeType.SUBSECTION, "1").child(NodeType.CLAUSE, "d")})
+    clause_c = clause_a.model_copy(
+        update={
+            "marker": "c",
+            "path": NodePath.section("70")
+            .child(NodeType.SUBSECTION, "1")
+            .child(NodeType.CLAUSE, "c"),
+        }
+    )
+    clause_d = clause_a.model_copy(
+        update={
+            "marker": "d",
+            "path": NodePath.section("70")
+            .child(NodeType.SUBSECTION, "1")
+            .child(NodeType.CLAUSE, "d"),
+        }
+    )
     subsection_1 = StatutoryNode(
-        type=NodeType.SUBSECTION, marker="1", path=NodePath.section("70").child(NodeType.SUBSECTION, "1"),
+        type=NodeType.SUBSECTION,
+        marker="1",
+        path=NodePath.section("70").child(NodeType.SUBSECTION, "1"),
         children=(clause_a, clause_c, clause_d),
     )
-    section_70 = StatutoryNode(type=NodeType.SECTION, marker="70", path=NodePath.section("70"), children=(subsection_1,))
+    section_70 = StatutoryNode(
+        type=NodeType.SECTION,
+        marker="70",
+        path=NodePath.section("70"),
+        children=(subsection_1,),
+    )
 
     refs, _ = extract_node_references(
         referrer("section 70(1)(a), (c) and (d) applies."), index_of(section_70)
@@ -91,23 +128,37 @@ def test_a_bracket_only_continuation_inherits_the_full_prefix():
 
 def test_a_list_item_without_a_matching_node_is_reported_dangling():
     clause_a = StatutoryNode(
-        type=NodeType.CLAUSE, marker="a",
-        path=NodePath.section("70").child(NodeType.SUBSECTION, "1").child(NodeType.CLAUSE, "a"),
+        type=NodeType.CLAUSE,
+        marker="a",
+        path=NodePath.section("70")
+        .child(NodeType.SUBSECTION, "1")
+        .child(NodeType.CLAUSE, "a"),
     )
     subsection_1 = StatutoryNode(
-        type=NodeType.SUBSECTION, marker="1", path=NodePath.section("70").child(NodeType.SUBSECTION, "1"),
+        type=NodeType.SUBSECTION,
+        marker="1",
+        path=NodePath.section("70").child(NodeType.SUBSECTION, "1"),
         children=(clause_a,),
     )
-    section_70 = StatutoryNode(type=NodeType.SECTION, marker="70", path=NodePath.section("70"), children=(subsection_1,))
+    section_70 = StatutoryNode(
+        type=NodeType.SECTION,
+        marker="70",
+        path=NodePath.section("70"),
+        children=(subsection_1,),
+    )
 
-    refs, _ = extract_node_references(referrer("section 70(1)(a) or (z) applies."), index_of(section_70))
+    refs, _ = extract_node_references(
+        referrer("section 70(1)(a) or (z) applies."), index_of(section_70)
+    )
     assert [r.target_path for r in refs] == ["70(1)(a)", "70(1)(z)"]
     assert [r.resolved for r in refs] == [True, False]
 
 
 def test_a_line_wrap_inside_a_bracket_chain_does_not_break_resolution():
     target = chain(NodeType.SECTION, "10", NodeType.SUBSECTION, "15")
-    refs, _ = extract_node_references(referrer("section 10(15)\n applies."), index_of(target))
+    refs, _ = extract_node_references(
+        referrer("section 10(15)\n applies."), index_of(target)
+    )
     assert refs[0].target_path == "10(15)"
     assert refs[0].resolved is True
 
@@ -116,7 +167,9 @@ def test_a_line_wrap_inside_a_bracket_chain_does_not_break_resolution():
 
 
 def test_a_prefix_chain_reverses_into_the_postfix_depth_order():
-    target = chain(NodeType.SECTION, "15", NodeType.SUBSECTION, "2", NodeType.CLAUSE, "a")
+    target = chain(
+        NodeType.SECTION, "15", NodeType.SUBSECTION, "2", NodeType.CLAUSE, "a"
+    )
     text = "the meaning assigned to it in clause (a) of sub-section (2) of section 15;"
     refs, _ = extract_node_references(referrer(text), index_of(target))
     assert refs[0].target_path == "15(2)(a)"
@@ -126,7 +179,9 @@ def test_a_prefix_chain_reverses_into_the_postfix_depth_order():
 def test_a_prefix_chain_with_a_trailing_postfix_bracket():
     """'clause (a) of section 80-ID(6)' -- the prefix chain combines with the
     Act's own postfix style, not just a bare section number."""
-    target = chain(NodeType.SECTION, "80", NodeType.SUBSECTION, "6", NodeType.CLAUSE, "a")
+    target = chain(
+        NodeType.SECTION, "80", NodeType.SUBSECTION, "6", NodeType.CLAUSE, "a"
+    )
     text = "the meaning assigned to it in clause (a) of section 80(6);"
     refs, _ = extract_node_references(referrer(text), index_of(target))
     assert refs[0].target_path == "80(6)(a)"
@@ -148,8 +203,12 @@ def test_a_hyphenated_1961_act_number_is_not_silently_truncated():
 
 
 def test_a_bare_schedule_reference_resolves():
-    target = StatutoryNode(type=NodeType.SCHEDULE, marker="II", path=NodePath.schedule("II"))
-    refs, _ = extract_node_references(referrer("as specified in Schedule II."), index_of(target))
+    target = StatutoryNode(
+        type=NodeType.SCHEDULE, marker="II", path=NodePath.schedule("II")
+    )
+    refs, _ = extract_node_references(
+        referrer("as specified in Schedule II."), index_of(target)
+    )
     assert refs[0].ref_type is RefType.SCHEDULE
     assert refs[0].target_path == "Schedule II"
     assert refs[0].resolved is True
@@ -157,10 +216,16 @@ def test_a_bare_schedule_reference_resolves():
 
 def test_a_schedule_paragraph_with_a_part_resolves_to_the_folded_marker():
     paragraph = StatutoryNode(
-        type=NodeType.SCHEDULE_PARAGRAPH, marker="A6",
+        type=NodeType.SCHEDULE_PARAGRAPH,
+        marker="A6",
         path=NodePath.schedule("XI").child(NodeType.SCHEDULE_PARAGRAPH, "A6"),
     )
-    schedule = StatutoryNode(type=NodeType.SCHEDULE, marker="XI", path=NodePath.schedule("XI"), children=(paragraph,))
+    schedule = StatutoryNode(
+        type=NodeType.SCHEDULE,
+        marker="XI",
+        path=NodePath.schedule("XI"),
+        children=(paragraph,),
+    )
     text = "to the extent provided in paragraph 6 of Part A of Schedule XI;"
     refs, _ = extract_node_references(referrer(text), index_of(schedule))
     assert refs[0].ref_type is RefType.SCHEDULE_PARAGRAPH
@@ -170,12 +235,19 @@ def test_a_schedule_paragraph_with_a_part_resolves_to_the_folded_marker():
 
 def test_a_schedule_paragraph_without_a_part_resolves():
     paragraph = StatutoryNode(
-        type=NodeType.SCHEDULE_PARAGRAPH, marker="4",
+        type=NodeType.SCHEDULE_PARAGRAPH,
+        marker="4",
         path=NodePath.schedule("I").child(NodeType.SCHEDULE_PARAGRAPH, "4"),
     )
-    schedule = StatutoryNode(type=NodeType.SCHEDULE, marker="I", path=NodePath.schedule("I"), children=(paragraph,))
+    schedule = StatutoryNode(
+        type=NodeType.SCHEDULE,
+        marker="I",
+        path=NodePath.schedule("I"),
+        children=(paragraph,),
+    )
     refs, _ = extract_node_references(
-        referrer("required to furnish a statement under paragraph 4 of Schedule I,"), index_of(schedule)
+        referrer("required to furnish a statement under paragraph 4 of Schedule I,"),
+        index_of(schedule),
     )
     assert refs[0].target_path == "Schedule I(4)"
     assert refs[0].resolved is True
@@ -185,8 +257,13 @@ def test_a_bare_part_reference_resolves_coarsely_to_the_schedule():
     """A Part is folded into each paragraph's own marker, not a node of its
     own, so a bare 'Part A of Schedule XI' (no paragraph) can only resolve at
     Schedule granularity."""
-    schedule = StatutoryNode(type=NodeType.SCHEDULE, marker="XI", path=NodePath.schedule("XI"))
-    refs, _ = extract_node_references(referrer("continues to be approved as per Part A of Schedule XI;"), index_of(schedule))
+    schedule = StatutoryNode(
+        type=NodeType.SCHEDULE, marker="XI", path=NodePath.schedule("XI")
+    )
+    refs, _ = extract_node_references(
+        referrer("continues to be approved as per Part A of Schedule XI;"),
+        index_of(schedule),
+    )
     assert refs[0].ref_type is RefType.SCHEDULE_PART
     assert refs[0].target_path == "Schedule XI"
     assert refs[0].resolved is True
@@ -207,7 +284,9 @@ def test_a_bare_part_reference_resolves_coarsely_to_the_schedule():
     ],
 )
 def test_self_references_resolve_trivially(phrase, expected_type):
-    refs, external = extract_node_references(referrer(f"as provided in {phrase}."), index_of())
+    refs, external = extract_node_references(
+        referrer(f"as provided in {phrase}."), index_of()
+    )
     assert external == []
     assert len(refs) == 1
     assert refs[0].ref_type is expected_type
@@ -235,7 +314,10 @@ def test_an_of_this_act_tail_confirms_rather_than_excludes():
 @pytest.mark.parametrize(
     ("text", "expected_act"),
     [
-        ("a company registered under section 8 of the Companies Act, 2013 (18 of 2013);", "Companies Act"),
+        (
+            "a company registered under section 8 of the Companies Act, 2013 (18 of 2013);",
+            "Companies Act",
+        ),
         ("established under section 4 of the said Act;", "said Act"),
         (
             "assigned to it in section 2(h) of the Securities Contracts (Regulation) Act, 1956 (42 of 1956);",
@@ -283,9 +365,27 @@ def test_a_dangling_reference_is_kept_not_dropped():
 def test_cross_reference_index_resolution_rate_and_dangling():
     index = CrossReferenceIndex(
         references=(
-            CrossReference(from_path="1", ref_type=RefType.SECTION, surface_text="x", target_path="2", resolved=True),
-            CrossReference(from_path="1", ref_type=RefType.SECTION, surface_text="y", target_path="3", resolved=True),
-            CrossReference(from_path="1", ref_type=RefType.SECTION, surface_text="z", target_path="4", resolved=False),
+            CrossReference(
+                from_path="1",
+                ref_type=RefType.SECTION,
+                surface_text="x",
+                target_path="2",
+                resolved=True,
+            ),
+            CrossReference(
+                from_path="1",
+                ref_type=RefType.SECTION,
+                surface_text="y",
+                target_path="3",
+                resolved=True,
+            ),
+            CrossReference(
+                from_path="1",
+                ref_type=RefType.SECTION,
+                surface_text="z",
+                target_path="4",
+                resolved=False,
+            ),
         ),
         external=(),
         glossary=(),
@@ -295,7 +395,10 @@ def test_cross_reference_index_resolution_rate_and_dangling():
 
 
 def test_resolution_rate_of_an_empty_index_is_perfect():
-    assert CrossReferenceIndex(references=(), external=(), glossary=()).resolution_rate == 1.0
+    assert (
+        CrossReferenceIndex(references=(), external=(), glossary=()).resolution_rate
+        == 1.0
+    )
 
 
 # --- glossary ---------------------------------------------------------------
@@ -303,11 +406,17 @@ def test_resolution_rate_of_an_empty_index_is_perfect():
 
 def test_the_glossary_maps_a_defined_term_to_its_clause():
     clause = StatutoryNode(
-        type=NodeType.CLAUSE, marker="5",
+        type=NodeType.CLAUSE,
+        marker="5",
         path=NodePath.section("2").child(NodeType.CLAUSE, "5"),
         text='(5)\xa0"agricultural income" means—',
     )
-    section2 = StatutoryNode(type=NodeType.SECTION, marker="2", path=NodePath.section("2"), children=(clause,))
+    section2 = StatutoryNode(
+        type=NodeType.SECTION,
+        marker="2",
+        path=NodePath.section("2"),
+        children=(clause,),
+    )
     terms = extract_glossary([section2])
     assert terms == (GlossaryTerm(term="agricultural income", node_path="2(5)"),)
 
@@ -317,11 +426,17 @@ def test_the_glossary_includes_a_delegating_clause():
     reader looking the term up lands; the delegation is a separate outgoing
     CrossReference from the same clause."""
     clause = StatutoryNode(
-        type=NodeType.CLAUSE, marker="1",
+        type=NodeType.CLAUSE,
+        marker="1",
         path=NodePath.section("2").child(NodeType.CLAUSE, "1"),
         text='(1)\xa0"accountant" shall have the meaning assigned to it in section 515(3)(b);',
     )
-    section2 = StatutoryNode(type=NodeType.SECTION, marker="2", path=NodePath.section("2"), children=(clause,))
+    section2 = StatutoryNode(
+        type=NodeType.SECTION,
+        marker="2",
+        path=NodePath.section("2"),
+        children=(clause,),
+    )
     terms = extract_glossary([section2])
     assert terms == (GlossaryTerm(term="accountant", node_path="2(1)"),)
 
@@ -335,9 +450,13 @@ def test_the_glossary_is_empty_without_a_section_2():
 
 def test_extract_crossrefs_combines_sections_and_schedules():
     target_section = chain(NodeType.SECTION, "10")
-    schedule = StatutoryNode(type=NodeType.SCHEDULE, marker="II", path=NodePath.schedule("II"))
+    schedule = StatutoryNode(
+        type=NodeType.SCHEDULE, marker="II", path=NodePath.schedule("II")
+    )
     referring_section = StatutoryNode(
-        type=NodeType.SECTION, marker="20", path=NodePath.section("20"),
+        type=NodeType.SECTION,
+        marker="20",
+        path=NodePath.section("20"),
         text="as per section 10 and Schedule II, but not section 999.",
     )
     result = extract_crossrefs([target_section, referring_section], [schedule])
@@ -374,8 +493,12 @@ def test_the_definitions_glossary_covers_section_2(crossrefs):
 
 def test_self_references_never_appear_dangling(crossrefs):
     self_types = {
-        RefType.THIS_ACT, RefType.THIS_CHAPTER, RefType.THIS_PART,
-        RefType.THIS_SCHEDULE, RefType.THIS_SECTION, RefType.THIS_SUBSECTION,
+        RefType.THIS_ACT,
+        RefType.THIS_CHAPTER,
+        RefType.THIS_PART,
+        RefType.THIS_SCHEDULE,
+        RefType.THIS_SECTION,
+        RefType.THIS_SUBSECTION,
     }
     assert all(r.resolved for r in crossrefs.references if r.ref_type in self_types)
 

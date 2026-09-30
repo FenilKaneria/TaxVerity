@@ -33,9 +33,7 @@ def _digest(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def issue_email_token(
-    conn: psycopg.Connection, user_id: UUID, purpose: Purpose
-) -> str:
+def issue_email_token(conn: psycopg.Connection, user_id: UUID, purpose: Purpose) -> str:
     token = secrets.token_urlsafe(32)
     conn.execute(
         "INSERT INTO email_tokens (user_id, purpose, token_sha256, expires_at) "
@@ -45,9 +43,7 @@ def issue_email_token(
     return token
 
 
-def consume_email_token(
-    conn: psycopg.Connection, token: str, purpose: Purpose
-) -> UUID:
+def consume_email_token(conn: psycopg.Connection, token: str, purpose: Purpose) -> UUID:
     """Locks and marks the token used in one transaction, so two concurrent
     redemptions of one link cannot both succeed. Raises `InvalidToken` unless
     the token exists, matches `purpose`, is unused and unexpired."""

@@ -21,7 +21,9 @@ def rates():
 
 
 def settled(rates, salary, tds="0", advance="0"):
-    under = new_regime_tax(rates, salary=D(salary), other_income=D(0), resident_individual=True)
+    under = new_regime_tax(
+        rates, salary=D(salary), other_income=D(0), resident_individual=True
+    )
     return settle(rates, under, tax_deducted_at_source=D(tds), advance_tax=D(advance))
 
 
@@ -46,13 +48,22 @@ def test_the_stage_version_is_declared():
 def test_balance_or_refund_worked_by_hand(rates, tds, advance, balance, refund):
     result = settled(rates, "1800000", tds, advance)
     assert result.payable.amount == D(145000)
-    assert (result.balance_payable.amount if result.balance_payable else None) == (D(balance) if balance else None)
-    assert (result.refund_due.amount if result.refund_due else None) == (D(refund) if refund else None)
+    assert (result.balance_payable.amount if result.balance_payable else None) == (
+        D(balance) if balance else None
+    )
+    assert (result.refund_due.amount if result.refund_due else None) == (
+        D(refund) if refund else None
+    )
 
 
 def test_every_line_names_its_provision(rates):
     result = settled(rates, "1800000", "100000", "20000")
-    assert [line.provenance.citation for line in result.lines()] == ["516", "270(1)(c)(i)", "270(1)(c)(iii)", "516"]
+    assert [line.provenance.citation for line in result.lines()] == [
+        "516",
+        "270(1)(c)(i)",
+        "270(1)(c)(iii)",
+        "516",
+    ]
     assert result.adjustment.citation == "270(1)(c)"
     assert "interest and fee" in result.adjustment.source_text
 
@@ -71,7 +82,9 @@ def test_tax_paid_on_nil_payable_is_all_refunded(rates):
 
 @pytest.mark.parametrize("bad", [D(-1), D("NaN"), 5])
 def test_a_payment_that_is_not_a_non_negative_decimal_is_refused(rates, bad):
-    under = new_regime_tax(rates, salary=D(0), other_income=D(0), resident_individual=True)
+    under = new_regime_tax(
+        rates, salary=D(0), other_income=D(0), resident_individual=True
+    )
     with pytest.raises(SlabInputError):
         settle(rates, under, tax_deducted_at_source=bad, advance_tax=D(0))
 
@@ -79,7 +92,9 @@ def test_a_payment_that_is_not_a_non_negative_decimal_is_refused(rates, bad):
 def test_a_settlement_that_does_not_add_up_cannot_be_built(rates):
     result = settled(rates, "1800000", "100000")
     with pytest.raises(ValueError, match="balance payable"):
-        replace(result, balance_payable=replace(result.balance_payable, amount=D(40000)))
+        replace(
+            result, balance_payable=replace(result.balance_payable, amount=D(40000))
+        )
     with pytest.raises(ValueError, match="either"):
         replace(result, refund_due=result.balance_payable)
     with pytest.raises(ValueError, match="refund due"):

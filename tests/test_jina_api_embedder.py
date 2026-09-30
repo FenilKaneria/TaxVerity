@@ -189,7 +189,9 @@ def test_request_text_and_key_are_never_logged(captured, no_sleep):
     # A 503 first, so the retry path — the one that logs — runs too.
     handler = Recorder(httpx2.Response(503))
     make(handler).embed([f"my PAN is {PAN}, salary {SALARY}"], EmbedKind.QUERY)
-    assert captured.records, "capture is not live — the assertion below would be vacuous"
+    assert captured.records, (
+        "capture is not live — the assertion below would be vacuous"
+    )
     for record in captured.records:
         message = record.getMessage()
         assert PAN not in message

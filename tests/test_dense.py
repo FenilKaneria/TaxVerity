@@ -124,7 +124,9 @@ class Failing(Counting):
 
 def retriever(embedder=None, *, chunks=CORPUS, vectors=VECTORS, ids=IDS, **overrides):
     embedder = embedder or StubEmbedder()
-    return DenseRetriever(chunks, vectors, ids, manifest(embedder, **overrides), embedder)
+    return DenseRetriever(
+        chunks, vectors, ids, manifest(embedder, **overrides), embedder
+    )
 
 
 def paths(results):
@@ -198,7 +200,9 @@ def test_embed_query_is_the_query_encoding_from_one_call():
     dense.search("warm", 1)
     before = len(embedder.calls)
     vector = dense.embed_query("rent paid to my mother")
-    assert vector == StubEmbedder().embed(["rent paid to my mother"], EmbedKind.QUERY)[0]
+    assert (
+        vector == StubEmbedder().embed(["rent paid to my mother"], EmbedKind.QUERY)[0]
+    )
     assert embedder.calls[before:] == [(EmbedKind.QUERY, 1)]
 
 

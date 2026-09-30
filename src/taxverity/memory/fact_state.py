@@ -212,7 +212,9 @@ def apply_user_edit(
         )
     facts[field_] = new_fact
     provenance[field_] = USER_EDIT_PROVENANCE
-    return ThreadFactState(facts=facts, provenance=provenance, overrides=tuple(overrides))
+    return ThreadFactState(
+        facts=facts, provenance=provenance, overrides=tuple(overrides)
+    )
 
 
 def _fact_to_json(fact: Fact) -> dict[str, Any]:
@@ -270,9 +272,7 @@ def to_json(state: ThreadFactState) -> dict[str, Any]:
         "facts": {
             field_.value: _fact_to_json(fact) for field_, fact in state.facts.items()
         },
-        "provenance": {
-            field_.value: note for field_, note in state.provenance.items()
-        },
+        "provenance": {field_.value: note for field_, note in state.provenance.items()},
         "overrides": [
             {
                 "field": override.field.value,

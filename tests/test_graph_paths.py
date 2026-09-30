@@ -65,10 +65,14 @@ def _in_scope_deps(schema, **kwargs) -> object:
     base = dict(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
+            classify=lambda q: SimpleNamespace(
+                category=ScopeCategory.IN_SCOPE, response=None, search_query=q
+            )
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(
+                query=q, rewritten=False, completion=None
+            )
         ),
     )
     base.update(kwargs)
@@ -84,23 +88,32 @@ def _in_scope_deps_with_intent(schema, intent: Intent, **kwargs) -> object:
         "classifier",
         SimpleNamespace(
             classify=lambda q: SimpleNamespace(
-                category=ScopeCategory.IN_SCOPE, response=None, search_query=q, intent=intent
+                category=ScopeCategory.IN_SCOPE,
+                response=None,
+                search_query=q,
+                intent=intent,
             )
         ),
     )
     return _in_scope_deps(schema, **kwargs)
 
 
-def _facts(missing: tuple[FactField, ...] = (), overrides: dict[FactField, object] | None = None):
+def _facts(
+    missing: tuple[FactField, ...] = (),
+    overrides: dict[FactField, object] | None = None,
+):
     values = dict(BASE)
     for field_ in missing:
         del values[field_]
     values.update(overrides or {})
-    return UserFacts(facts=tuple(make_fact(name, value) for name, value in values.items()))
+    return UserFacts(
+        facts=tuple(make_fact(name, value) for name, value in values.items())
+    )
 
 
 def _extractor_for(
-    missing: tuple[FactField, ...] = (), overrides: dict[FactField, object] | None = None
+    missing: tuple[FactField, ...] = (),
+    overrides: dict[FactField, object] | None = None,
 ):
     return SimpleNamespace(
         extract=lambda turn: ExtractionResult(
@@ -127,7 +140,9 @@ def test_compute_path_serves_a_claim_and_a_computation(schema, alice, thread_id)
         retriever=_fixed_retriever(PACK_RESULTS),
         generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert result["scope_decision"].route is Route.COMPUTE
     assert result["computation"] is not None
     assert result["final"].route == "compute"
@@ -144,7 +159,9 @@ def test_clarify_path_asks_and_answers_text_only(schema, alice, thread_id):
         retriever=_fixed_retriever(PACK_RESULTS),
         generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert result["scope_decision"].route is Route.INCOMPLETE
     assert result["computation"] is None
     assert result["clarify_questions"] != ()
@@ -158,11 +175,15 @@ def test_clarify_path_asks_and_answers_text_only(schema, alice, thread_id):
 def test_text_only_path_answers_with_no_computation(schema, alice, thread_id):
     d = _in_scope_deps(
         schema,
-        extractor=_extractor_for(overrides={FactField.HOUSE_PROPERTY_INCOME: Decimal("-50000")}),
+        extractor=_extractor_for(
+            overrides={FactField.HOUSE_PROPERTY_INCOME: Decimal("-50000")}
+        ),
         retriever=_fixed_retriever(PACK_RESULTS),
         generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert result["scope_decision"].route is Route.TEXT_ONLY
     assert result["computation"] is None
     assert result["final"].route == "text_only"
@@ -173,7 +194,9 @@ def test_text_only_path_answers_with_no_computation(schema, alice, thread_id):
 
 
 @pytest.mark.parametrize("category", [ScopeCategory.PROHIBITED, ScopeCategory.ADJACENT])
-def test_refused_categories_short_circuit_to_the_fixed_template(schema, alice, thread_id, category):
+def test_refused_categories_short_circuit_to_the_fixed_template(
+    schema, alice, thread_id, category
+):
     d = deps(
         conn=schema,
         classifier=SimpleNamespace(
@@ -182,11 +205,17 @@ def test_refused_categories_short_circuit_to_the_fixed_template(schema, alice, t
             )
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(
+                query=q, rewritten=False, completion=None
+            )
         ),
     )
     result = build_graph(d).invoke(
-        {"user_id": alice, "thread_id": thread_id, "question": "how do I hide freelance income?"}
+        {
+            "user_id": alice,
+            "thread_id": thread_id,
+            "question": "how do I hide freelance income?",
+        }
     )
     assert result["final"].route == category.value
     assert result["final"].text == FIXED_RESPONSES[category]
@@ -198,7 +227,9 @@ def test_refused_categories_short_circuit_to_the_fixed_template(schema, alice, t
 # --- conversational (respond_conversational, no retrieval or verifier) -------
 
 
-def test_conversational_category_short_circuits_to_a_guarded_reply(schema, alice, thread_id):
+def test_conversational_category_short_circuits_to_a_guarded_reply(
+    schema, alice, thread_id
+):
     d = deps(
         conn=schema,
         classifier=SimpleNamespace(
@@ -207,7 +238,9 @@ def test_conversational_category_short_circuits_to_a_guarded_reply(schema, alice
             )
         ),
         contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(query=q, rewritten=False, completion=None)
+            contextualize=lambda q, prior, **_: SimpleNamespace(
+                query=q, rewritten=False, completion=None
+            )
         ),
         conversational=SimpleNamespace(reply=lambda q: "Hello! Ask me about the Act."),
     )
@@ -225,7 +258,9 @@ def test_conversational_category_short_circuits_to_a_guarded_reply(schema, alice
 # --- corrective loop ---------------------------------------------------------
 
 
-def test_corrective_loop_rescues_a_first_pass_with_no_evidence(schema, alice, thread_id):
+def test_corrective_loop_rescues_a_first_pass_with_no_evidence(
+    schema, alice, thread_id
+):
     """First pass: retriever returns nothing, pack is empty, marker [1] in
     RESCUABLE resolves to nothing, the gate withholds. Retry (k =
     RETRY_POOL): retriever finds `23`, which becomes the pack's own unit
@@ -248,13 +283,17 @@ def test_corrective_loop_rescues_a_first_pass_with_no_evidence(schema, alice, th
             FakeLLM(answer(RESCUABLE), answer(RESCUABLE), answer(RESCUABLE)), CHUNKS
         ),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert result["retried"] is True
     assert [type(e) for e in result["events"]] == [ClaimEvent]
     assert result["final"].citations == ("23",)
 
 
-def test_corrective_loop_still_withholds_when_the_retry_finds_nothing(schema, alice, thread_id):
+def test_corrective_loop_still_withholds_when_the_retry_finds_nothing(
+    schema, alice, thread_id
+):
     """Both passes retrieve nothing: the retry runs once (bounded), and the
     turn is still withheld rather than looping or fabricating."""
     d = _in_scope_deps(
@@ -263,13 +302,15 @@ def test_corrective_loop_still_withholds_when_the_retry_finds_nothing(schema, al
         retriever=_fixed_retriever([]),
         # Both passes run against an empty pack: generate + repair each
         # time, all 4 still fail.
-        generator=AnswerGenerator(
-            FakeLLM(*([answer(RESCUABLE)] * 4)), CHUNKS
-        ),
+        generator=AnswerGenerator(FakeLLM(*([answer(RESCUABLE)] * 4)), CHUNKS),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert result["retried"] is True
-    assert not any(isinstance(e, ClaimEvent) for e in result["events"])  # nothing was ever grounded
+    assert not any(
+        isinstance(e, ClaimEvent) for e in result["events"]
+    )  # nothing was ever grounded
     assert result["final"].text == INSUFFICIENT_EVIDENCE_MESSAGE
     assert result["final"].searched == ()
     messages = list_messages(schema, alice, thread_id)
@@ -296,7 +337,9 @@ def test_reasoning_path_serves_a_grounded_application_claim(schema, alice, threa
         ),
         applicability=(
             ConditionCheck(
-                condition_id="c1", status=CheckStatus.SATISFIED, fact_refs=("salary_income",)
+                condition_id="c1",
+                status=CheckStatus.SATISFIED,
+                fact_refs=("salary_income",),
             ),
         ),
         answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
@@ -310,13 +353,17 @@ def test_reasoning_path_serves_a_grounded_application_claim(schema, alice, threa
         reasoner=stub,
         generator=AnswerGenerator(FakeLLM(answer(APPLICATION_LINE)), CHUNKS),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert stub.calls  # `reason` actually ran, not skipped
     assert [type(e) for e in result["events"]] == [ClaimEvent]
     assert result["events"][0].type is ClaimType.APPLICATION
 
 
-def test_reasoning_path_withholds_an_application_claim_the_analysis_contradicts(schema, alice, thread_id):
+def test_reasoning_path_withholds_an_application_claim_the_analysis_contradicts(
+    schema, alice, thread_id
+):
     """The mirror case: a condition the analysis marks unsatisfied gates an
     APPLICATION claim that affirms it anyway (`UNSUPPORTED_APPLICATION`),
     proving the gate reaches all the way through the compiled graph, not
@@ -332,7 +379,9 @@ def test_reasoning_path_withholds_an_application_claim_the_analysis_contradicts(
         ),
         applicability=(
             ConditionCheck(
-                condition_id="c1", status=CheckStatus.NOT_SATISFIED, fact_refs=("salary_income",)
+                condition_id="c1",
+                status=CheckStatus.NOT_SATISFIED,
+                fact_refs=("salary_income",),
             ),
         ),
         answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
@@ -351,7 +400,9 @@ def test_reasoning_path_withholds_an_application_claim_the_analysis_contradicts(
         # 4 still fail.
         generator=AnswerGenerator(FakeLLM(*([answer(APPLICATION_LINE)] * 4)), CHUNKS),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert result["retried"] is True
     assert len(stub.calls) == 1  # `reason` ran once, before the retry loop
     assert [type(e) for e in result["events"]] == [WithheldEvent]
@@ -382,7 +433,9 @@ def test_reasoning_path_asks_a_material_missing_fact_and_serves_an_unknown_claim
             ),
         ),
         applicability=(ConditionCheck(condition_id="c1", status=CheckStatus.UNKNOWN),),
-        missing_facts=(MissingFact(condition_id="c1", question=question, material=True),),
+        missing_facts=(
+            MissingFact(condition_id="c1", question=question, material=True),
+        ),
         answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
     )
     stub = StubReasoner(reason_result(analysis))
@@ -395,9 +448,13 @@ def test_reasoning_path_asks_a_material_missing_fact_and_serves_an_unknown_claim
         # An UNKNOWN claim passes verification cleanly both times (no
         # repair needed), but each pass still grounds nothing, so the
         # retry fires once: 2 calls total.
-        generator=AnswerGenerator(FakeLLM(answer(UNKNOWN_LINE), answer(UNKNOWN_LINE)), CHUNKS),
+        generator=AnswerGenerator(
+            FakeLLM(answer(UNKNOWN_LINE), answer(UNKNOWN_LINE)), CHUNKS
+        ),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert question in result["clarify_questions"]
     assert result["retried"] is True
     assert len(stub.calls) == 1  # `reason` ran once, before the retry loop
@@ -418,7 +475,9 @@ def test_a_non_reasoning_intent_never_touches_the_reasoner(schema, alice, thread
         reasoner=SimpleNamespace(reason=_boom_reason),
         generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert result["legal_rules"] == ()
     assert [type(e) for e in result["events"]] == [ClaimEvent]
 
@@ -438,7 +497,12 @@ def test_the_corrective_retry_reuses_the_first_passs_analysis_without_re_reasoni
     twice."""
     analysis = ReasoningAnalysis(
         legal_rules=(
-            LegalRule(id="r1", markers=(1,), rule="x", conditions=(Condition(id="c1", text="x"),)),
+            LegalRule(
+                id="r1",
+                markers=(1,),
+                rule="x",
+                conditions=(Condition(id="c1", text="x"),),
+            ),
         ),
         answer_plan=AnswerPlan(conclusion_kind=ConclusionKind.CONDITIONAL),
     )
@@ -458,7 +522,9 @@ def test_the_corrective_retry_reuses_the_first_passs_analysis_without_re_reasoni
             FakeLLM(answer(RESCUABLE), answer(RESCUABLE), answer(RESCUABLE)), CHUNKS
         ),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     assert len(stub.calls) == 1  # `reason` ran once, off the first (empty) pack
     assert result["legal_rules"] == ()  # marker 1 didn't exist in that empty pack
     assert result["retried"] is True
@@ -478,7 +544,9 @@ def test_trace_accumulates_one_entry_per_node_run(schema, alice, thread_id):
         retriever=_fixed_retriever([]),
         generator=AnswerGenerator(FakeLLM(*([answer(RESCUABLE)] * 4)), CHUNKS),
     )
-    result = build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    result = build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     names = [entry["node"] for entry in result["trace"]]
     assert names.count("generate_verify") == 2
     assert names.count("retrieve_retry") == 1
@@ -489,14 +557,18 @@ def test_trace_accumulates_one_entry_per_node_run(schema, alice, thread_id):
     assert names[-1] == "finalize"
 
 
-def test_finalize_persists_trace_and_withheld_reasons_on_the_message(schema, alice, thread_id):
+def test_finalize_persists_trace_and_withheld_reasons_on_the_message(
+    schema, alice, thread_id
+):
     d = _in_scope_deps(
         schema,
         extractor=_extractor_for(missing=(FactField.SALARY_INCOME,)),
         retriever=_fixed_retriever(PACK_RESULTS),
         generator=AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS),
     )
-    build_graph(d).invoke({"user_id": alice, "thread_id": thread_id, "question": QUESTION})
+    build_graph(d).invoke(
+        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+    )
     message = list_messages(schema, alice, thread_id)[-1]
     payload = dict(message.payload)
     assert payload["trace"]

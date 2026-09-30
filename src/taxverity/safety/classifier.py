@@ -36,7 +36,7 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-CLASSIFIER_STAGE_VERSION = 8
+CLASSIFIER_STAGE_VERSION = 11
 
 # Reasoning cannot be disabled and is billed against this cap regardless
 # (Step 7.1). R20 Step 20.2 raised this from 200: adding `sub_queries`
@@ -44,7 +44,8 @@ CLASSIFIER_STAGE_VERSION = 8
 # 200 on at least one real question, truncating the JSON mid-generation and
 # failing both the strict schema and its json_object fallback (measured,
 # not assumed — see the R20 20.2 benchmark notes).
-CLASSIFIER_MAX_COMPLETION_TOKENS = 350
+# Raised again from 350 for `tax_request`, one more short string field.
+CLASSIFIER_MAX_COMPLETION_TOKENS = 450
 CLASSIFIER_TEMPERATURE = 0.0
 
 SCHEMA_NAME = "scope_classification"
@@ -108,8 +109,14 @@ CLASSIFICATION_JSON_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": [i.value for i in Intent],
         },
+        # The tax question the message contains, restated to stand alone, or
+        # "" when it asks none. Routing reads this, not the category alone:
+        # "can you help me file a return?" is both a question about the
+        # product and a tax task, and the model split that call either way on
+        # live traffic. Extracting the task is the easier, steadier judgement.
+        "tax_request": {"type": "string"},
     },
-    "required": ["category", "search_query", "sub_queries", "intent"],
+    "required": ["category", "search_query", "sub_queries", "intent", "tax_request"],
     "additionalProperties": False,
 }
 
@@ -160,7 +167,9 @@ FIXED_RESPONSES: dict[ScopeCategory, str] = {
 # cannot collide with it just for containing a greeting word.
 _GREETING = r"(?:hi|hello|hey|hiya|yo|greetings)"
 _THANKS = r"(?:thanks?|thank you|thx|ty)"
-_CAPABILITY = r"(?:what (?:can|do) you (?:do|help(?: me)? with)|who are you|what are you)"
+_CAPABILITY = (
+    r"(?:what (?:can|do) you (?:do|help(?: me)? with)|who are you|what are you)"
+)
 _SMALL_TALK_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -197,11 +206,22 @@ You classify one person's message into exactly one category. You do not \
 answer it.
 
 Categories:
-- in_scope: a question about the Income-tax Act, 2025 (India).
+- in_scope: a question about the Income-tax Act, 2025 (India), or a \
+message that only states the person's own tax facts (salary, income, age, \
+residence) — for example "my salary is 15 lakh, no other income" is \
+in_scope with intent calculation.
 - conversational: a greeting, thanks, or a question about what you are and \
 what you can do — for example "hi", "what can you help me with?", or "hello \
 what can you do?". Not a tax question, and not unrelated either — do not \
-classify small talk as out_of_scope.
+classify small talk as out_of_scope. Only when the message asks for no tax \
+task at all: a message asking whether you can do something about income tax \
+— calculate tax, file a return, claim or check a deduction, explain a rule — \
+is in_scope, even when it opens with "can you" or "what can you do", and \
+takes the intent of that task (for example "can you help me file my income \
+tax return?" is in_scope with intent procedure, and "if I tell you my income \
+can you calculate my tax?" is in_scope with intent calculation). A "can \
+you" request for help with something unrelated to tax — a cover letter, a \
+recipe, an investment tip — is out_of_scope, not conversational.
 - adjacent: a real tax or business topic, but a different law — GST, company \
 registration, accounting standards.
 - out_of_scope: unrelated to tax or this Act entirely.
@@ -252,7 +272,20 @@ procedure (how/when to file, pay or claim something), or multi_issue (more \
 than one of the above together). Pick explanation whenever the question \
 just asks what the law says, with nothing to apply to the person's own facts.
 
-Return only the category, search_query, sub_queries and intent, as JSON."""
+Also give "tax_request": the income-tax question or task the message \
+contains, restated in plain words so it stands on its own, or "" if it \
+contains none. Fill it for in_scope messages, and also for a message that \
+mixes small talk or a question about you with a real tax task — for \
+example "What can you do? If I tell you my income can you calculate my \
+tax?" gives "calculate the income tax payable on my annual income", and \
+"can you help me file a income tax return?" gives "how to file an income \
+tax return". Leave it "" for pure small talk or a question only about you, \
+such as "hi", "thanks", "what can you do?" or "give me example questions \
+you can answer". Whenever tax_request is not "", search_query, sub_queries \
+and intent describe that task. For adjacent, out_of_scope and prohibited \
+messages it may simply repeat the message.
+
+Return only the category, search_query, sub_queries, intent and tax_request, as JSON."""
 
 
 @dataclass(frozen=True)
@@ -268,6 +301,8 @@ class ClassificationResult:
     # every other category, and the safe degrade on a malformed value).
     intent: Intent
     completion: Completion
+    # The contained tax task ("" when none) — see CLASSIFICATION_JSON_SCHEMA.
+    tax_request: str = ""
 
     @property
     def tokens(self) -> int:
@@ -309,7 +344,9 @@ class IntentClassifier:
         cache (ADR-095). `primary`/`fallback` (R18) default to
         `LLMClient`'s own class defaults (Groq 120b / Gemini) — pass them to
         run this node against a different pair, e.g. Groq's 20b model."""
-        client: Any = LLMClient.from_settings(settings, primary=primary, fallback=fallback)
+        client: Any = LLMClient.from_settings(
+            settings, primary=primary, fallback=fallback
+        )
         if cache:
             client = CachedLLMClient(client, settings.llm_cache_dir)
         if trace:
@@ -334,13 +371,17 @@ class IntentClassifier:
                 Message(role="user", content=f"<question>\n{question}\n</question>"),
             ]
         )
-        category, search_query, sub_queries, intent = _parse(completion.text, question)
+        category, search_query, sub_queries, intent, tax_request = _parse(
+            completion.text, question
+        )
+        category, search_query = _route(category, search_query, tax_request, question)
         return ClassificationResult(
             category=category,
             search_query=search_query,
             sub_queries=sub_queries,
             intent=intent,
             completion=completion,
+            tax_request=tax_request,
         )
 
     def _complete(self, messages: Sequence[Message]) -> Completion:
@@ -367,7 +408,25 @@ class IntentClassifier:
         )
 
 
-def _parse(text: str, question: str) -> tuple[ScopeCategory, str, tuple[str, ...], Intent]:
+def _route(
+    category: ScopeCategory, search_query: str, tax_request: str, question: str
+) -> tuple[ScopeCategory, str]:
+    """A contained tax task outranks a `conversational` label — and nothing
+    else. Only that one category is ever promoted: prohibited, adjacent and
+    out_of_scope keep their fixed templates whatever `tax_request` says, so
+    this can never turn a refusal into an answer, and a wrong promotion still
+    meets the verifier gate like any other in_scope turn."""
+    if category is not ScopeCategory.CONVERSATIONAL or not tax_request:
+        return category, search_query
+    logger.info("conversational label carried a tax request; routing in_scope")
+    if search_query.strip() == question.strip():
+        search_query = tax_request
+    return ScopeCategory.IN_SCOPE, search_query
+
+
+def _parse(
+    text: str, question: str
+) -> tuple[ScopeCategory, str, tuple[str, ...], Intent, str]:
     try:
         payload = json.loads(text)
         category = ScopeCategory(payload["category"])
@@ -387,7 +446,9 @@ def _parse(text: str, question: str) -> tuple[ScopeCategory, str, tuple[str, ...
     sub_queries: tuple[str, ...] = ()
     if isinstance(raw_sub_queries, list):
         sub_queries = tuple(
-            item.strip() for item in raw_sub_queries if isinstance(item, str) and item.strip()
+            item.strip()
+            for item in raw_sub_queries
+            if isinstance(item, str) and item.strip()
         )
     # Same degrade-don't-fail treatment: intent only decides whether the
     # forthcoming `reason` node runs (rule 01, standing decision 3), it is
@@ -397,4 +458,8 @@ def _parse(text: str, question: str) -> tuple[ScopeCategory, str, tuple[str, ...
         intent = Intent(payload.get("intent"))
     except ValueError:
         intent = Intent.EXPLANATION
-    return category, search_query, sub_queries, intent
+    # Degrade-don't-fail again: a missing tax_request is simply "none", which
+    # leaves the model's own category in charge — the pre-field behaviour.
+    raw_request = payload.get("tax_request")
+    tax_request = raw_request.strip() if isinstance(raw_request, str) else ""
+    return category, search_query, sub_queries, intent, tax_request

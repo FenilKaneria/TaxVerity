@@ -98,6 +98,10 @@ class CitationRetriever:
             path = path.parent
         return None
 
+    def lookup(self, citation: str) -> ScoredChunk | None:
+        found = self._lookup(citation)
+        return None if found is None else ScoredChunk(chunk=found[0], score=found[1])
+
     def search(self, query: str, k: int) -> Sequence[ScoredChunk]:
         if k < 1:
             raise ValueError(f"k must be at least 1, not {k}")

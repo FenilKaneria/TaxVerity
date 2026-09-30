@@ -149,7 +149,9 @@ def test_the_fingerprint_refuses_same_identity_different_vectors():
 
 
 def test_the_fingerprint_refuses_a_stale_probe_set():
-    stale = _stub_manifest().model_copy(update={"probe_set_version": PROBE_SET_VERSION + 1})
+    stale = _stub_manifest().model_copy(
+        update={"probe_set_version": PROBE_SET_VERSION + 1}
+    )
     with pytest.raises(StaleVectorStoreError, match="probe set"):
         verify_fingerprint(StubEmbedder(), stale)
 
@@ -179,7 +181,11 @@ def _write(tmp_path, *, ids=("a" * 16, "b" * 16, "c" * 16), dim=4):
         ),
         kind=EmbedKind.DOCUMENT,
         device="jina-api",
-        probes=(ProbeVector(kind=EmbedKind.DOCUMENT, text="t", vector=(1.0,) + (0.0,) * (dim - 1)),),
+        probes=(
+            ProbeVector(
+                kind=EmbedKind.DOCUMENT, text="t", vector=(1.0,) + (0.0,) * (dim - 1)
+            ),
+        ),
     )
     return vectors, manifest
 

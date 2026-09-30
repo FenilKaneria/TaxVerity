@@ -31,25 +31,37 @@ PASSWORD = "correct horse battery"
 
 def stated(field: FactField, raw: str, value, span: str) -> Fact:
     return Fact(
-        field=field, status=FactStatus.STATED, raw_value=raw, value=value, source_span=span
+        field=field,
+        status=FactStatus.STATED,
+        raw_value=raw,
+        value=value,
+        source_span=span,
     )
 
 
 def inferred(field: FactField, raw: str, value, span: str) -> Fact:
     return Fact(
-        field=field, status=FactStatus.INFERRED, raw_value=raw, value=value, source_span=span
+        field=field,
+        status=FactStatus.INFERRED,
+        raw_value=raw,
+        value=value,
+        source_span=span,
     )
 
 
 def missing(field: FactField) -> Fact:
-    return Fact(field=field, status=FactStatus.MISSING, raw_value="", value=None, source_span="")
+    return Fact(
+        field=field, status=FactStatus.MISSING, raw_value="", value=None, source_span=""
+    )
 
 
 # --- merge semantics ---------------------------------------------------------
 
 
 def test_a_fresh_field_is_recorded_with_no_override():
-    salary = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
+    salary = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
     state = merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1)
     assert state.get(FactField.SALARY_INCOME) == salary
     assert state.provenance_for(FactField.SALARY_INCOME) == "stated in turn 1"
@@ -57,8 +69,12 @@ def test_a_fresh_field_is_recorded_with_no_override():
 
 
 def test_a_newer_stated_fact_overrides_an_older_one_and_it_is_recorded():
-    first = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
-    second = stated(FactField.SALARY_INCOME, "1600000", Decimal("1600000"), "actually it is 1600000")
+    first = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
+    second = stated(
+        FactField.SALARY_INCOME, "1600000", Decimal("1600000"), "actually it is 1600000"
+    )
     state = merge_turn(ThreadFactState(), UserFacts(facts=(first,)), turn=1)
     state = merge_turn(state, UserFacts(facts=(second,)), turn=2)
     assert state.get(FactField.SALARY_INCOME) == second
@@ -74,7 +90,9 @@ def test_a_newer_stated_fact_overrides_an_older_one_and_it_is_recorded():
 
 def test_an_inferred_fact_never_overrides_a_stated_one():
     stated_fact = stated(FactField.REGIME, "new", "new", "I want the new regime")
-    guessed = inferred(FactField.REGIME, "old", "old", "salaried employees usually pick old")
+    guessed = inferred(
+        FactField.REGIME, "old", "old", "salaried employees usually pick old"
+    )
     state = merge_turn(ThreadFactState(), UserFacts(facts=(stated_fact,)), turn=1)
     state = merge_turn(state, UserFacts(facts=(guessed,)), turn=2)
     assert state.get(FactField.REGIME) == stated_fact
@@ -83,7 +101,9 @@ def test_an_inferred_fact_never_overrides_a_stated_one():
 
 
 def test_a_stated_fact_overrides_an_earlier_inferred_one_and_it_is_recorded():
-    guessed = inferred(FactField.REGIME, "old", "old", "salaried employees usually pick old")
+    guessed = inferred(
+        FactField.REGIME, "old", "old", "salaried employees usually pick old"
+    )
     stated_fact = stated(FactField.REGIME, "new", "new", "I want the new regime")
     state = merge_turn(ThreadFactState(), UserFacts(facts=(guessed,)), turn=1)
     state = merge_turn(state, UserFacts(facts=(stated_fact,)), turn=2)
@@ -94,9 +114,13 @@ def test_a_stated_fact_overrides_an_earlier_inferred_one_and_it_is_recorded():
 
 
 def test_a_missing_fact_is_dropped_and_changes_nothing():
-    salary = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
+    salary = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
     state = merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1)
-    state = merge_turn(state, UserFacts(facts=(missing(FactField.SALARY_INCOME),)), turn=2)
+    state = merge_turn(
+        state, UserFacts(facts=(missing(FactField.SALARY_INCOME),)), turn=2
+    )
     assert state.get(FactField.SALARY_INCOME) == salary
     assert state.provenance_for(FactField.SALARY_INCOME) == "stated in turn 1"
     assert state.overrides == ()
@@ -118,7 +142,9 @@ def test_a_profile_default_fact_is_refused_not_merged():
 
 
 def test_a_user_edit_is_stated_and_always_overrides():
-    guessed = inferred(FactField.REGIME, "old", "old", "salaried employees usually pick old")
+    guessed = inferred(
+        FactField.REGIME, "old", "old", "salaried employees usually pick old"
+    )
     state = merge_turn(ThreadFactState(), UserFacts(facts=(guessed,)), turn=1)
     state = apply_user_edit(state, FactField.REGIME, "new")
     fact = state.get(FactField.REGIME)
@@ -130,7 +156,9 @@ def test_a_user_edit_is_stated_and_always_overrides():
 
 
 def test_a_user_edit_overrides_an_earlier_stated_fact_too():
-    original = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
+    original = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
     state = merge_turn(ThreadFactState(), UserFacts(facts=(original,)), turn=1)
     state = apply_user_edit(state, FactField.SALARY_INCOME, "1500000")
     assert state.get(FactField.SALARY_INCOME).value == Decimal("1500000")
@@ -147,8 +175,12 @@ def test_an_invalid_user_edit_raises_and_changes_nothing():
 
 
 def test_state_round_trips_through_json_including_decimal_values():
-    salary = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
-    guessed = inferred(FactField.REGIME, "old", "old", "salaried employees usually pick old")
+    salary = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
+    guessed = inferred(
+        FactField.REGIME, "old", "old", "salaried employees usually pick old"
+    )
     stated_regime = stated(FactField.REGIME, "new", "new", "I want the new regime")
     state = merge_turn(ThreadFactState(), UserFacts(facts=(salary, guessed)), turn=1)
     state = merge_turn(state, UserFacts(facts=(stated_regime,)), turn=2)
@@ -178,7 +210,9 @@ def mallory(schema):
 
 def test_save_then_load_round_trips_for_the_owning_user(schema, alice):
     thread = create_thread(schema, alice, "House property")
-    salary = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
+    salary = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
     state = merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1)
     save_fact_state(schema, alice, thread.thread_id, state)
     loaded = load_fact_state(schema, alice, thread.thread_id)
@@ -194,10 +228,23 @@ def test_loading_an_unwritten_thread_returns_empty_state(schema, alice):
 
 def test_saving_twice_updates_in_place(schema, alice):
     thread = create_thread(schema, alice, "House property")
-    salary = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
-    save_fact_state(schema, alice, thread.thread_id, merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1))
-    revised = stated(FactField.SALARY_INCOME, "1600000", Decimal("1600000"), "actually 1600000")
-    state = merge_turn(load_fact_state(schema, alice, thread.thread_id), UserFacts(facts=(revised,)), turn=2)
+    salary = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
+    save_fact_state(
+        schema,
+        alice,
+        thread.thread_id,
+        merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1),
+    )
+    revised = stated(
+        FactField.SALARY_INCOME, "1600000", Decimal("1600000"), "actually 1600000"
+    )
+    state = merge_turn(
+        load_fact_state(schema, alice, thread.thread_id),
+        UserFacts(facts=(revised,)),
+        turn=2,
+    )
     save_fact_state(schema, alice, thread.thread_id, state)
     loaded = load_fact_state(schema, alice, thread.thread_id)
     assert loaded.get(FactField.SALARY_INCOME) == revised
@@ -208,18 +255,32 @@ def test_saving_twice_updates_in_place(schema, alice):
 
 def test_a_second_user_cannot_load_another_users_thread_facts(schema, alice, mallory):
     thread = create_thread(schema, alice, "House property")
-    salary = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
-    save_fact_state(schema, alice, thread.thread_id, merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1))
+    salary = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
+    save_fact_state(
+        schema,
+        alice,
+        thread.thread_id,
+        merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1),
+    )
     with pytest.raises(ThreadNotFound):
         load_fact_state(schema, mallory, thread.thread_id)
 
 
-def test_a_second_user_cannot_save_over_another_users_thread_facts(schema, alice, mallory):
+def test_a_second_user_cannot_save_over_another_users_thread_facts(
+    schema, alice, mallory
+):
     thread = create_thread(schema, alice, "House property")
-    salary = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
+    salary = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
     with pytest.raises(ThreadNotFound):
         save_fact_state(
-            schema, mallory, thread.thread_id, merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1)
+            schema,
+            mallory,
+            thread.thread_id,
+            merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1),
         )
     assert schema.execute("SELECT count(*) FROM thread_facts").fetchone()[0] == 0
 
@@ -232,7 +293,9 @@ def test_a_nonexistent_thread_is_refused_the_same_way(schema, alice):
 # --- R20 Step 20.4: open-vocabulary situation facts ---------------------------
 
 
-def situation(name: str, raw: str, span: str, status: FactStatus = FactStatus.STATED) -> SituationFact:
+def situation(
+    name: str, raw: str, span: str, status: FactStatus = FactStatus.STATED
+) -> SituationFact:
     return SituationFact(name=name, status=status, raw_value=raw, source_span=span)
 
 
@@ -269,9 +332,7 @@ def test_situation_fact_keys_are_case_and_space_insensitive():
 
 def test_an_inferred_situation_fact_never_overrides_a_stated_one():
     stated_fact = situation("rent recipient", "my mother", "pay rent to my mother")
-    guessed = situation(
-        "rent recipient", "a relative", "", status=FactStatus.INFERRED
-    )
+    guessed = situation("rent recipient", "a relative", "", status=FactStatus.INFERRED)
     state = merge_turn(
         ThreadFactState(), UserFacts(), turn=1, situation_facts=(stated_fact,)
     )
@@ -304,10 +365,16 @@ def test_situation_state_round_trips_through_json():
 def test_a_row_saved_before_situation_facts_existed_loads_as_empty():
     """`from_json` must not raise on a `thread_facts.facts` payload with no
     `situation`/`situation_provenance`/`situation_overrides` keys."""
-    salary = stated(FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000")
+    salary = stated(
+        FactField.SALARY_INCOME, "1400000", Decimal("1400000"), "my salary is 1400000"
+    )
     state = merge_turn(ThreadFactState(), UserFacts(facts=(salary,)), turn=1)
     legacy = to_json(state)
-    del legacy["situation"], legacy["situation_provenance"], legacy["situation_overrides"]
+    del (
+        legacy["situation"],
+        legacy["situation_provenance"],
+        legacy["situation_overrides"],
+    )
     restored = from_json(legacy)
     assert restored.situation_facts() == ()
     assert restored.get(FactField.SALARY_INCOME) == salary

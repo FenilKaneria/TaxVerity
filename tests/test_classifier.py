@@ -24,6 +24,7 @@ from taxverity.safety.classifier import (
     OBJECT_FORMAT,
     SCHEMA_NAME,
     STRICT_FORMAT,
+    SYSTEM_PROMPT,
     ClassificationError,
     Intent,
     IntentClassifier,
@@ -94,7 +95,7 @@ def build(*responses):
 
 
 def test_stage_version_is_declared():
-    assert CLASSIFIER_STAGE_VERSION == 8
+    assert CLASSIFIER_STAGE_VERSION == 11
 
 
 def test_strict_format_names_the_scope_schema():
@@ -181,7 +182,11 @@ def test_a_missing_search_query_degrades_to_the_raw_question():
 def test_sub_queries_round_trip():
     subs = ["the slab rates for the new regime", "the standard deduction from salary"]
     node, _ = build(
-        ok(json.dumps({"category": "in_scope", "search_query": QUESTION, "sub_queries": subs}))
+        ok(
+            json.dumps(
+                {"category": "in_scope", "search_query": QUESTION, "sub_queries": subs}
+            )
+        )
     )
     result = node.classify(QUESTION)
     assert result.sub_queries == tuple(subs)
@@ -212,7 +217,11 @@ def test_intent_round_trips():
 
 def test_a_missing_intent_degrades_to_explanation():
     node, _ = build(
-        ok(json.dumps({"category": "in_scope", "search_query": QUESTION, "sub_queries": []}))
+        ok(
+            json.dumps(
+                {"category": "in_scope", "search_query": QUESTION, "sub_queries": []}
+            )
+        )
     )
     result = node.classify(QUESTION)
     assert result.intent is Intent.EXPLANATION
@@ -235,6 +244,134 @@ def test_an_invalid_intent_degrades_to_explanation_not_a_classification_error():
     )
     result = node.classify(QUESTION)
     assert result.intent is Intent.EXPLANATION
+
+
+def test_a_tax_task_phrased_as_a_capability_question_is_told_to_be_in_scope():
+    # The live model routed "can you help me file a income tax return?" to
+    # conversational; the prompt now names this boundary with both examples.
+    prompt = " ".join(SYSTEM_PROMPT.split())
+    assert "Only when the message asks for no tax task at all" in prompt
+    assert (
+        '"can you help me file my income tax return?" is in_scope with intent procedure'
+        in prompt
+    )
+    assert 'can you calculate my tax?" is in_scope with intent calculation' in prompt
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "can you help me file my income tax return?",
+        "what can you do? can you calculate my tax?",
+    ],
+)
+def test_a_tax_task_never_takes_the_small_talk_shortcut(question):
+    node, recorder = build(
+        ok(
+            json.dumps(
+                {
+                    "category": "in_scope",
+                    "search_query": question,
+                    "sub_queries": [],
+                    "intent": "procedure",
+                }
+            )
+        )
+    )
+    assert node.classify(question).category is ScopeCategory.IN_SCOPE
+    assert len(recorder.requests) == 1
+
+
+def test_schema_requires_tax_request():
+    assert "tax_request" in CLASSIFICATION_JSON_SCHEMA["required"]
+    assert CLASSIFICATION_JSON_SCHEMA["properties"]["tax_request"] == {"type": "string"}
+
+
+def reply(
+    category: str,
+    *,
+    tax_request: str = "",
+    search_query: str | None = None,
+    intent: str = "explanation",
+) -> httpx2.Response:
+    return ok(
+        json.dumps(
+            {
+                "category": category,
+                "search_query": search_query if search_query is not None else QUESTION,
+                "sub_queries": [],
+                "intent": intent,
+                "tax_request": tax_request,
+            }
+        )
+    )
+
+
+def test_a_conversational_label_with_a_tax_request_routes_in_scope():
+    question = "can you help me file a income tax return?"
+    node, _ = build(
+        reply(
+            "conversational",
+            tax_request="how to file an income tax return",
+            search_query="return of income; furnishing; due date",
+            intent="procedure",
+        )
+    )
+    result = node.classify(question)
+    assert result.category is ScopeCategory.IN_SCOPE
+    assert result.intent is Intent.PROCEDURE
+    assert result.tax_request == "how to file an income tax return"
+    assert result.search_query == "return of income; furnishing; due date"
+    assert result.response is None
+
+
+def test_a_promoted_message_that_only_echoed_itself_searches_the_tax_request():
+    question = "what can you do? can you calculate my tax?"
+    node, _ = build(
+        reply(
+            "conversational",
+            tax_request="calculate income tax payable on annual income",
+            search_query=question,
+        )
+    )
+    result = node.classify(question)
+    assert result.search_query == "calculate income tax payable on annual income"
+
+
+def test_a_conversational_label_without_a_tax_request_stays_conversational():
+    node, _ = build(reply("conversational", tax_request=""))
+    assert (
+        node.classify("give me example questions").category
+        is ScopeCategory.CONVERSATIONAL
+    )
+
+
+@pytest.mark.parametrize("category", ["prohibited", "adjacent", "out_of_scope"])
+def test_a_tax_request_never_overrides_a_refusal_or_redirect(category):
+    # The promotion is conversational -> in_scope only: a refusal must not
+    # become an answer because the model also filled tax_request.
+    node, _ = build(reply(category, tax_request="how to hide cash income"))
+    result = node.classify(QUESTION)
+    assert result.category is ScopeCategory(category)
+    assert result.response == FIXED_RESPONSES[ScopeCategory(category)]
+
+
+def test_a_missing_tax_request_degrades_to_none_and_keeps_the_category():
+    node, _ = build(
+        ok(
+            json.dumps(
+                {
+                    "category": "conversational",
+                    "search_query": "hi",
+                    "sub_queries": [],
+                    "intent": "explanation",
+                }
+            )
+        )
+    )
+    result = node.classify("hey, what's up with you today")
+    assert result.category is ScopeCategory.CONVERSATIONAL
+    assert result.tax_request == ""
 
 
 def test_conversational_shortcut_carries_explanation_intent():

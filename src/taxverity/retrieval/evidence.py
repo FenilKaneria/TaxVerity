@@ -114,7 +114,9 @@ class EvidencePack(BaseModel):
 
 
 class EvidencePacker:
-    def __init__(self, chunks: Iterable[Chunk], *, budget: int = EVIDENCE_BUDGET) -> None:
+    def __init__(
+        self, chunks: Iterable[Chunk], *, budget: int = EVIDENCE_BUDGET
+    ) -> None:
         if budget < 1:
             raise ValueError(f"budget must be at least 1, not {budget}")
         self._budget = budget
@@ -126,13 +128,19 @@ class EvidencePacker:
                 continue
             parent = self._by_id.get(chunk.parent_id)
             if parent is None:
-                raise ValueError(f"{chunk.node_path}: its parent is not in the chunk set")
+                raise ValueError(
+                    f"{chunk.node_path}: its parent is not in the chunk set"
+                )
             if chunk.char_start is None or parent.char_start is None:
-                raise ValueError(f"{chunk.node_path}: a lead-in needs character offsets")
+                raise ValueError(
+                    f"{chunk.node_path}: a lead-in needs character offsets"
+                )
             # Offsets index the root's text (ADR-055), so a parent's own lines
             # end where its first child begins.
             start = chunk.char_start - parent.char_start
-            self._own_end[parent.chunk_id] = min(self._own_end.get(parent.chunk_id, start), start)
+            self._own_end[parent.chunk_id] = min(
+                self._own_end.get(parent.chunk_id, start), start
+            )
         self._lineage: dict[str, frozenset[str]] = {}
 
     def _ancestors(self, chunk: Chunk) -> list[Chunk]:
@@ -213,8 +221,12 @@ class EvidencePacker:
         lineage = self._lineage_of(chunk)
         if any(unit.chunk.chunk_id in lineage for unit in units):
             return units
-        absorbed = [unit for unit in units if chunk.chunk_id in self._lineage_of(unit.chunk)]
-        retrieved = [unit.rank for unit in absorbed if unit.role is EvidenceRole.RETRIEVED]
+        absorbed = [
+            unit for unit in units if chunk.chunk_id in self._lineage_of(unit.chunk)
+        ]
+        retrieved = [
+            unit.rank for unit in absorbed if unit.role is EvidenceRole.RETRIEVED
+        ]
         if role is EvidenceRole.RETRIEVED:
             retrieved.append(rank)
         if retrieved:
@@ -265,7 +277,11 @@ class EvidencePacker:
             for citer in list(units):
                 for target in self._targets(citer.chunk):
                     units = self._place(
-                        units, target, citer.rank, EvidenceRole.REFERENCED, citer.citation
+                        units,
+                        target,
+                        citer.rank,
+                        EvidenceRole.REFERENCED,
+                        citer.citation,
                     )
         for rank, result in enumerate(results[head:], start=head + 1):
             units = self._place(units, result.chunk, rank, EvidenceRole.RETRIEVED)

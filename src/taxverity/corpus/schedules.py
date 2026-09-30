@@ -246,7 +246,9 @@ def parse_schedules(
         node = StatutoryNode(
             type=NodeType.SCHEDULE_PARAGRAPH,
             marker=marker,
-            path=NodePath.schedule(state.numeral).child(NodeType.SCHEDULE_PARAGRAPH, marker),
+            path=NodePath.schedule(state.numeral).child(
+                NodeType.SCHEDULE_PARAGRAPH, marker
+            ),
             text="\n".join(state.body),
             pages=tuple(dict.fromkeys(state.pages)),
         )
@@ -280,7 +282,9 @@ def parse_schedules(
                 title=state.title,
                 text="\n".join(state.preamble),
                 pages=tuple(
-                    dict.fromkeys(page for para in state.paragraphs for page in para.pages)
+                    dict.fromkeys(
+                        page for para in state.paragraphs for page in para.pages
+                    )
                 ),
                 children=tuple(state.paragraphs),
             )

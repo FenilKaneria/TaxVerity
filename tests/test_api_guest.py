@@ -7,6 +7,7 @@ own SQL needs.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -21,13 +22,16 @@ from taxverity.api.guest_routes import router as guest_router
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.guests.quota import GUEST_TURN_LIMIT
 from taxverity.retrieval.base import ScoredChunk
-from taxverity.safety.classifier import FIXED_RESPONSES, ScopeCategory
+from taxverity.safety.classifier import FIXED_RESPONSES, Intent, ScopeCategory
 from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
 from test_generation import GOOD, FakeLLM, answer
 from test_graph_nodes import deps as build_deps
 from test_verifier import CHUNKS, QUESTION
 
-PACK_RESULTS = [ScoredChunk(chunk=CHUNKS["22(1)"], score=2.0), ScoredChunk(chunk=CHUNKS["24"], score=1.0)]
+PACK_RESULTS = [
+    ScoredChunk(chunk=CHUNKS["22(1)"], score=2.0),
+    ScoredChunk(chunk=CHUNKS["24"], score=1.0),
+]
 
 
 class FakePool:
@@ -56,11 +60,14 @@ def _static_deps(category=ScopeCategory.IN_SCOPE, generator=None, conversational
     return build_deps(**kwargs)
 
 
-def _client(schema, category=ScopeCategory.IN_SCOPE, generator=None, conversational=None):
+def _client(
+    schema, category=ScopeCategory.IN_SCOPE, generator=None, conversational=None
+):
     app = FastAPI()
     app.include_router(guest_router)
     state = SimpleNamespace(
-        pool=FakePool(schema), static_deps=_static_deps(category, generator, conversational)
+        pool=FakePool(schema),
+        static_deps=_static_deps(category, generator, conversational),
     )
     app.dependency_overrides[app_state] = lambda: state
     return TestClient(app)
@@ -82,7 +89,11 @@ def test_a_fresh_visitor_gets_a_guest_cookie_minted(schema):
     client = _client(schema)
     response = client.get("/v1/guest/status")
     assert response.status_code == 200
-    assert response.json() == {"used": 0, "limit": GUEST_TURN_LIMIT, "remaining": GUEST_TURN_LIMIT}
+    assert response.json() == {
+        "used": 0,
+        "limit": GUEST_TURN_LIMIT,
+        "remaining": GUEST_TURN_LIMIT,
+    }
     assert GUEST_COOKIE in response.cookies
 
 
@@ -102,7 +113,9 @@ def test_an_in_scope_turn_streams_stage_then_claim_then_final_no_persistence(sch
 
 def test_an_adjacent_question_gets_the_fixed_response_and_no_claims(schema):
     client = _client(schema, category=ScopeCategory.ADJACENT)
-    response = client.post("/v1/guest/turns", json={"question": "what is the GST rate?"})
+    response = client.post(
+        "/v1/guest/turns", json={"question": "what is the GST rate?"}
+    )
     events = _parse_sse(response.text)
     names = [name for name, _ in events]
     assert "claim" not in names
@@ -115,7 +128,9 @@ def test_an_adjacent_question_gets_the_fixed_response_and_no_claims(schema):
 
 def test_a_conversational_question_gets_the_guarded_reply(schema):
     conversational = SimpleNamespace(reply=lambda q: "Hi! Ask me about the Act.")
-    client = _client(schema, category=ScopeCategory.CONVERSATIONAL, conversational=conversational)
+    client = _client(
+        schema, category=ScopeCategory.CONVERSATIONAL, conversational=conversational
+    )
     response = client.post("/v1/guest/turns", json={"question": "hi there"})
     events = _parse_sse(response.text)
     names = [name for name, _ in events]
@@ -168,4 +183,33 @@ def test_two_different_guest_cookies_have_independent_limits(schema):
         client.cookies.set(GUEST_COOKIE, str(uuid4()))
         for _ in range(GUEST_TURN_LIMIT):
             response = client.post("/v1/guest/turns", json={"question": QUESTION})
-            assert response.status_code == 200, f"guest {cookie_num} turn should succeed"
+            assert response.status_code == 200, (
+                f"guest {cookie_num} turn should succeed"
+            )
+
+
+def test_a_guest_calculation_question_packs_the_calculator_provisions_first(schema):
+    app = FastAPI()
+    app.include_router(guest_router)
+    static = _static_deps()
+    static = dataclasses.replace(
+        static,
+        classifier=SimpleNamespace(
+            classify=lambda q: SimpleNamespace(
+                category=ScopeCategory.IN_SCOPE,
+                response=None,
+                intent=Intent.CALCULATION,
+            )
+        ),
+        calc_pins=(ScoredChunk(chunk=CHUNKS["23"], score=1.0),),
+    )
+    app.dependency_overrides[app_state] = lambda: SimpleNamespace(
+        pool=FakePool(schema), static_deps=static
+    )
+    response = TestClient(app).post("/v1/guest/turns", json={"question": QUESTION})
+    evidence = next(
+        data
+        for name, data in _parse_sse(response.text)
+        if data.get("stage") == "evidence"
+    )
+    assert evidence["chunks"][0] == "23"

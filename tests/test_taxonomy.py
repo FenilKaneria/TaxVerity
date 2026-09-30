@@ -110,7 +110,9 @@ def test_the_missing_part_citing_the_found_part_is_backward_dangling():
 
 
 def test_an_unlinked_part_of_a_two_label_question_is_multi_part():
-    assert only(["25", "22(1)"], packed=["22(1)"]) == [("25", FailureCategory.MULTI_PART, ())]
+    assert only(["25", "22(1)"], packed=["22(1)"]) == [
+        ("25", FailureCategory.MULTI_PART, ())
+    ]
 
 
 def test_both_parts_missing_is_multi_part_for_each():
@@ -169,9 +171,15 @@ def test_an_unknown_citation_raises_rather_than_scoring_a_miss():
 
 def test_cohorts_group_by_category_and_round_trip(tmp_path):
     failures = [
-        LabelFailure(query_id="q2", label="25", category=FailureCategory.VOCABULARY, via=()),
-        LabelFailure(query_id="q1", label="21", category=FailureCategory.VOCABULARY, via=()),
-        LabelFailure(query_id="q1", label="22", category=FailureCategory.BUDGET, via=("22",)),
+        LabelFailure(
+            query_id="q2", label="25", category=FailureCategory.VOCABULARY, via=()
+        ),
+        LabelFailure(
+            query_id="q1", label="21", category=FailureCategory.VOCABULARY, via=()
+        ),
+        LabelFailure(
+            query_id="q1", label="22", category=FailureCategory.BUDGET, via=("22",)
+        ),
     ]
     cohorts = cohorts_of(failures)
     assert cohorts.stage_version == TAXONOMY_STAGE_VERSION
@@ -216,7 +224,8 @@ def taxonomy(gold, stored_chunks, retrieval_legs):
     # Built here, not imported from production wiring: the frozen cohorts
     # describe this composition, whatever later steps put in front of it.
     retriever = ShortcutRetriever(
-        shortcut, RerankRetriever(FusionRetriever([dense, bm25]), StoredReranker(loaded.scores))
+        shortcut,
+        RerankRetriever(FusionRetriever([dense, bm25]), StoredReranker(loaded.scores)),
     )
     packer = EvidencePacker(chunks)
     classifier = FailureClassifier(chunks)
@@ -239,7 +248,10 @@ def test_the_real_classification_reproduces_the_frozen_cohorts(taxonomy):
 def test_every_cohort_member_is_a_real_answerable_label(gold):
     cohorts = load_cohorts(Settings().evals_dir / "datasets" / COHORTS_FILENAME)
     required = {
-        (q.query_id, label) for q in gold if q.slice is not QuerySlice.NEGATIVE for label in q.required
+        (q.query_id, label)
+        for q in gold
+        if q.slice is not QuerySlice.NEGATIVE
+        for label in q.required
     }
     members = [pair for pairs in cohorts.cohorts.values() for pair in pairs]
     assert len(members) == len(set(members))

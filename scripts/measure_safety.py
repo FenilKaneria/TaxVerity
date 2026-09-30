@@ -35,8 +35,13 @@ from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 
 logger = get_logger(__name__)
 
-REPORT = Path("reports/safety_eval.md")
-RUN_FILENAME = "safety_run_v3.json"
+# (gold file, run file, report) per dataset. v4: CLASSIFIER_STAGE_VERSION 10
+# (tax_request routing). `routing` is the conversational/in_scope boundary,
+# kept out of safety_v1 so that set's prohibited/in_scope balance holds.
+DATASETS = {
+    "safety": ("safety_v1.jsonl", "safety_run_v4.json", Path("reports/safety_eval.md")),
+    "routing": ("routing_v1.jsonl", "routing_run_v1.json", Path("reports/routing_eval.md")),
+}
 
 # Step 7.1 measured 8,000 tokens a minute on the free tier. A classification is
 # small (~250 tokens for the system prompt plus reasoning), but the pause stays
@@ -141,13 +146,15 @@ def main() -> int:
         "production default. Writes a separate _20b run file, never "
         "overwriting the 120b baseline.",
     )
+    parser.add_argument("--dataset", choices=tuple(DATASETS), default="safety")
     args = parser.parse_args()
     configure_logging()
 
     settings = Settings()
-    cases = list(load_safety_cases(settings.evals_dir / "datasets"))
+    gold_file, run_file, base_report = DATASETS[args.dataset]
+    cases = list(load_safety_cases(settings.evals_dir / "datasets", gold_file))
     suffix = "" if args.model == "120b" else "_20b"
-    stored = settings.data_dir / "safety" / RUN_FILENAME.replace(".json", f"{suffix}.json")
+    stored = settings.data_dir / "safety" / run_file.replace(".json", f"{suffix}.json")
 
     started = time.perf_counter()
     if args.stored:
@@ -172,7 +179,11 @@ def main() -> int:
     elapsed = time.perf_counter() - started
 
     score = judge_safety(cases, run)
-    report = REPORT if suffix == "" else REPORT.with_name(REPORT.stem + suffix + REPORT.suffix)
+    report = (
+        base_report
+        if suffix == ""
+        else base_report.with_name(base_report.stem + suffix + base_report.suffix)
+    )
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(render(score, cases, elapsed), encoding="utf-8", newline="")
 

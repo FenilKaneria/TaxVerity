@@ -51,9 +51,7 @@ LEAD_IN = re.compile(r"[—:]\s*$")
 
 _ROMAN_UNITS = ["", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix"]
 _ROMAN_TENS = ["", "x", "xx", "xxx", "xl", "l", "lx", "lxx", "lxxx", "xc"]
-ROMAN_LOWER = tuple(
-    _ROMAN_TENS[n // 10] + _ROMAN_UNITS[n % 10] for n in range(1, 100)
-)
+ROMAN_LOWER = tuple(_ROMAN_TENS[n // 10] + _ROMAN_UNITS[n % 10] for n in range(1, 100))
 # The Act continues z with za..zl rather than aa..al — measured, not assumed.
 ALPHA_LOWER = tuple(chr(ord("a") + n) for n in range(26)) + tuple(
     "z" + chr(ord("a") + n) for n in range(26)
@@ -141,7 +139,10 @@ class Substructure(BaseModel):
 
     def count(self, type: NodeType) -> int:
         return sum(
-            1 for section in self.sections for node in section.walk() if node.type is type
+            1
+            for section in self.sections
+            for node in section.walk()
+            if node.type is type
         )
 
 
@@ -241,12 +242,16 @@ class _Builder:
         self.depth_shift = depth_shift
         self.level_types = level_types
         self.stack: list[_Level] = []
-        self.root = _Level(MarkerKind.NUMERIC, section.marker, section.type, section.path)
+        self.root = _Level(
+            MarkerKind.NUMERIC, section.marker, section.type, section.path
+        )
         self.seen: set[str] = set()
         self.anomalies: list[Anomaly] = []
 
     def type_at(self, depth: int) -> NodeType:
-        return self.level_types[min(depth + self.depth_shift, len(self.level_types) - 1)]
+        return self.level_types[
+            min(depth + self.depth_shift, len(self.level_types) - 1)
+        ]
 
     def path_at(self, depth: int, marker: str) -> NodePath:
         parent = self.stack[depth - 1].path if depth else self.section.path
@@ -269,7 +274,9 @@ class _Builder:
             successor(level.kind, level.marker) == marker for level in self.stack
         )
 
-    def place(self, marker: str, ahead: str | None, announced: bool) -> AnomalyReason | None:
+    def place(
+        self, marker: str, ahead: str | None, announced: bool
+    ) -> AnomalyReason | None:
         """Place the marker, or name the refusal made.
 
         Returns ``None`` on success. The two refusals are unrelated and their
@@ -307,9 +314,7 @@ class _Builder:
         both are a roman opener. Only what comes next separates them, so that is
         what is consulted — never the marker's shape.
         """
-        roman = next(
-            (kind for kind in kinds_for(marker) if opens(kind, marker)), None
-        )
+        roman = next((kind for kind in kinds_for(marker) if opens(kind, marker)), None)
         if roman is None or self.stack[depth].kind is roman:
             return False
         return ahead is not None and ahead == successor(roman, marker)
@@ -441,8 +446,10 @@ def lead_markers(lines: list[str]) -> list[list[str]]:
     for index, raw in enumerate(lines):
         scan = SECTION_HEAD.sub("", raw, count=1) if index == 0 else raw
         run: list[str] = []
-        while (match := LEAD_MARKER.match(scan)) and kinds_for(match.group(1)) and not (
-            REFERENCE_TAIL.search(previous) and not run
+        while (
+            (match := LEAD_MARKER.match(scan))
+            and kinds_for(match.group(1))
+            and not (REFERENCE_TAIL.search(previous) and not run)
         ):
             run.append(match.group(1))
             scan = scan[match.end() :]

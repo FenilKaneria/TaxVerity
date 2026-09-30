@@ -57,7 +57,9 @@ def walk_with_parents(
         stack.extend((child, node) for child in reversed(node.children))
 
 
-def subtree_refs(node: StatutoryNode, by_source: dict[str, list[str]]) -> tuple[str, ...]:
+def subtree_refs(
+    node: StatutoryNode, by_source: dict[str, list[str]]
+) -> tuple[str, ...]:
     """Every resolved reference made anywhere in this chunk's own text."""
     seen: dict[str, None] = {}
     for descendant in node.walk():

@@ -86,7 +86,9 @@ def test_writing_twice_is_byte_identical(tmp_path, two_chunks):
     first, digest_one = write_chunks_jsonl(two_chunks, tmp_path / "one.jsonl")
     second, digest_two = write_chunks_jsonl(two_chunks, tmp_path / "two.jsonl")
     assert (first, digest_one) == (second, digest_two)
-    assert (tmp_path / "one.jsonl").read_bytes() == (tmp_path / "two.jsonl").read_bytes()
+    assert (tmp_path / "one.jsonl").read_bytes() == (
+        tmp_path / "two.jsonl"
+    ).read_bytes()
 
 
 def test_lines_are_lf_terminated_on_every_platform(tmp_path, two_chunks):
@@ -96,7 +98,9 @@ def test_lines_are_lf_terminated_on_every_platform(tmp_path, two_chunks):
 
 def test_the_digest_is_over_the_bytes_actually_written(tmp_path, two_chunks):
     _, digest = write_chunks_jsonl(two_chunks, tmp_path / CHUNKS_FILENAME)
-    assert digest == hashlib.sha256((tmp_path / CHUNKS_FILENAME).read_bytes()).hexdigest()
+    assert (
+        digest == hashlib.sha256((tmp_path / CHUNKS_FILENAME).read_bytes()).hexdigest()
+    )
 
 
 def test_blank_lines_are_skipped(tmp_path, two_chunks):

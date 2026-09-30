@@ -38,7 +38,9 @@ def query(number: int, *required: str) -> GoldQuery:
 def report(recall: float, ndcg: float, k: int = 10) -> RunReport:
     scores = Scores(recall=recall, mrr=0.0, ndcg=ndcg)
     scored = (
-        QueryScore(query_id="q001", slice=P, k=k, retrieved=k, strict=scores, lenient=scores),
+        QueryScore(
+            query_id="q001", slice=P, k=k, retrieved=k, strict=scores, lenient=scores
+        ),
     )
     return RunReport(
         k=k,
@@ -49,7 +51,9 @@ def report(recall: float, ndcg: float, k: int = 10) -> RunReport:
     )
 
 
-def outcome(query_id: str, recall: float, missed=(), required=("22", "23")) -> QueryOutcome:
+def outcome(
+    query_id: str, recall: float, missed=(), required=("22", "23")
+) -> QueryOutcome:
     return QueryOutcome(
         query_id=query_id,
         slice=P,

@@ -27,9 +27,13 @@ def judge_hybrid(candidate: RunReport, incumbents: Mapping[str, RunReport]) -> V
         new = candidate.overall[CreditMode.LENIENT]
         old = incumbent.overall[CreditMode.LENIENT]
         if new.recall < old.recall - TOLERANCE:
-            reasons.append(f"vs {name}: lenient recall fell {old.recall:.3f} -> {new.recall:.3f}")
+            reasons.append(
+                f"vs {name}: lenient recall fell {old.recall:.3f} -> {new.recall:.3f}"
+            )
         if new.ndcg < old.ndcg - TOLERANCE:
-            reasons.append(f"vs {name}: lenient nDCG fell {old.ndcg:.3f} -> {new.ndcg:.3f}")
+            reasons.append(
+                f"vs {name}: lenient nDCG fell {old.ndcg:.3f} -> {new.ndcg:.3f}"
+            )
         if new.recall <= old.recall + TOLERANCE and new.ndcg <= old.ndcg + TOLERANCE:
             reasons.append(f"vs {name}: neither lenient recall nor lenient nDCG rose")
         for member, scores in sorted(incumbent.per_slice.items()):

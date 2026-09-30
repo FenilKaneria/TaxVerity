@@ -31,5 +31,7 @@ class FallbackRetriever:
             return self._primary.search(query, k)
         except DenseRetrievalError as error:
             # The query text is never logged: it is user input (Rule 03).
-            logger.warning("dense retrieval unavailable, answering from BM25: %s", error)
+            logger.warning(
+                "dense retrieval unavailable, answering from BM25: %s", error
+            )
             return self._fallback.search(query, k)

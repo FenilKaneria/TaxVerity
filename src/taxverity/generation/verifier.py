@@ -157,14 +157,18 @@ _PREMISE_END = re.compile(
 _PERMISSION = re.compile(
     r"\b(?:can|could|may|allowed|entitled|permitted|eligible)\b", re.IGNORECASE
 )
-_OPERAND = r"(?:₹\s*|Rs\.?\s*|INR\s*)?\d[\d,]*(?:\.\d+)?(?:\s*(?:lakhs?|crores?))?(?:\s*%)?"
+_OPERAND = (
+    r"(?:₹\s*|Rs\.?\s*|INR\s*)?\d[\d,]*(?:\.\d+)?(?:\s*(?:lakhs?|crores?))?(?:\s*%)?"
+)
 _OPERATOR = r"\s*(?:[+\-−–‑×*/÷]|\sx\s)\s*"
 _TERM = rf"\(*\s*{_OPERAND}\)*"
 _EXPRESSION = rf"{_TERM}(?:{_OPERATOR}{_TERM})*"
 # A worked equation, possibly chained and parenthesised: "(a × 5%) + (b × 10%)
 # = ₹20,000 + ₹20,000 = ₹40,000". The first side must do some arithmetic.
 _EQUATION = re.compile(rf"{_TERM}(?:{_OPERATOR}{_TERM})+(?:\s*=\s*{_EXPRESSION})+")
-_TOKEN = re.compile(rf"(?P<operand>{_OPERAND})|(?P<paren>[()])|(?P<op>[+\-−–‑×*/÷]|(?<=\s)x(?=\s))")
+_TOKEN = re.compile(
+    rf"(?P<operand>{_OPERAND})|(?P<paren>[()])|(?P<op>[+\-−–‑×*/÷]|(?<=\s)x(?=\s))"
+)
 _EXAMPLE_BULLET = re.compile(r"^[-*•\s]+")
 _NIL = re.compile(r"\bnil\b", re.IGNORECASE)
 
@@ -233,7 +237,9 @@ class Verifier:
         self._computation = computation
         self._user_numbers = numbers_in(question) | _fact_numbers(facts)
         self._computation_numbers = (
-            _computation_numbers(computation) if computation is not None else frozenset()
+            _computation_numbers(computation)
+            if computation is not None
+            else frozenset()
         )
         # R20 Step 20.7: which condition each pack marker speaks to, and that
         # condition's checked status — an APPLICATION or UNKNOWN claim is
@@ -244,7 +250,9 @@ class Verifier:
             for rule in analysis.legal_rules:
                 for condition in rule.conditions:
                     for marker in condition.markers or rule.markers:
-                        self._condition_ids_by_marker.setdefault(marker, set()).add(condition.id)
+                        self._condition_ids_by_marker.setdefault(marker, set()).add(
+                            condition.id
+                        )
             for check in analysis.applicability:
                 self._condition_status[check.condition_id] = check.status
 
@@ -290,13 +298,17 @@ class Verifier:
                     )
                 )
                 continue
-            citations.append(Citation(marker=marker, path=unit.citation, quote=_excerpt(unit)))
+            citations.append(
+                Citation(marker=marker, path=unit.citation, quote=_excerpt(unit))
+            )
             allowed |= ground_numbers(unit)
         if not markers:
             findings.append(Finding(Violation.NO_CITATION, "cites nothing"))
 
         body = normalise(
-            _EXAMPLE_BULLET.sub("", MARKER.sub("", strip_non_citation_markers(claim.text)))
+            _EXAMPLE_BULLET.sub(
+                "", MARKER.sub("", strip_non_citation_markers(claim.text))
+            )
         ).strip()
         if not body.startswith(EXAMPLE_OPENERS):
             findings.append(
@@ -335,7 +347,10 @@ class Verifier:
             values = [_evaluate(side) for side in sides]
             if any(v is None for v in values) or max(values) - min(values) > 1:  # type: ignore[type-var]
                 findings.append(
-                    Finding(Violation.BAD_ARITHMETIC, f'"{equation.group(0)}" does not add up')
+                    Finding(
+                        Violation.BAD_ARITHMETIC,
+                        f'"{equation.group(0)}" does not add up',
+                    )
                 )
                 continue
             # Only the first side works from sourced figures; every later side
@@ -364,7 +379,8 @@ class Verifier:
             findings.append(
                 Finding(
                     Violation.UNSUPPORTED_NUMBER,
-                    "no source or shown working for " + ", ".join(str(n) for n in derived),
+                    "no source or shown working for "
+                    + ", ".join(str(n) for n in derived),
                 )
             )
 
@@ -386,7 +402,10 @@ class Verifier:
         findings = []
         if numbers_in(claim.text) or MARKER.search(claim.text):
             findings.append(
-                Finding(Violation.MALFORMED_HEADING, "a heading carries a figure or citation")
+                Finding(
+                    Violation.MALFORMED_HEADING,
+                    "a heading carries a figure or citation",
+                )
             )
         return Verdict(claim=claim, findings=tuple(findings))
 
@@ -398,7 +417,9 @@ class Verifier:
             )
         if numbers_in(claim.text):
             findings.append(
-                Finding(Violation.MALFORMED_NO_BASIS, "a no_basis claim states a number")
+                Finding(
+                    Violation.MALFORMED_NO_BASIS, "a no_basis claim states a number"
+                )
             )
         if not line_body(claim.text).startswith(NO_BASIS_OPENERS):
             findings.append(
@@ -412,7 +433,9 @@ class Verifier:
     def _verify_computation(self, claim: Claim) -> Verdict:
         findings = []
         if self._computation is None:
-            findings.append(Finding(Violation.NO_COMPUTATION, "no computation was provided"))
+            findings.append(
+                Finding(Violation.NO_COMPUTATION, "no computation was provided")
+            )
         allowed = self._computation_numbers | self._user_numbers
         text = claim.text.replace(CALC_MARKER, "")
         unsupported = sorted(numbers_in(text) - allowed)
@@ -436,7 +459,9 @@ class Verifier:
                     )
                 )
                 continue
-            citations.append(Citation(marker=marker, path=unit.citation, quote=_excerpt(unit)))
+            citations.append(
+                Citation(marker=marker, path=unit.citation, quote=_excerpt(unit))
+            )
             allowed |= ground_numbers(unit)
 
         # Every content line needs a citation, no exceptions — deliberately
@@ -486,7 +511,9 @@ class Verifier:
                     )
                 )
                 continue
-            citations.append(Citation(marker=marker, path=unit.citation, quote=_excerpt(unit)))
+            citations.append(
+                Citation(marker=marker, path=unit.citation, quote=_excerpt(unit))
+            )
             allowed |= ground_numbers(unit)
 
         if not markers:
@@ -512,7 +539,11 @@ class Verifier:
                 for marker in markers
                 for condition_id in self._condition_ids_by_marker.get(marker, ())
                 if self._condition_status.get(condition_id)
-                in (CheckStatus.UNKNOWN, CheckStatus.NOT_SATISFIED, CheckStatus.AMBIGUOUS)
+                in (
+                    CheckStatus.UNKNOWN,
+                    CheckStatus.NOT_SATISFIED,
+                    CheckStatus.AMBIGUOUS,
+                )
             }
             if unresolved:
                 findings.append(
@@ -539,7 +570,9 @@ class Verifier:
                 )
             )
         if numbers_in(MARKER.sub("", claim.text)):
-            findings.append(Finding(Violation.MALFORMED_UNKNOWN, "an unknown claim states a number"))
+            findings.append(
+                Finding(Violation.MALFORMED_UNKNOWN, "an unknown claim states a number")
+            )
 
         markers = [int(m) for m in MARKER.findall(claim.text)]
         citations: list[Citation] = []
@@ -554,7 +587,9 @@ class Verifier:
                     )
                 )
                 continue
-            citations.append(Citation(marker=marker, path=unit.citation, quote=_excerpt(unit)))
+            citations.append(
+                Citation(marker=marker, path=unit.citation, quote=_excerpt(unit))
+            )
             if any(
                 self._condition_status.get(condition_id) is CheckStatus.UNKNOWN
                 for condition_id in self._condition_ids_by_marker.get(marker, ())
@@ -607,7 +642,9 @@ def _is_sum_or_difference(value: Decimal, known: set[Decimal]) -> bool:
     """A figure the example worked out in its head ("the remaining ₹1,00,000"):
     accepted only if it is exactly a + b or a − b of two figures the line
     already carries — checked arithmetic, never a new legal number."""
-    return any(a + b == value or a - b == value for a in known for b in known if a is not b)
+    return any(
+        a + b == value or a - b == value for a in known for b in known if a is not b
+    )
 
 
 def _mask(text: str, spans: list[re.Match[str]]) -> str:
@@ -622,7 +659,9 @@ def _operand_value(raw: str) -> Decimal | None:
     text = re.sub(r"^(?:₹|Rs\.?|INR)\s*", "", raw.strip(), flags=re.IGNORECASE)
     percent = text.endswith("%")
     text = text.rstrip("% ").strip()
-    match = re.fullmatch(r"(\d[\d,]*(?:\.\d+)?)\s*(lakhs?|crores?)?", text, re.IGNORECASE)
+    match = re.fullmatch(
+        r"(\d[\d,]*(?:\.\d+)?)\s*(lakhs?|crores?)?", text, re.IGNORECASE
+    )
     if match is None:
         return None
     try:
@@ -716,7 +755,9 @@ def ground_numbers(unit: EvidenceUnit) -> frozenset[Decimal]:
         numbers |= numbers_in(line.text)
     # R21 Part B: the Act prints a zero rate as "Nil" (section 202(1)'s first
     # slab), so a passage saying "Nil" grounds 0 — and only such a passage.
-    if _NIL.search(unit.chunk.text) or any(_NIL.search(line.text) for line in unit.context):
+    if _NIL.search(unit.chunk.text) or any(
+        _NIL.search(line.text) for line in unit.context
+    ):
         numbers |= {Decimal(0)}
     return numbers
 

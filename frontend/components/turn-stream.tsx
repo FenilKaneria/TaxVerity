@@ -126,7 +126,9 @@ export function TurnStream({
 
         {finalText && (
           // A fixed/gated template, not a claim — no Typewriter, no chips.
-          <p className="text-[15px] leading-relaxed text-foreground">{finalText}</p>
+          <p className="whitespace-pre-line text-[15px] leading-relaxed text-foreground">
+            {finalText}
+          </p>
         )}
 
         {searched.length > 0 && (

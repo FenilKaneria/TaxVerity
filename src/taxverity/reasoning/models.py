@@ -130,15 +130,29 @@ REASONING_JSON_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["id", "markers", "rule", "conditions", "limits", "exceptions", "definitions"],
+                "required": [
+                    "id",
+                    "markers",
+                    "rule",
+                    "conditions",
+                    "limits",
+                    "exceptions",
+                    "definitions",
+                ],
                 "properties": {
-                    "id": {"type": "string", "description": "A short id you invent, referenced by applicability and missing_facts."},
+                    "id": {
+                        "type": "string",
+                        "description": "A short id you invent, referenced by applicability and missing_facts.",
+                    },
                     "markers": {
                         "type": "array",
                         "items": {"type": "integer"},
                         "description": "The passage numbers, exactly as shown, this rule is drawn from.",
                     },
-                    "rule": {"type": "string", "description": "The rule itself, in your own words, close to the cited passage."},
+                    "rule": {
+                        "type": "string",
+                        "description": "The rule itself, in your own words, close to the cited passage.",
+                    },
                     "conditions": {
                         "type": "array",
                         "items": {
@@ -174,7 +188,10 @@ REASONING_JSON_SCHEMA: dict[str, Any] = {
                 "required": ["condition_id", "status", "fact_refs", "note"],
                 "properties": {
                     "condition_id": {"type": "string"},
-                    "status": {"type": "string", "enum": [s.value for s in CheckStatus]},
+                    "status": {
+                        "type": "string",
+                        "enum": [s.value for s in CheckStatus],
+                    },
                     "fact_refs": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -228,7 +245,10 @@ REASONING_JSON_SCHEMA: dict[str, Any] = {
                     "items": {"type": "string"},
                     "description": "The order the answer should walk through: what applies, then how, then the result.",
                 },
-                "next_step": {"type": "string", "description": "What the answer should say is still needed, if anything."},
+                "next_step": {
+                    "type": "string",
+                    "description": "What the answer should say is still needed, if anything.",
+                },
             },
         },
     },

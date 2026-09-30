@@ -49,14 +49,22 @@ class OptedOut:
     def __post_init__(self) -> None:
         deducted = self.standard_deduction.amount if self.standard_deduction else _ZERO
         if self.gross_total_income != self.salary - deducted + self.other_income:
-            raise ValueError("gross total income is not salary less the standard deduction plus other income")
+            raise ValueError(
+                "gross total income is not salary less the standard deduction plus other income"
+            )
         allowed = sum((line.amount for line in self.deductions), _ZERO)
         if allowed > self.gross_total_income:
             raise ValueError("the deductions exceed gross total income")
         if self.total_income != self.gross_total_income - allowed:
-            raise ValueError("total income is not gross total income less the deductions")
-        if self.rounded_total_income.amount != round_to_multiple(self.total_income, Decimal(10)):
-            raise ValueError("the rounded total income is not total income rounded under section 516")
+            raise ValueError(
+                "total income is not gross total income less the deductions"
+            )
+        if self.rounded_total_income.amount != round_to_multiple(
+            self.total_income, Decimal(10)
+        ):
+            raise ValueError(
+                "the rounded total income is not total income rounded under section 516"
+            )
 
     @property
     def total_income_is_upper_bound(self) -> bool:
@@ -96,11 +104,20 @@ def compare_regimes(
     )
 
 
-def _opted_out(rates: TaxYearRates, salary: Decimal, other_income: Decimal, claimed: dict[str, Decimal]) -> OptedOut:
+def _opted_out(
+    rates: TaxYearRates,
+    salary: Decimal,
+    other_income: Decimal,
+    claimed: dict[str, Decimal],
+) -> OptedOut:
     standard = None
     if salary > 0:
         cap = rates.value("standard_deduction_other")
-        standard = LineItem(label="Standard deduction from salary", amount=min(cap.value, salary), provenance=cap.provenance)
+        standard = LineItem(
+            label="Standard deduction from salary",
+            amount=min(cap.value, salary),
+            provenance=cap.provenance,
+        )
     gross = salary - (standard.amount if standard else _ZERO) + other_income
 
     deductions = []
@@ -117,7 +134,11 @@ def _opted_out(rates: TaxYearRates, salary: Decimal, other_income: Decimal, clai
             )
         elif 0 < within_cap <= gross:
             deductions.append(
-                LineItem(label=f"Deduction under section 123, up to Rs. {cap.value}", amount=within_cap, provenance=cap.provenance)
+                LineItem(
+                    label=f"Deduction under section 123, up to Rs. {cap.value}",
+                    amount=within_cap,
+                    provenance=cap.provenance,
+                )
             )
 
     undetermined = ()
@@ -127,7 +148,9 @@ def _opted_out(rates: TaxYearRates, salary: Decimal, other_income: Decimal, clai
                 name=_HEALTH,
                 claimed=claimed[_HEALTH],
                 reason="the section 126 limit turns on whose health is insured and whether they are a senior citizen",
-                provenance=rates.rule("health_insurance_limit_depends_on_who_is_insured"),
+                provenance=rates.rule(
+                    "health_insurance_limit_depends_on_who_is_insured"
+                ),
             ),
         )
 

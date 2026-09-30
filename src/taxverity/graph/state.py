@@ -38,7 +38,7 @@ from taxverity.reasoning.models import (
     MissingFact,
 )
 from taxverity.reasoning.reason import Reasoner
-from taxverity.retrieval.base import Retriever
+from taxverity.retrieval.base import Retriever, ScoredChunk
 from taxverity.retrieval.evidence import EVIDENCE_POOL, EvidencePack, EvidencePacker
 from taxverity.safety.classifier import Intent, IntentClassifier, ScopeCategory
 
@@ -132,6 +132,21 @@ CLARIFY_TEMPLATES: dict[FactField, str] = {
 }
 
 
+# Asked when the person wants their tax calculated but has stated no amount
+# yet. Fixed text (rule 04), and salary first because it is the calculator's
+# main input; the extractor picks up any other income named in the reply.
+CALCULATION_CLARIFY = (
+    "What is your salary income for the tax year, and do you have any other "
+    "income, such as interest, rent, business income or capital gains?"
+)
+
+# Provisions pinned ahead of the ranking for a calculation question: the
+# new-regime slab rates and the rebate, the two the calculator's figures come
+# from. 19(1) (standard deduction) is left to retrieval: at about 1,100 of the
+# 2,500-token production budget it would crowd out everything else.
+CALC_PIN_CITATIONS = ("202(1)", "156")
+
+
 class GraphState(TypedDict, total=False):
     user_id: UUID
     thread_id: UUID
@@ -204,3 +219,5 @@ class GraphDeps:
     conversational: Conversationalist
     reasoner: Reasoner
     pool_k: int = field(default=EVIDENCE_POOL)
+    # CALC_PIN_CITATIONS resolved to chunks once at startup (`build_deps`).
+    calc_pins: tuple[ScoredChunk, ...] = ()

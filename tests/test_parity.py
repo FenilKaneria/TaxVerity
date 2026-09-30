@@ -128,33 +128,25 @@ def test_parity_fails_on_a_score_difference_above_tolerance():
 
 
 def test_hnsw_is_rejected_when_exact_search_is_inside_the_budget():
-    verdict = judge_hnsw(
-        EXACT_P95_BUDGET_MS - 1, report(0.9, 0.9), report(0.9, 0.9)
-    )
+    verdict = judge_hnsw(EXACT_P95_BUDGET_MS - 1, report(0.9, 0.9), report(0.9, 0.9))
     assert not verdict.adopted
     assert "no latency constraint" in verdict.reasons[0]
 
 
 def test_hnsw_is_rejected_when_it_costs_recall_even_if_exact_is_over_budget():
-    verdict = judge_hnsw(
-        EXACT_P95_BUDGET_MS + 1, report(0.85, 0.9), report(0.9, 0.9)
-    )
+    verdict = judge_hnsw(EXACT_P95_BUDGET_MS + 1, report(0.85, 0.9), report(0.9, 0.9))
     assert not verdict.adopted
     assert any("recall fell" in reason for reason in verdict.reasons)
 
 
 def test_hnsw_is_rejected_when_it_costs_ndcg_alone():
-    verdict = judge_hnsw(
-        EXACT_P95_BUDGET_MS + 1, report(0.9, 0.85), report(0.9, 0.9)
-    )
+    verdict = judge_hnsw(EXACT_P95_BUDGET_MS + 1, report(0.9, 0.85), report(0.9, 0.9))
     assert not verdict.adopted
     assert any("nDCG fell" in reason for reason in verdict.reasons)
 
 
 def test_hnsw_is_adopted_only_when_it_is_both_needed_and_free():
-    verdict = judge_hnsw(
-        EXACT_P95_BUDGET_MS + 1, report(0.9, 0.9), report(0.9, 0.9)
-    )
+    verdict = judge_hnsw(EXACT_P95_BUDGET_MS + 1, report(0.9, 0.9), report(0.9, 0.9))
     assert verdict.adopted and verdict.reasons == ()
 
 
@@ -202,7 +194,9 @@ def test_the_postgres_index_ranks_the_real_corpus_exactly_like_numpy(
         model=manifest.model,
         questions=[q.question for q in gold],
     )
-    numpy_index = DenseRetriever(stored, vectors, ids, manifest, Offline(manifest.model))
+    numpy_index = DenseRetriever(
+        stored, vectors, ids, manifest, Offline(manifest.model)
+    )
     pg = PgVectorIndex(conn, embedding_set_id, Offline(manifest.model))
 
     numpy_runs, pg_runs = {}, {}

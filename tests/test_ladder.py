@@ -15,7 +15,9 @@ def query(number, slice_=QuerySlice.PARAPHRASE):
     return GoldQuery(
         query_id=f"q{number:03d}",
         slice=slice_,
-        question="What is taxed?" if slice_ is not QuerySlice.CITATION else "What does section 22 say?",
+        question="What is taxed?"
+        if slice_ is not QuerySlice.CITATION
+        else "What does section 22 say?",
         required=() if slice_ is QuerySlice.NEGATIVE else ("22",),
         notes="synthetic",
     )
@@ -50,7 +52,10 @@ def report(recalls, ndcgs=None, k=10):
         scored=scored,
         overall={mode: mean(scored) for mode in CreditMode},
         per_slice={
-            member: {mode: mean([s for s in scored if s.slice is member]) for mode in CreditMode}
+            member: {
+                mode: mean([s for s in scored if s.slice is member])
+                for mode in CreditMode
+            }
             for member in slices
         },
         negatives=0,
@@ -78,7 +83,10 @@ def test_the_split_depends_on_ids_not_on_order():
 
 
 def test_select_picks_the_best_setting():
-    assert select_params({DEFAULTS: 0.5, (1.2, 0.3): 0.6}, prefer=DEFAULTS) == (1.2, 0.3)
+    assert select_params({DEFAULTS: 0.5, (1.2, 0.3): 0.6}, prefer=DEFAULTS) == (
+        1.2,
+        0.3,
+    )
 
 
 def test_a_tie_keeps_the_defaults():
@@ -118,10 +126,18 @@ def test_a_fall_in_ndcg_rejects_even_when_recall_rises():
 
 def test_a_slice_losing_more_than_one_query_rejects_despite_an_overall_gain():
     old = report(
-        {"q001": (C, 1.0), "q002": (C, 1.0), **{f"q1{n:02d}": (P, 0.0) for n in range(6)}}
+        {
+            "q001": (C, 1.0),
+            "q002": (C, 1.0),
+            **{f"q1{n:02d}": (P, 0.0) for n in range(6)},
+        }
     )
     new = report(
-        {"q001": (C, 0.0), "q002": (C, 0.0), **{f"q1{n:02d}": (P, 1.0) for n in range(6)}}
+        {
+            "q001": (C, 0.0),
+            "q002": (C, 0.0),
+            **{f"q1{n:02d}": (P, 1.0) for n in range(6)},
+        }
     )
     verdict = judge(new, old)
     assert not verdict.adopted

@@ -39,7 +39,9 @@ def not_found() -> HTTPException:
 
 
 def rate_limited() -> HTTPException:
-    return HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=RATE_LIMITED)
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=RATE_LIMITED
+    )
 
 
 def upstream_unavailable() -> HTTPException:
@@ -54,7 +56,9 @@ def upstream_unavailable() -> HTTPException:
 
 
 def invalid_request(message: str | None = None) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message or INVALID_REQUEST)
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST, detail=message or INVALID_REQUEST
+    )
 
 
 def install_error_handlers(app: FastAPI) -> None:

@@ -194,7 +194,9 @@ def parse_claim(line: str) -> Claim:
     text = line.strip()
     without_markers = MARKER.sub("", strip_non_citation_markers(text))
     if not without_markers.lstrip("#-* ").strip():
-        raise MalformedClaim("no content once markers and markdown punctuation are stripped")
+        raise MalformedClaim(
+            "no content once markers and markdown punctuation are stripped"
+        )
     return Claim(type=classify_line(text), text=text)
 
 
@@ -207,7 +209,9 @@ def strip_non_citation_markers(text: str) -> str:
 def strip_all_markers(text: str) -> str:
     """Plain prose of a served line, for re-use as context on a follow-up —
     its `[n]` numbers belonged to that turn's pack and mean nothing now."""
-    return re.sub(r"\s+([.,;:])", r"\1", MARKER.sub("", strip_non_citation_markers(text))).strip()
+    return re.sub(
+        r"\s+([.,;:])", r"\1", MARKER.sub("", strip_non_citation_markers(text))
+    ).strip()
 
 
 class LineBuffer:

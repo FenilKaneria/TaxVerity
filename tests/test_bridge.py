@@ -57,13 +57,24 @@ S2 = (
     "2",
     "2. Definitions.",
     [
-        ("2(1)", '(1) "agricultural income" means rent from land used for agriculture;', []),
+        (
+            "2(1)",
+            '(1) "agricultural income" means rent from land used for agriculture;',
+            [],
+        ),
         ("2(2)", '(2) "tax" means income-tax;', []),
     ],
     "Definitions.",
 )
-S20 = ("20", "20. The annual value of property is chargeable.", [], "Income from house property.")
-FILLERS = [(str(n), f"{n}. Tax is charged on income.", [], "Charge.") for n in range(30, 40)]
+S20 = (
+    "20",
+    "20. The annual value of property is chargeable.",
+    [],
+    "Income from house property.",
+)
+FILLERS = [
+    (str(n), f"{n}. Tax is charged on income.", [], "Charge.") for n in range(30, 40)
+]
 
 
 def full_text(node) -> str:
@@ -97,13 +108,13 @@ def build(node, root, title, start=0, parent_id=None):
 
 
 CHUNKS = [
-    chunk
-    for node in (S2, S20, *FILLERS)
-    for chunk in build(node, node[0], node[3])
+    chunk for node in (S2, S20, *FILLERS) for chunk in build(node, node[0], node[3])
 ]
 BY_PATH = {chunk.node_path: chunk for chunk in CHUNKS}
 
-AGRICULTURE = BridgeEntry(statutory="agricultural income", source="2(1)", lay=("farming", "farm income"))
+AGRICULTURE = BridgeEntry(
+    statutory="agricultural income", source="2(1)", lay=("farming", "farm income")
+)
 HOUSE = BridgeEntry(statutory="house property", source="20", lay=("flat", "rented out"))
 BRIDGE = TermBridge([AGRICULTURE, HOUSE], CHUNKS)
 
@@ -136,28 +147,54 @@ def test_matching_is_by_whole_word():
 
 
 def test_rewrite_appends_the_statutory_terms():
-    assert BRIDGE.rewrite("Is farming taxed?") == "Is farming taxed? (agricultural income)"
+    assert (
+        BRIDGE.rewrite("Is farming taxed?") == "Is farming taxed? (agricultural income)"
+    )
 
 
 @pytest.mark.parametrize(
     "entries",
     [
-        pytest.param([BridgeEntry(statutory="house property", source="99", lay=("flat",))], id="no-source"),
-        pytest.param([BridgeEntry(statutory="house property", source="2(1)", lay=("flat",))], id="not-in-source"),
-        pytest.param([BridgeEntry(statutory="tax", source="2(2)", lay=("levy",))], id="too-common"),
         pytest.param(
-            [AGRICULTURE, BridgeEntry(statutory="house property", source="20", lay=("farming",))],
+            [BridgeEntry(statutory="house property", source="99", lay=("flat",))],
+            id="no-source",
+        ),
+        pytest.param(
+            [BridgeEntry(statutory="house property", source="2(1)", lay=("flat",))],
+            id="not-in-source",
+        ),
+        pytest.param(
+            [BridgeEntry(statutory="tax", source="2(2)", lay=("levy",))],
+            id="too-common",
+        ),
+        pytest.param(
+            [
+                AGRICULTURE,
+                BridgeEntry(statutory="house property", source="20", lay=("farming",)),
+            ],
             id="lay-twice",
         ),
         pytest.param(
-            [BridgeEntry(statutory="house property", source="20", lay=("my house property",))],
+            [
+                BridgeEntry(
+                    statutory="house property", source="20", lay=("my house property",)
+                )
+            ],
             id="lay-says-target",
         ),
         pytest.param(
-            [HOUSE, BridgeEntry(statutory="house property", source="20", lay=("apartment",))],
+            [
+                HOUSE,
+                BridgeEntry(
+                    statutory="house property", source="20", lay=("apartment",)
+                ),
+            ],
             id="target-twice",
         ),
-        pytest.param([BridgeEntry(statutory="house property", source="20", lay=("?",))], id="empty-lay"),
+        pytest.param(
+            [BridgeEntry(statutory="house property", source="20", lay=("?",))],
+            id="empty-lay",
+        ),
     ],
 )
 def test_a_map_disagreeing_with_the_corpus_is_refused(entries):
@@ -198,18 +235,23 @@ class Recorder:
 
 def test_the_bridge_rewrites_what_the_ranking_sees():
     inner = Recorder()
-    retriever = ShortcutRetriever(CitationRetriever(CHUNKS), BridgedRetriever(BRIDGE, inner))
+    retriever = ShortcutRetriever(
+        CitationRetriever(CHUNKS), BridgedRetriever(BRIDGE, inner)
+    )
     results = retriever.search("Is farming taxed?", 5)
     assert inner.queries == ["Is farming taxed? (agricultural income)"]
     assert [r.chunk.node_path for r in results] == ["30"]
 
 
 @pytest.mark.parametrize(
-    "question", ["What does section 20 say about farming?", "Is farming covered u/s 20?"]
+    "question",
+    ["What does section 20 say about farming?", "Is farming covered u/s 20?"],
 )
 def test_a_question_naming_a_provision_is_left_alone(question):
     inner = Recorder()
-    retriever = ShortcutRetriever(CitationRetriever(CHUNKS), BridgedRetriever(BRIDGE, inner))
+    retriever = ShortcutRetriever(
+        CitationRetriever(CHUNKS), BridgedRetriever(BRIDGE, inner)
+    )
     results = retriever.search(question, 5)
     assert BRIDGE.expand(question) == ()
     assert inner.queries == [question]
@@ -220,7 +262,10 @@ def test_a_question_naming_a_provision_is_left_alone(question):
 
 
 def hits(*citations):
-    return [ScoredChunk(chunk=BY_PATH[c], score=float(len(citations) - i)) for i, c in enumerate(citations)]
+    return [
+        ScoredChunk(chunk=BY_PATH[c], score=float(len(citations) - i))
+        for i, c in enumerate(citations)
+    ]
 
 
 def test_a_definition_comes_after_every_hit():
@@ -254,8 +299,12 @@ def test_a_definition_outside_the_chunk_set_is_refused():
 def test_a_definition_is_cited_by_nothing():
     with pytest.raises(ValueError):
         EvidenceUnit(
-            chunk=BY_PATH["2(1)"], context=(), rank=1, tokens=1,
-            role=EvidenceRole.DEFINITION, cited_by="20",
+            chunk=BY_PATH["2(1)"],
+            context=(),
+            rank=1,
+            tokens=1,
+            role=EvidenceRole.DEFINITION,
+            cited_by="20",
         )
 
 
@@ -264,7 +313,11 @@ def test_a_definition_is_cited_by_nothing():
 
 def gold_query(query_id, required, slice_=QuerySlice.PARAPHRASE):
     return GoldQuery(
-        query_id=query_id, question="a question?", required=required, slice=slice_, notes="n"
+        query_id=query_id,
+        question="a question?",
+        required=required,
+        slice=slice_,
+        notes="n",
     )
 
 
@@ -306,7 +359,9 @@ def test_the_bridge_is_rejected_if_it_recovers_nothing():
 def test_the_definitions_pull_needs_a_gain():
     same = {"q1": frozenset(), "q2": frozenset({"30"})}
     assert not judge_definitions(same, same).adopted
-    assert judge_definitions(same, {"q1": frozenset({"20"}), "q2": frozenset({"30"})}).adopted
+    assert judge_definitions(
+        same, {"q1": frozenset({"20"}), "q2": frozenset({"30"})}
+    ).adopted
 
 
 # --- the real map, against the real corpus ------------------------------------
@@ -333,7 +388,9 @@ def test_known_mappings_resolve(real_bridge, question, term):
 
 def test_no_citation_question_is_rewritten(real_bridge, gold):
     rewritten = [
-        q.query_id for q in gold if q.slice is QuerySlice.CITATION and real_bridge.expand(q.question)
+        q.query_id
+        for q in gold
+        if q.slice is QuerySlice.CITATION and real_bridge.expand(q.question)
     ]
     assert rewritten == []
 
@@ -349,34 +406,57 @@ def test_the_measured_result_reproduces_offline(real_bridge, gold, stored_chunks
         rerank_dir / RERANK_SCORES_FILENAME,
         rerank_dir / BRIDGE_SCORES_FILENAME,
     ]
-    if not all(path.exists() for path in [VECTOR_STORE / "vector_manifest.json", *sources]):
-        pytest.skip("run scripts/measure_hybrid.py, measure_rerank.py, then measure_bridge.py")
+    if not all(
+        path.exists() for path in [VECTOR_STORE / "vector_manifest.json", *sources]
+    ):
+        pytest.skip(
+            "run scripts/measure_hybrid.py, measure_rerank.py, then measure_bridge.py"
+        )
     corpus_version, stored = stored_chunks
-    vectors, ids, manifest = load_vector_store(VECTOR_STORE, corpus_version=corpus_version)
+    vectors, ids, manifest = load_vector_store(
+        VECTOR_STORE, corpus_version=corpus_version
+    )
     dense = DenseRetriever(stored, vectors, ids, manifest, Offline(manifest.model))
     questions: dict = {}
     for path in sources[:2]:
-        questions |= QueryVectors.model_validate_json(path.read_text(encoding="utf-8")).vectors
+        questions |= QueryVectors.model_validate_json(
+            path.read_text(encoding="utf-8")
+        ).vectors
     scores: dict = {}
     for path in sources[2:]:
-        scores |= RerankScores.model_validate_json(path.read_text(encoding="utf-8")).scores
-    fusion = FusionRetriever([CachedQueryRetriever(dense, questions), BM25Retriever(stored)])
+        scores |= RerankScores.model_validate_json(
+            path.read_text(encoding="utf-8")
+        ).scores
+    fusion = FusionRetriever(
+        [CachedQueryRetriever(dense, questions), BM25Retriever(stored)]
+    )
     reranked = RerankRetriever(fusion, StoredReranker(scores))
     shortcut = CitationRetriever(stored)
     packer = EvidencePacker(stored)
 
     def packs(retriever):
         return {
-            q.query_id: [u.citation for u in packer.pack(retriever.search(q.question, 20)).units]
+            q.query_id: [
+                u.citation for u in packer.pack(retriever.search(q.question, 20)).units
+            ]
             for q in gold
         }
 
     before = delivered(gold, packs(ShortcutRetriever(shortcut, reranked)))
-    after = delivered(gold, packs(ShortcutRetriever(shortcut, BridgedRetriever(real_bridge, reranked))))
-    assert gained(before, after) == (("q048", "194"), ("q058", "403(3)"), ("q059", "437(1)"))
+    after = delivered(
+        gold,
+        packs(ShortcutRetriever(shortcut, BridgedRetriever(real_bridge, reranked))),
+    )
+    assert gained(before, after) == (
+        ("q048", "194"),
+        ("q058", "403(3)"),
+        ("q059", "437(1)"),
+    )
     assert lost(before, after) == ()
     cohort = load_cohorts(Settings().evals_dir / "datasets" / COHORTS_FILENAME)
-    assert judge_bridge(before, after, cohort.cohorts[FailureCategory.VOCABULARY], []).adopted
+    assert judge_bridge(
+        before, after, cohort.cohorts[FailureCategory.VOCABULARY], []
+    ).adopted
 
 
 def test_the_glossary_reads_the_same_off_chunks(chunks, crossrefs):

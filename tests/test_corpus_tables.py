@@ -1,4 +1,3 @@
-
 from taxverity.corpus.tables import TableRegion, find_table_regions, in_any_region
 
 # --- TableRegion membership, pure --------------------------------------------

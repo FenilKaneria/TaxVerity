@@ -46,7 +46,9 @@ def grounded_claim(claim_id: int = 1) -> ClaimEvent:
         type=ClaimType.CONTENT,
         text="Thirty per cent of the annual value is deducted [1].",
         citations=(
-            Citation(marker=1, path="22(1)", quote="thirty per cent of the annual value"),
+            Citation(
+                marker=1, path="22(1)", quote="thirty per cent of the annual value"
+            ),
         ),
     )
 
@@ -107,7 +109,11 @@ def test_a_withheld_claim_or_computation_on_a_negative_does_not_fail_the_gate():
 def test_the_summary_counts_and_reports_silent_answerable_questions():
     summary = summarise(
         [
-            record("q001", QuerySlice.CITATION, claims=[grounded_claim(1), grounded_claim(2)]),
+            record(
+                "q001",
+                QuerySlice.CITATION,
+                claims=[grounded_claim(1), grounded_claim(2)],
+            ),
             record(
                 "q009",
                 QuerySlice.PARAPHRASE,

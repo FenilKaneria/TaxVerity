@@ -118,6 +118,17 @@ def test_a_follow_up_marker_with_history_needs_a_rewrite(query):
     assert needs_contextualization(query, ["a prior turn"]) is True
 
 
+@pytest.mark.parametrize(
+    "query",
+    ["my salary is 15 lakh, no other income", "15 lakh", "I am a resident, age 40"],
+)
+def test_a_statement_answering_the_last_turn_needs_a_rewrite(query):
+    # Live 2026-09-30: the reply to a clarify question skipped the rewrite and
+    # the classifier, seeing only "my salary is 15 lakh", routed out_of_scope.
+    assert needs_contextualization(query, ["a prior turn"]) is True
+    assert needs_contextualization(query, []) is False
+
+
 # --- the skip never calls the model -----------------------------------------
 
 
@@ -146,10 +157,15 @@ def test_a_follow_up_is_rewritten_from_the_prior_turn():
     )
     result = contextualizer.contextualize(
         "What if it's not self-occupied instead?",
-        ["Under section 22(2), what is the maximum interest deduction for a self-occupied property?"],
+        [
+            "Under section 22(2), what is the maximum interest deduction for a self-occupied property?"
+        ],
     )
     assert result.rewritten is True
-    assert result.query == "Under section 22(2), what if the property is not self-occupied?"
+    assert (
+        result.query
+        == "Under section 22(2), what if the property is not self-occupied?"
+    )
     assert result.completion is not None
     assert result.tokens == 100
 
@@ -231,8 +247,12 @@ def test_a_style_or_elaboration_follow_up_needs_a_rewrite(query):
 
 
 def test_the_previous_answer_reaches_the_rewrite_prompt_bounded():
-    contextualizer, recorder = build(ok("Give examples of setting off a house-property loss."))
-    long_answer = "Loss from house property can be set off against salary. " + "x" * 2_000
+    contextualizer, recorder = build(
+        ok("Give examples of setting off a house-property loss.")
+    )
+    long_answer = (
+        "Loss from house property can be set off against salary. " + "x" * 2_000
+    )
     contextualizer.contextualize(
         "Give some examples about the loss",
         ["Set off house-property loss against salary"],

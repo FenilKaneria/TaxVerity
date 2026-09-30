@@ -58,7 +58,9 @@ def _static_deps(generator):
     return deps(
         conn=None,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=ScopeCategory.IN_SCOPE, response=None, search_query=q)
+            classify=lambda q: SimpleNamespace(
+                category=ScopeCategory.IN_SCOPE, response=None, search_query=q
+            )
         ),
         contextualizer=SimpleNamespace(
             contextualize=lambda q, prior, **_: SimpleNamespace(
@@ -67,7 +69,11 @@ def _static_deps(generator):
         ),
         extractor=SimpleNamespace(
             extract=lambda turn: ExtractionResult(
-                facts=UserFacts(facts=()), rejections=(), repairable=(), repaired=False, completions=()
+                facts=UserFacts(facts=()),
+                rejections=(),
+                repairable=(),
+                repaired=False,
+                completions=(),
             )
         ),
         retriever=SimpleNamespace(search=lambda query, k: PACK_RESULTS),
@@ -95,7 +101,9 @@ def _client(schema, access_tokens, generator):
     app.include_router(threads_router)
     app.include_router(turns_router)
     state = SimpleNamespace(
-        pool=FakePool(schema), static_deps=_static_deps(generator), access_tokens=access_tokens
+        pool=FakePool(schema),
+        static_deps=_static_deps(generator),
+        access_tokens=access_tokens,
     )
     app.dependency_overrides[app_state] = lambda: state
     return TestClient(app)
@@ -118,15 +126,23 @@ def _parse_sse(text: str) -> list[tuple[str, dict]]:
 
 
 def test_no_auth_header_is_refused(schema, access_tokens, thread_id):
-    client = _client(schema, access_tokens, AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS))
-    response = client.post(f"/v1/threads/{thread_id}/turns", json={"question": QUESTION})
+    client = _client(
+        schema, access_tokens, AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS)
+    )
+    response = client.post(
+        f"/v1/threads/{thread_id}/turns", json={"question": QUESTION}
+    )
     assert response.status_code == 401
 
 
-def test_a_foreign_thread_id_is_refused_before_any_stream_opens(schema, access_tokens, alice):
+def test_a_foreign_thread_id_is_refused_before_any_stream_opens(
+    schema, access_tokens, alice
+):
     bob = register_account(schema, "bob@example.com", PASSWORD)
     alice_thread = create_thread(schema, alice, "Alice only").thread_id
-    client = _client(schema, access_tokens, AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS))
+    client = _client(
+        schema, access_tokens, AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS)
+    )
     response = client.post(
         f"/v1/threads/{alice_thread}/turns",
         json={"question": QUESTION},
@@ -135,8 +151,12 @@ def test_a_foreign_thread_id_is_refused_before_any_stream_opens(schema, access_t
     assert response.status_code == 404
 
 
-def test_event_order_is_stage_then_claims_then_final(schema, access_tokens, alice, thread_id):
-    client = _client(schema, access_tokens, AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS))
+def test_event_order_is_stage_then_claims_then_final(
+    schema, access_tokens, alice, thread_id
+):
+    client = _client(
+        schema, access_tokens, AnswerGenerator(FakeLLM(answer(GOOD)), CHUNKS)
+    )
     response = client.post(
         f"/v1/threads/{thread_id}/turns",
         json={"question": QUESTION},
@@ -154,7 +174,9 @@ def test_event_order_is_stage_then_claims_then_final(schema, access_tokens, alic
     assert "disclaimer" in final_data and "route" in final_data
 
 
-def test_no_claim_event_ever_carries_verified_false(schema, access_tokens, alice, thread_id):
+def test_no_claim_event_ever_carries_verified_false(
+    schema, access_tokens, alice, thread_id
+):
     generator = AnswerGenerator(
         FakeLLM(answer(GOOD, FABRICATED), answer(FABRICATED)), CHUNKS
     )

@@ -37,9 +37,7 @@ class Recorder:
 
 
 def token_response(access_token: str = "test-access-token") -> httpx2.Response:
-    return httpx2.Response(
-        200, json={"access_token": access_token, "expires_in": 3600}
-    )
+    return httpx2.Response(200, json={"access_token": access_token, "expires_in": 3600})
 
 
 def send_response(status: int = 200) -> httpx2.Response:
