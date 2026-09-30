@@ -589,3 +589,74 @@ def test_a_nil_rate_in_the_passage_grounds_zero_and_only_there():
     assert Verifier(pack).verify(content("- Income up to ₹4,00,000 is taxed at 0% [1].")).passed
     # A passage without "Nil" still cannot ground a zero rate.
     assert Violation.UNSUPPORTED_NUMBER in violations_of(content("- Arrears are taxed at 0% [2]."))
+
+
+# --- R21: chained, parenthesised equations (the slab-example shape) -----------
+
+SLABS = (
+    "202",
+    "202. Up to 4,00,000 rupees: Nil. From 4,00,001 to 8,00,000 rupees: five per cent. "
+    "From 8,00,001 to 12,00,000 rupees: ten per cent.",
+    [],
+)
+SLAB_CHUNKS = {c.node_path: c for c in build(SLABS, "202")}
+SLAB_PACK = EvidencePacker(SLAB_CHUNKS.values()).pack(
+    [ScoredChunk(chunk=SLAB_CHUNKS["202"], score=1.0)]
+)
+
+
+def slab_violations(line: str) -> set[Violation]:
+    return {f.violation for f in Verifier(SLAB_PACK).verify(example(line)).findings}
+
+
+def test_a_chained_parenthesised_slab_example_passes():
+    line = (
+        "- Suppose your income is ₹8,00,000. Tax = (₹4,00,000 × 0%) + (₹4,00,000 × 5%) "
+        "= ₹0 + ₹20,000 = ₹20,000 [1][eg]."
+    )
+    assert slab_violations(line) == set()
+
+
+def test_a_chain_whose_sides_disagree_is_caught():
+    line = (
+        "- Suppose your income is ₹8,00,000. Tax = (₹4,00,000 × 0%) + (₹4,00,000 × 5%) "
+        "= ₹0 + ₹25,000 = ₹20,000 [1][eg]."
+    )
+    assert Violation.BAD_ARITHMETIC in slab_violations(line)
+
+
+def test_a_chain_using_an_invented_rate_is_caught():
+    # 7% is in no cited passage: the arithmetic adds up, the rate is invented.
+    line = (
+        "- Suppose your income is ₹8,00,000. Tax = (₹4,00,000 × 0%) + (₹4,00,000 × 7%) "
+        "= ₹0 + ₹28,000 = ₹28,000 [1][eg]."
+    )
+    assert Violation.INVENTED_LAW in slab_violations(line)
+
+
+def test_parentheses_group_before_multiplying():
+    line = "- Suppose your income is ₹8,00,000. Taxable = (₹8,00,000 − ₹4,00,000) × 5% = ₹20,000 [1][eg]."
+    assert slab_violations(line) == set()
+    wrong = "- Suppose your income is ₹8,00,000. Taxable = (₹8,00,000 − ₹4,00,000) × 5% = ₹39,000 [1][eg]."
+    assert Violation.BAD_ARITHMETIC in slab_violations(wrong)
+
+
+def test_an_unbalanced_or_unreadable_equation_fails_closed():
+    line = "- Suppose your income is ₹8,00,000. Tax = ((₹4,00,000 × 5%) + ₹1 = ₹20,001 [1][eg]."
+    assert Violation.BAD_ARITHMETIC in slab_violations(line)
+
+
+def test_a_band_width_worked_out_from_known_figures_is_a_valid_operand():
+    # ₹2,00,000 is ₹10,00,000 (the premise) − ₹8,00,000 (in the passage).
+    line = (
+        "- Suppose your income is ₹10,00,000. The top band is ₹10,00,000 − ₹8,00,000 = ₹2,00,000, "
+        "so tax there is ₹2,00,000 × 10% = ₹20,000 [1][eg]."
+    )
+    assert slab_violations(line) == set()
+
+
+def test_an_operand_that_is_not_derivable_is_still_caught():
+    line = (
+        "- Suppose your income is ₹10,00,000. The top band tax is ₹3,33,333 × 10% = ₹33,333 [1][eg]."
+    )
+    assert Violation.UNSUPPORTED_NUMBER in slab_violations(line)

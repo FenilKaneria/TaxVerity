@@ -158,9 +158,13 @@ _PERMISSION = re.compile(
     r"\b(?:can|could|may|allowed|entitled|permitted|eligible)\b", re.IGNORECASE
 )
 _OPERAND = r"(?:₹\s*|Rs\.?\s*|INR\s*)?\d[\d,]*(?:\.\d+)?(?:\s*(?:lakhs?|crores?))?(?:\s*%)?"
-_OPERATOR = r"\s*(?:[+\-−–×*/÷]|\sx\s)\s*"
-_EQUATION = re.compile(rf"(?P<lhs>{_OPERAND}(?:{_OPERATOR}{_OPERAND})+)\s*=\s*(?P<rhs>{_OPERAND})")
-_OPERAND_OR_OPERATOR = re.compile(rf"(?P<operand>{_OPERAND})|(?P<op>[+\-−–×*/÷]|(?<=\s)x(?=\s))")
+_OPERATOR = r"\s*(?:[+\-−–‑×*/÷]|\sx\s)\s*"
+_TERM = rf"\(*\s*{_OPERAND}\)*"
+_EXPRESSION = rf"{_TERM}(?:{_OPERATOR}{_TERM})*"
+# A worked equation, possibly chained and parenthesised: "(a × 5%) + (b × 10%)
+# = ₹20,000 + ₹20,000 = ₹40,000". The first side must do some arithmetic.
+_EQUATION = re.compile(rf"{_TERM}(?:{_OPERATOR}{_TERM})+(?:\s*=\s*{_EXPRESSION})+")
+_TOKEN = re.compile(rf"(?P<operand>{_OPERAND})|(?P<paren>[()])|(?P<op>[+\-−–‑×*/÷]|(?<=\s)x(?=\s))")
 _EXAMPLE_BULLET = re.compile(r"^[-*•\s]+")
 _NIL = re.compile(r"\bnil\b", re.IGNORECASE)
 
@@ -327,18 +331,27 @@ class Verifier:
         else:
             hypothetical = numbers_in(premise) - _legal_numbers(body)
         for equation in equations:
-            evaluated = _evaluate(equation.group("lhs"))
-            stated = _operand_value(equation.group("rhs"))
-            if evaluated is None or stated is None or abs(evaluated - stated) > 1:
+            sides = equation.group(0).split("=")
+            values = [_evaluate(side) for side in sides]
+            if any(v is None for v in values) or max(values) - min(values) > 1:  # type: ignore[type-var]
                 findings.append(
                     Finding(Violation.BAD_ARITHMETIC, f'"{equation.group(0)}" does not add up')
                 )
                 continue
-            operands = numbers_in(equation.group("lhs"))
-            unsourced = sorted(operands - allowed - hypothetical - results)
+            # Only the first side works from sourced figures; every later side
+            # restates it (each is checked equal to it above), so its
+            # sub-totals are the line's own results, not new claims.
+            known_now = allowed | hypothetical | results
+            unsourced = sorted(
+                n
+                for n in numbers_in(sides[0]) - known_now
+                if not _is_sum_or_difference(n, known_now)
+            )
             if unsourced:
                 findings.append(_unsupported_finding(unsourced))
-            results.add(stated.normalize())
+            for side, value in zip(sides, values, strict=True):
+                results |= numbers_in(side)
+                results.add(value.normalize())  # type: ignore[union-attr]
         masked = _mask(body, equations)
 
         known = allowed | hypothetical | results
@@ -622,43 +635,62 @@ def _operand_value(raw: str) -> Decimal | None:
 
 
 def _evaluate(expression: str) -> Decimal | None:
-    """`a ± b`, `a × b%` and mixes of them, multiplication and division first.
-    Anything it can't parse is None — an unreadable equation is a failed one."""
-    values: list[Decimal] = []
-    operators: list[str] = []
-    expect_operand = True
-    for token in _OPERAND_OR_OPERATOR.finditer(expression):
-        if expect_operand:
-            if token.group("operand") is None:
+    """One side of an equation: `+ − × ÷` with the usual precedence and
+    parentheses. Anything it can't parse is None — an unreadable equation is a
+    failed one, never a passed one."""
+    tokens: list[tuple[str, str]] = []
+    for token in _TOKEN.finditer(expression):
+        kind = token.lastgroup or ""
+        tokens.append((kind, token.group(0).strip()))
+    position = 0
+
+    def peek() -> tuple[str, str] | None:
+        return tokens[position] if position < len(tokens) else None
+
+    def factor() -> Decimal | None:
+        nonlocal position
+        token = peek()
+        if token is None:
+            return None
+        position += 1
+        kind, text = token
+        if kind == "operand":
+            return _operand_value(text)
+        if kind == "paren" and text == "(":
+            value = add()
+            closing = peek()
+            if value is None or closing != ("paren", ")"):
                 return None
-            value = _operand_value(token.group("operand"))
-            if value is None:
-                return None
-            values.append(value)
-        else:
-            if token.group("op") is None:
-                return None
-            operators.append(token.group("op"))
-        expect_operand = not expect_operand
-    if expect_operand or not operators:
+            position += 1
+            return value
         return None
 
-    terms = [values[0]]
-    signs: list[str] = []
-    for op, value in zip(operators, values[1:], strict=True):
-        if op in ("×", "*", "x"):
-            terms[-1] *= value
-        elif op in ("/", "÷"):
-            if value == 0:
+    def multiply() -> Decimal | None:
+        nonlocal position
+        value = factor()
+        while value is not None and (token := peek()) and token[0] == "op":
+            if token[1] in ("+", "-", "−", "–", "‑"):
+                break
+            position += 1
+            right = factor()
+            if right is None or (token[1] in ("/", "÷") and right == 0):
                 return None
-            terms[-1] /= value
-        else:
-            signs.append(op)
-            terms.append(value)
-    total = terms[0]
-    for sign, term in zip(signs, terms[1:], strict=True):
-        total = total + term if sign == "+" else total - term
-    return total
+            value = value / right if token[1] in ("/", "÷") else value * right
+        return value
+
+    def add() -> Decimal | None:
+        nonlocal position
+        value = multiply()
+        while value is not None and (token := peek()) and token[0] == "op":
+            position += 1
+            right = multiply()
+            if right is None:
+                return None
+            value = value + right if token[1] == "+" else value - right
+        return value
+
+    result = add()
+    return result if position == len(tokens) else None
 
 
 def _unsupported_finding(unsupported: list[Decimal]) -> Finding:
