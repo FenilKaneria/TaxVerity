@@ -13,7 +13,16 @@ export interface Citation {
   quote: string;
 }
 
-export type Stage = "thinking" | "facts" | "evidence" | "refining search";
+// R22 Part A: "analysing" / "writing" / "checking" name the reason, generation
+// and repair calls, so a long wait says what it is waiting on.
+export type Stage =
+  | "thinking"
+  | "facts"
+  | "evidence"
+  | "analysing"
+  | "writing"
+  | "checking"
+  | "refining search";
 
 export interface StageEvent {
   kind: "stage";

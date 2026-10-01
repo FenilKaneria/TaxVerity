@@ -16,6 +16,7 @@ node is directly callable with no graph context required.
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +30,7 @@ from taxverity.calculator.scope import run as run_calculator
 from taxverity.facts import FIELDS, FactField, FactStatus, UserFacts, ValueKind
 from taxverity.generation.claims import ClaimEvent, WithheldEvent, strip_all_markers
 from taxverity.generation.generate import render_computation
+from taxverity.generation.verifier import numbers_in
 from taxverity.graph.state import (
     CALCULATION_CLARIFY,
     CLARIFY_TEMPLATES,
@@ -40,6 +42,7 @@ from taxverity.graph.state import (
     StageEvent,
     TraceEntry,
 )
+from taxverity.llm.extract import no_facts
 from taxverity.memory.fact_state import (
     ThreadFactState,
     load_fact_state,
@@ -72,6 +75,37 @@ SUBQUERY_WORKERS = 2
 # not a conversation. `_has_amount_fact` gates the probe on there being at
 # least one such fact already in the thread before it runs.
 _AMOUNT_FIELDS = tuple(f for f in FactField if FIELDS[f].kind is ValueKind.MONEY)
+
+
+# R22 Part A: a possessive, or a first-person statement of the kind that
+# carries a fact ("I earn", "I'm 65", "we sold"). Deliberately not a bare "I"
+# or "me": "I didn't understand, give me an example" states nothing.
+_FACT_CUE = re.compile(
+    r"\b(?:my|mine|our|ours|i'?m|i am|i was|i have|i've|i had|we are|we're|we "
+    r"have|we've|(?:i|we) (?:earn|earned|pay|paid|live|lived|own|owned|sold|bought|"
+    r"work|worked|get|got|receive|received|invest|invested|rent|rented|retired|"
+    r"turned|spend|spent|hold|held|inherited|gifted))\b",
+    re.IGNORECASE,
+)
+
+
+# "section 22(1)", "Schedule XV(1)", "the Act, 2025": numbers that name law,
+# not the person. Masked before the figure check; anything this misses (a bare
+# "80C") only makes the gate call extraction when it need not.
+_PROVISION_REF = re.compile(
+    r"\b(?:sections?|sec\.|s\.|u/s|sub-sections?|clauses?|schedules?|chapters?)"
+    r"\s+[\w()]+|\bAct,?\s+\d{4}\b",
+    re.IGNORECASE,
+)
+
+
+def may_state_facts(turn: str) -> bool:
+    """Whether a turn could carry a fact worth an extraction call: a figure
+    (digits or number words) or a fact-bearing first-person cue. Fail-safe by
+    construction — skipping can only miss a fact (which surfaces later as a
+    clarify question), never invent one."""
+    figures = numbers_in(_PROVISION_REF.sub(" ", turn))
+    return bool(figures) or _FACT_CUE.search(turn) is not None
 
 
 def _has_amount_fact(facts: UserFacts) -> bool:
@@ -170,8 +204,15 @@ def extract_facts(
 ) -> dict:
     # The raw turn, never the contextualized query (rule 04): a follow-up
     # rewrite resolves references for retrieval, it is never fact truth.
-    result = deps.extractor.extract(state["question"])
-    return {"extraction": result}
+    question = state["question"]
+    # R22 Part A: rule 01's deterministic pre-check, the same shape as the
+    # contextualizer's skip. A reasoning intent always extracts, since its
+    # answer applies the person's facts; any other intent extracts only when
+    # the turn itself could state one.
+    intent = state.get("intent", Intent.EXPLANATION)
+    if intent not in _REASONING_INTENTS and not may_state_facts(question):
+        return {"extraction": no_facts()}
+    return {"extraction": deps.extractor.extract(question)}
 
 
 def merge_facts(
@@ -383,6 +424,8 @@ def reason(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> 
     if intent not in _REASONING_INTENTS:
         return dict(_NO_ANALYSIS)
 
+    emit = writer or get_stream_writer()
+    emit(StageEvent(stage="analysing").model_dump())
     result = deps.reasoner.reason(
         state["query"], state["pack"], state["fact_state"], state.get("computation")
     )
@@ -459,6 +502,7 @@ def generate_verify(
     emit = writer or get_stream_writer()
     facts = state["fact_state"].as_user_facts()
     events: list[ClaimEvent | WithheldEvent] = []
+    emit(StageEvent(stage="writing").model_dump())
     for event in deps.generator.generate(
         state["query"],
         state["pack"],
@@ -468,6 +512,7 @@ def generate_verify(
         request=state.get("question"),
         previous_answer=state.get("previous_answer") or None,
         calculation_pending=CALCULATION_CLARIFY in state.get("clarify_questions", ()),
+        on_repair=lambda: emit(StageEvent(stage="checking").model_dump()),
     ):
         emit(event.model_dump())
         events.append(event)

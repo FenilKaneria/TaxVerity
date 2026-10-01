@@ -592,6 +592,109 @@ def test_both_keys_exhausted_still_falls_over_to_the_fallback_provider(no_sleep)
     assert completion.degraded is True
 
 
+def rate_limited(seconds: float) -> httpx2.Response:
+    return httpx2.Response(429, headers={"retry-after": str(seconds)})
+
+
+def test_a_second_key_is_tried_at_once_after_a_rate_limit(no_sleep):
+    # R22 Part A: the other key is a separate account with its own bucket, so
+    # waiting out the first key's retry-after only adds latency.
+    handler = Recorder(rate_limited(30), ok())
+    client = LLMClient(
+        GROQ,
+        [KEY, KEY_2],
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    )
+    assert client.complete(ASK).provider == "groq"
+    assert all(seconds == 0 for seconds in no_sleep)
+
+
+def test_a_long_rate_limit_fails_over_instead_of_waiting(no_sleep):
+    handler = Recorder(rate_limited(30), ok(model=GEMINI.model))
+    completion = make(handler, with_fallback=True).complete(ASK)
+    assert completion.provider == "gemini"
+    assert completion.degraded is True
+    assert no_sleep == []
+
+
+def test_every_key_rate_limited_spills_to_the_fallback_without_sleeping(no_sleep):
+    handler = Recorder(rate_limited(30), rate_limited(30), ok(model=GEMINI.model))
+    client = LLMClient(
+        GROQ,
+        [KEY, KEY_2],
+        fallback=GEMINI,
+        fallback_key=FALLBACK_KEY,
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    )
+    assert client.complete(ASK).provider == "gemini"
+    assert len(handler.requests) == 3
+    assert all(seconds == 0 for seconds in no_sleep)
+
+
+def test_a_short_rate_limit_is_still_waited_out(no_sleep):
+    handler = Recorder(rate_limited(3), ok())
+    completion = make(handler, with_fallback=True).complete(ASK)
+    assert completion.provider == "groq"
+    assert no_sleep == [3.0]
+
+
+def test_without_a_fallback_a_long_rate_limit_is_waited_out(no_sleep):
+    handler = Recorder(rate_limited(30), ok())
+    assert make(handler).complete(ASK).provider == "groq"
+    assert no_sleep == [30.0]
+
+
+def test_the_fallback_itself_waits_out_a_long_rate_limit(no_sleep):
+    # Spilling is the primary's escape hatch; the fallback has nowhere to go.
+    handler = Recorder(
+        *[httpx2.Response(503)] * 3, rate_limited(30), ok(model=GEMINI.model)
+    )
+    completion = make(handler, with_fallback=True).complete(ASK)
+    assert completion.provider == "gemini"
+    assert 30.0 in no_sleep
+
+
+def test_a_spill_whose_fallback_is_down_waits_for_the_primary_after_all(no_sleep):
+    # A dead fallback must not turn a slow call into a failed one.
+    handler = Recorder(rate_limited(30), *[httpx2.Response(503)] * 3, ok())
+    completion = make(handler, with_fallback=True).complete(ASK)
+    assert completion.provider == "groq"
+    assert completion.degraded is False
+    assert 30.0 in no_sleep
+    assert handler.urls[-1].startswith(GROQ.base_url)
+
+
+def test_the_wait_after_a_failed_spill_never_spills_again(no_sleep):
+    handler = Recorder(
+        rate_limited(30),
+        *[httpx2.Response(503)] * 3,
+        rate_limited(30),
+        ok(),
+    )
+    completion = make(handler, with_fallback=True).complete(ASK)
+    assert completion.provider == "groq"
+    gemini_calls = [u for u in handler.urls if u.startswith(GEMINI.base_url)]
+    assert len(gemini_calls) == 3
+
+
+def test_a_spill_still_raises_when_everything_stays_down(no_sleep):
+    handler = Recorder(
+        rate_limited(30), *[httpx2.Response(503)] * 3, *[httpx2.Response(503)] * 3
+    )
+    with pytest.raises(LLMUnavailable) as raised:
+        make(handler, with_fallback=True).complete(ASK)
+    assert "groq" in str(raised.value) and "gemini" in str(raised.value)
+
+
+def test_spilling_over_is_logged_as_a_fallback(captured, no_sleep):
+    handler = Recorder(rate_limited(30), ok(model=GEMINI.model))
+    make(handler, with_fallback=True).complete(ASK)
+    warnings = [
+        r.getMessage() for r in captured.records if r.levelno == logging.WARNING
+    ]
+    assert any("rate-limited" in line and "falling back" in line for line in warnings)
+
+
 def test_from_settings_picks_up_a_second_groq_account_by_naming_convention(no_sleep):
     if LLMClient._PRIMARY is not GROQ:
         pytest.skip("this test targets the Groq-primary naming convention directly")

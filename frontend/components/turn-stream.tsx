@@ -14,7 +14,10 @@ import type { ClaimEvent, Stage, TraceEntry, WithheldEvent } from "@/lib/sse";
 const STAGE_LABELS: Record<Stage, string> = {
   thinking: "Thinking…",
   facts: "Reading what you told me…",
-  evidence: "Checking the Act…",
+  evidence: "Finding the relevant parts of the Act…",
+  analysing: "Working through the conditions…",
+  writing: "Writing the answer…",
+  checking: "Double-checking every line against the Act…",
   "refining search": "Refining the search…",
 };
 

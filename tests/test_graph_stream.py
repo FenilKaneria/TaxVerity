@@ -87,7 +87,9 @@ def test_event_order_is_stage_then_claims_then_final(schema, alice, thread_id):
     # (-> "evidence") run in parallel branches off `classify`, so their
     # relative order is no longer guaranteed — only that "thinking" leads.
     assert stages[0] == "thinking"
-    assert set(stages[1:]) == {"facts", "evidence"}
+    assert set(stages[1:-1]) == {"facts", "evidence"}
+    # R22 Part A: generation announces itself once both branches are in.
+    assert stages[-1] == "writing"
     claim_positions = [i for i, e in enumerate(emitted) if e.get("type") == "content"]
     stage_positions = [i for i, e in enumerate(emitted) if "stage" in e]
     assert claim_positions and max(stage_positions) < min(claim_positions)

@@ -42,7 +42,7 @@ from taxverity.retrieval.base import Retriever, ScoredChunk
 from taxverity.retrieval.evidence import EVIDENCE_POOL, EvidencePack, EvidencePacker
 from taxverity.safety.classifier import Intent, IntentClassifier, ScopeCategory
 
-GRAPH_STAGE_VERSION = 10
+GRAPH_STAGE_VERSION = 11
 
 # rule 04: "a short recent-turns window (2-3 turns of text)".
 RECENT_TURNS_WINDOW = 3
@@ -51,7 +51,19 @@ RECENT_TURNS_WINDOW = 3
 class StageEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    stage: Literal["thinking", "facts", "evidence", "refining search"]
+    # R22 Part A: "analysing" (the reason call), "writing" (generation) and
+    # "checking" (the repair pass) name the long LLM waits a turn spends
+    # after "evidence", so the screen says what is happening rather than
+    # sitting on "Checking the Act…" for the whole of generation.
+    stage: Literal[
+        "thinking",
+        "facts",
+        "evidence",
+        "analysing",
+        "writing",
+        "checking",
+        "refining search",
+    ]
     facts: dict[str, str] | None = None
     chunks: tuple[str, ...] | None = None
 

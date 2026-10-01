@@ -18,16 +18,18 @@ import pytest
 
 from conftest import register_account
 from taxverity.calculator.scope import Route
-from taxverity.facts import FactField, UserFacts
+from taxverity.facts import FactField, FactStatus, UserFacts
 from taxverity.generation.claims import ClaimEvent, ClaimType
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph.build import build_graph
 from taxverity.graph.nodes import (
     classify,
     decide,
+    extract_facts,
     finalize,
     generate_verify,
     load_thread,
+    may_state_facts,
     merge_facts,
     reason,
     respond_conversational,
@@ -62,7 +64,7 @@ from taxverity.retrieval.evidence import EvidencePacker
 from taxverity.safety.classifier import FIXED_RESPONSES, Intent, ScopeCategory
 from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
 from taxverity.threads.store import append_message, create_thread, list_messages
-from test_generation import GOOD, QUESTION, FakeLLM, answer
+from test_generation import ALSO_GOOD, GOOD, QUESTION, UNSUPPORTED, FakeLLM, answer
 from test_scope import BASE, fact
 from test_verifier import CHUNKS, PACK
 
@@ -116,6 +118,68 @@ def deps(**kwargs: object) -> GraphDeps:
     )
     base.update(kwargs)
     return GraphDeps(**base)  # type: ignore[arg-type]
+
+
+# --- extract_facts: R22 Part A's deterministic skip (no DB, no LLM) ---------
+
+
+@pytest.mark.parametrize(
+    "turn",
+    [
+        "What does section 22(1)(b) allow?",
+        "What does Schedule XV(1) of the Income-tax Act, 2025 cover?",
+        "I didn't understand that. Can you explain it in simple terms?",
+        "Can you give me an example?",
+        "How do I e-verify a return?",
+    ],
+)
+def test_a_turn_with_no_figure_and_no_fact_cue_states_no_fact(turn):
+    assert not may_state_facts(turn)
+
+
+@pytest.mark.parametrize(
+    "turn",
+    [
+        "Salary 15 lakh, no other income.",
+        "I earn fifteen lakh a year.",
+        "I'm 65 and retired.",
+        "I sold my flat last year.",
+        "We sold the plot.",
+        "Our family pays rent.",
+    ],
+)
+def test_a_figure_or_a_fact_cue_may_state_a_fact(turn):
+    assert may_state_facts(turn)
+
+
+def test_extract_facts_skips_the_call_for_a_turn_that_states_nothing():
+    state = {"question": "What does section 22 allow?", "intent": Intent.EXPLANATION}
+    result = extract_facts(state, deps(extractor=Boom()), writer=Recorder())
+    extraction = result["extraction"]
+    assert extraction.completions == ()
+    assert all(f.status is FactStatus.MISSING for f in extraction.facts.facts)
+    assert {f.field for f in extraction.facts.facts} == set(FactField)
+
+
+def test_extract_facts_still_calls_for_a_turn_stating_a_figure():
+    called: list[str] = []
+    extractor = SimpleNamespace(extract=lambda turn: called.append(turn) or "x")
+    state = {"question": "Salary 15 lakh, how much tax?", "intent": Intent.EXPLANATION}
+    extract_facts(state, deps(extractor=extractor), writer=Recorder())
+    assert called == ["Salary 15 lakh, how much tax?"]
+
+
+def test_extract_facts_always_calls_for_a_reasoning_intent():
+    # A reasoning answer applies the person's facts, so it never skips —
+    # even on a turn with no figure and no cue.
+    called: list[str] = []
+    extractor = SimpleNamespace(extract=lambda turn: called.append(turn) or "x")
+    state = {
+        "question": "Can a senior citizen claim this?",
+        "intent": Intent.ELIGIBILITY,
+    }
+    extract_facts(state, deps(extractor=extractor), writer=Recorder())
+    assert called == ["Can a senior citizen claim this?"]
 
 
 # --- route_calc (no DB, no LLM) ----------------------------------------------
@@ -468,8 +532,10 @@ def test_reason_calls_the_reasoner_for_a_reasoning_intent():
         "fact_state": ThreadFactState(),
         "computation": None,
     }
-    reason(state, deps(reasoner=stub))
+    recorder = Recorder()
+    reason(state, deps(reasoner=stub), writer=recorder)
     assert stub.calls == [(QUESTION, PACK, ThreadFactState(), None)]
+    assert recorder.events == [StageEvent(stage="analysing").model_dump()]
 
 
 def test_reason_falls_back_when_the_completion_does_not_parse():
@@ -480,7 +546,7 @@ def test_reason_falls_back_when_the_completion_does_not_parse():
         "pack": PACK,
         "fact_state": ThreadFactState(),
     }
-    result = reason(state, deps(reasoner=stub))
+    result = reason(state, deps(reasoner=stub), writer=Recorder())
     assert result["answer_plan"] is None
     assert result["legal_rules"] == ()
 
@@ -497,7 +563,7 @@ def test_reason_falls_back_when_nothing_survives_validation():
         "pack": PACK,
         "fact_state": ThreadFactState(),
     }
-    result = reason(state, deps(reasoner=stub))
+    result = reason(state, deps(reasoner=stub), writer=Recorder())
     assert result["legal_rules"] == ()
     assert result["answer_plan"] is None
 
@@ -515,7 +581,7 @@ def test_reason_returns_the_validated_analysis_when_a_rule_survives():
         "pack": PACK,
         "fact_state": ThreadFactState(),
     }
-    result = reason(state, deps(reasoner=stub))
+    result = reason(state, deps(reasoner=stub), writer=Recorder())
     assert [r.id for r in result["legal_rules"]] == ["r1"]
     assert result["applicability"][0].status is CheckStatus.UNKNOWN
     assert result["answer_plan"].conclusion_kind is ConclusionKind.CONDITIONAL
@@ -629,7 +695,28 @@ def test_generate_verify_serves_a_grounded_claim_and_the_gate_stays_silent():
     result = generate_verify(state, d, writer=recorder)
     assert [type(e) for e in result["events"]] == [ClaimEvent]
     assert result["answer_text"] is None
-    assert recorder.events == [result["events"][0].model_dump()]
+    assert recorder.events == [
+        StageEvent(stage="writing").model_dump(),
+        result["events"][0].model_dump(),
+    ]
+
+
+def test_generate_verify_announces_the_repair_pass_only_when_one_runs():
+    llm = FakeLLM(answer(GOOD, UNSUPPORTED), answer(ALSO_GOOD))
+    d = deps(generator=AnswerGenerator(llm, CHUNKS))
+    state = {
+        "query": QUESTION,
+        "pack": PACK,
+        "fact_state": thread_state(),
+        "computation": None,
+    }
+    recorder = Recorder()
+    generate_verify(state, d, writer=recorder)
+    stages = [e["stage"] for e in recorder.events if "stage" in e]
+    assert stages == ["writing", "checking"]
+    assert len(llm.calls) == 2
+    # Released only after the repair: every claim follows the "checking" stage.
+    assert all("stage" in e for e in recorder.events[:2])
 
 
 def test_generate_verify_gates_to_insufficient_evidence_on_zero_grounded_claims():
@@ -821,10 +908,15 @@ def _end_to_end_deps(schema: object) -> GraphDeps:
     )
 
 
+# The scripted extractor reports a full fact set, so the turn must be one that
+# could state facts — R22 Part A skips extraction for a turn that cannot.
+FACT_TURN = f"My salary is 12 lakh. {QUESTION}"
+
+
 def test_the_graph_answers_an_in_scope_question_end_to_end(schema, alice, thread_id):
     graph = build_graph(_end_to_end_deps(schema))
     result = graph.invoke(
-        {"user_id": alice, "thread_id": thread_id, "question": QUESTION}
+        {"user_id": alice, "thread_id": thread_id, "question": FACT_TURN}
     )
     assert result["category"] is ScopeCategory.IN_SCOPE
     assert [type(e) for e in result["events"]] == [ClaimEvent]
@@ -888,7 +980,8 @@ def test_streaming_the_graph_emits_stage_then_claim_then_final(
     # (-> "evidence") run in parallel branches off `classify`, so their
     # relative order is no longer guaranteed — only that "thinking" leads.
     assert stages[0] == "thinking"
-    assert set(stages[1:]) == {"facts", "evidence"}
+    assert set(stages[1:-1]) == {"facts", "evidence"}
+    assert stages[-1] == "writing"
     assert any(e.get("type") == "content" for e in emitted)
     assert emitted[-1]["disclaimer"]
 

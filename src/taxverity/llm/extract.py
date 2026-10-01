@@ -397,6 +397,18 @@ def _entry_field(rejection: Rejection) -> FactField | None:
         return None
 
 
+def no_facts() -> ExtractionResult:
+    """What an extraction reporting nothing returns, built without a call — for
+    a turn the graph already knows states no fact (R22 Part A)."""
+    return ExtractionResult(
+        facts=_complete_missing(UserFacts()),
+        rejections=(),
+        repairable=(),
+        repaired=False,
+        completions=(),
+    )
+
+
 def _complete_missing(facts: UserFacts) -> UserFacts:
     """Absence is a set difference, not something a model has to be asked for."""
     reported = {fact.field for fact in facts.facts}

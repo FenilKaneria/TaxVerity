@@ -36,6 +36,10 @@ DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_BASE = 0.5
 MAX_RETRY_AFTER = 60.0
+# R22 Part A: a rate limit asking for a longer wait than this, with every key
+# already tried, fails over to the other vendor at once rather than sleeping —
+# a free-tier 429 routinely asks for 15-60 s, the whole of a turn's budget.
+SPILLOVER_AFTER = 5.0
 
 # Reasoning tokens are billed against this and cannot be switched off (Step
 # 7.1), so a cap sized for the visible answer alone truncates it.
@@ -54,6 +58,16 @@ class LLMUnavailable(LLMError):
 
 class LLMRequestError(LLMError):
     """The request itself was refused. Retrying or failing over repeats it."""
+
+
+class _RateLimitSpill(LLMUnavailable):
+    """R22 Part A: the primary is rate-limited on every key for longer than
+    SPILLOVER_AFTER, so the call tried the fallback instead of sleeping. It
+    carries the wait, so a failed fallback can still wait it out."""
+
+    def __init__(self, message: str, retry_after: float) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 @dataclass(frozen=True)
@@ -304,10 +318,30 @@ class LLMClient:
             try:
                 completion = self._call(self._fallback, body, degraded=True)
             except LLMUnavailable as fallback_error:
-                raise LLMUnavailable(
-                    f"{self._primary.name} failed ({primary_error}) and "
-                    f"{self._fallback.name} failed ({fallback_error})"
-                ) from fallback_error
+                if not isinstance(primary_error, _RateLimitSpill):
+                    raise LLMUnavailable(
+                        f"{self._primary.name} failed ({primary_error}) and "
+                        f"{self._fallback.name} failed ({fallback_error})"
+                    ) from fallback_error
+                # Spilling only ever trades a wait for a chance at the other
+                # vendor; with that gone, the call waits as it did before.
+                logger.warning(
+                    "%s also unavailable (%s); waiting %.0fs for %s instead",
+                    self._fallback.name,
+                    fallback_error,
+                    primary_error.retry_after,
+                    self._primary.name,
+                )
+                time.sleep(primary_error.retry_after)
+                try:
+                    completion = self._call(
+                        self._primary, body, degraded=False, may_spill=False
+                    )
+                except LLMUnavailable as retry_error:
+                    raise LLMUnavailable(
+                        f"{self._primary.name} failed ({retry_error}) and "
+                        f"{self._fallback.name} failed ({fallback_error})"
+                    ) from retry_error
         logger.info(
             "llm %s/%s answered in %.2fs: %d prompt + %d completion tokens "
             "(%d reasoning), finish_reason=%s%s",
@@ -428,13 +462,23 @@ class LLMClient:
         )
 
     def _call(
-        self, provider: Provider, body: dict[str, Any], *, degraded: bool
+        self,
+        provider: Provider,
+        body: dict[str, Any],
+        *,
+        degraded: bool,
+        may_spill: bool | None = None,
     ) -> Completion:
         payload = {**body, **provider.extras, "model": provider.model}
-        response_body = self._post(provider, payload)
+        # Only the primary can spill: the fallback has nowhere left to go.
+        if may_spill is None:
+            may_spill = not degraded and self._fallback is not None
+        response_body = self._post(provider, payload, may_spill=may_spill)
         return self._parse(provider, response_body, degraded=degraded)
 
-    def _post(self, provider: Provider, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post(
+        self, provider: Provider, payload: dict[str, Any], *, may_spill: bool = False
+    ) -> dict[str, Any]:
         # The payload carries the user's own words. It is never logged — not on
         # success, not on retry, not on failure.
         keys = self._ordered_keys(provider)
@@ -443,6 +487,7 @@ class LLMClient:
         for attempt in range(1, self._max_attempts + 1):
             delay = self._backoff_base * 2 ** (attempt - 1)
             headers = {"Authorization": f"Bearer {keys[(attempt - 1) % len(keys)]}"}
+            rate_limited = False
             try:
                 response = self._client.post(url, json=payload, headers=headers)
             except httpx2.RequestError as error:
@@ -466,6 +511,18 @@ class LLMClient:
                     f"{provider.name} returned {response.status_code}"
                 )
                 delay = _retry_after(response) or delay
+                rate_limited = response.status_code == 429
+            if attempt < len(keys):
+                # The next attempt uses a key this call has not tried yet — a
+                # separate account with its own rate-limit bucket — so waiting
+                # out this key's retry-after first only adds latency.
+                delay = 0.0
+            elif rate_limited and may_spill and delay > SPILLOVER_AFTER:
+                raise _RateLimitSpill(
+                    f"{provider.name} rate-limited for {delay:.0f}s on every key; "
+                    "failing over instead of waiting",
+                    retry_after=delay,
+                ) from last
             if attempt < self._max_attempts:
                 logger.warning(
                     "%s call failed (attempt %d/%d): %s; retrying in %.2fs",

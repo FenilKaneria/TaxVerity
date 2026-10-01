@@ -147,6 +147,11 @@ def build_deps(
     )
 
     by_path = {chunk.node_path: chunk for chunk in chunks}
+    # R22 Part A measured generation on Gemini (free tier) as primary and
+    # rejected it (ADR-118 amended): it answered 4 calls, then 503s and 429s
+    # sent 13 more to the Groq fallback anyway, and the median turn went from
+    # 4.8 s to 11.9 s (`reports/advisor_smoke.md`). Generation stays on
+    # Groq's 120b with Gemini as the fallback.
     llm: object = LLMClient.from_settings(settings)
     llm = TracedLLMClient(llm, LangfuseTracer.from_settings(settings))
 
@@ -160,9 +165,8 @@ def build_deps(
     # (0.857 < 0.88, `reports/extraction_eval_20b.md`) and stays on 120b.
     # `respond_conversational` has no eval set to gate it — it did not exist
     # when R18 was planned — and stays on 120b until one is built. Generation
-    # (`AnswerGenerator`'s `llm` above) stays on 120b: gate 2 (the two-arm
-    # benchmark) is blocked by exhausted Gemini free-tier quota this session,
-    # so R18 for that node is still `Proposed`, not decided.
+    # stays on 120b: R22 Part A measured the Gemini move and rejected it (see
+    # `llm` above).
     deps = GraphDeps(
         conn=conn,
         chunks=by_path,

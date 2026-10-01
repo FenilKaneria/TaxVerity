@@ -19,7 +19,7 @@ retracted.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from taxverity.calculator.scope import Computation
@@ -144,6 +144,7 @@ class AnswerGenerator:
         request: str | None = None,
         previous_answer: str | None = None,
         calculation_pending: bool = False,
+        on_repair: Callable[[], None] | None = None,
     ) -> list[ClaimEvent | WithheldEvent]:
         """Non-streamed: generate, verify every line, repair the failures
         (at most once), re-verify, then return the whole ordered list. A
@@ -153,7 +154,10 @@ class AnswerGenerator:
         R21: `request` is the person's own latest message when a follow-up
         was rewritten into `question` (so "explain simply" or "give examples"
         survives the rewrite); `previous_answer` is the last served answer's
-        plain text. Both are prompt context only — neither grounds a number."""
+        plain text. Both are prompt context only — neither grounds a number.
+
+        R22 Part A: `on_repair` is called once, just before the repair call,
+        so the caller can tell the person what the extra wait is."""
         verifier = Verifier(
             pack,
             question=question,
@@ -192,6 +196,8 @@ class AnswerGenerator:
         ]
         failing = [draft for draft in drafts if not draft.passed]
         if failing:
+            if on_repair is not None:
+                on_repair()
             drafts = self._repair(context, drafts, failing, verifier)
 
         events = [_event(draft) for draft in drafts]
