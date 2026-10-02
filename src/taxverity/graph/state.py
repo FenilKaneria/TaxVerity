@@ -152,6 +152,15 @@ CALCULATION_CLARIFY = (
     "income, such as interest, rent, business income or capital gains?"
 )
 
+# Asked alongside a figure computed on the assumption that a salaried person
+# has no other income (`materiality.ASSUMED_NIL`). One question for every
+# head, not one per head: a salaried person usually answers all of them at
+# once, and six chips for one "no" read as an interrogation.
+OTHER_INCOME_CLARIFY = (
+    "Is your salary your only income? If you also have rent, business income, "
+    "interest or capital gains, how much?"
+)
+
 # Provisions pinned ahead of the ranking for a calculation question: the
 # new-regime slab rates and the rebate, the two the calculator's figures come
 # from. 19(1) (standard deduction) is left to retrieval: at about 1,100 of the
@@ -205,6 +214,12 @@ class GraphState(TypedDict, total=False):
     extraction: ExtractionResult
     scope_decision: ScopeDecision
     computation: Computation | None
+    # Set by `classify` when a statement answering the last turn's questions
+    # reopened that turn's request; generation then answers it afresh.
+    reopened: bool
+    # Fields the computation took as nil because the person never mentioned
+    # them; the answer says so (`generate`'s fixed assumptions note).
+    assumed_nil: tuple[FactField, ...]
     clarify_questions: tuple[str, ...]
     pack: EvidencePack
     events: list[ClaimEvent | WithheldEvent]

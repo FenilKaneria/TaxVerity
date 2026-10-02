@@ -24,7 +24,12 @@ from typing import Any
 
 from langgraph.config import get_stream_writer
 
-from taxverity.calculator.materiality import Outcome, probe
+from taxverity.calculator.materiality import (
+    OTHER_INCOME_FIELDS,
+    Outcome,
+    probe,
+    provisional_fields,
+)
 from taxverity.calculator.scope import Computation, Route, compute, route
 from taxverity.calculator.scope import run as run_calculator
 from taxverity.facts import FIELDS, FactField, FactStatus, UserFacts, ValueKind
@@ -34,6 +39,7 @@ from taxverity.generation.verifier import numbers_in
 from taxverity.graph.state import (
     CALCULATION_CLARIFY,
     CLARIFY_TEMPLATES,
+    OTHER_INCOME_CLARIFY,
     RECENT_TURNS_WINDOW,
     ClarifyEvent,
     FinalEvent,
@@ -56,7 +62,7 @@ from taxverity.memory.fact_state import (
 from taxverity.observability import get_logger
 from taxverity.reasoning.validate import ValidatedAnalysis, validate
 from taxverity.retrieval.base import ScoredChunk
-from taxverity.safety.classifier import Intent
+from taxverity.safety.classifier import Intent, ScopeCategory
 from taxverity.safety.evidence_gate import guidance_lines, release
 from taxverity.threads.store import append_message, list_messages
 
@@ -179,6 +185,26 @@ def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     search_query = getattr(result, "search_query", None) or query
     # R20 Step 20.2: same getattr guard for a stub predating sub_queries.
     sub_queries = tuple(getattr(result, "sub_queries", None) or ())
+    reopened = False
+    if (
+        follow_up
+        and result.category is ScopeCategory.IN_SCOPE
+        and "?" not in question
+        and query.strip() == question.strip()
+        and may_state_facts(question)
+    ):
+        # A statement answering the last turn's questions ("I'm resident and
+        # my salary is my only income") that the classifier left as it was:
+        # alone it searches for nothing. The open request is the last
+        # question asked, now with these facts (measured on R24's a09). That
+        # request is classified again on its own: it may be one the
+        # classifier refused last turn, and a fact statement must never carry
+        # it past the gate (rule 03).
+        query = f"{prior_turns[-1]}\n{question}"
+        result = deps.classifier.classify(query, prior_turns=(), previous_answer="")
+        search_query = getattr(result, "search_query", None) or query
+        sub_queries = tuple(getattr(result, "sub_queries", None) or ())
+        reopened = True
     # R20 Step 20.3: same getattr guard for a stub predating intent.
     intent = getattr(result, "intent", None) or Intent.EXPLANATION
     return {
@@ -188,6 +214,7 @@ def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
         "search_query": search_query,
         "sub_queries": sub_queries,
         "intent": intent,
+        "reopened": reopened,
     }
 
 
@@ -403,17 +430,29 @@ def route_calc(
     decision = route(facts)
     computation: Computation | None = None
     clarify_questions: tuple[str, ...] = ()
+    assumed: tuple[FactField, ...] = ()
     if decision.route is Route.COMPUTE:
         computation = compute(decision)
     elif decision.route is Route.INCOMPLETE and _has_amount_fact(facts):
-        found = probe(facts, decision)
+        # A stated salary is answered with a figure where it can be: other
+        # income never mentioned is taken as nil (`Reason.PROVISIONAL`), the
+        # answer says so in fixed text, and one question covers it. A fact
+        # that moves the tax and has a fixed set of values (residential
+        # status) is asked and the figure waits. So the questions follow the
+        # facts: none when everything is known, one per real gap otherwise.
+        found = probe(facts, decision, provisional=True)
+        assumed = provisional_fields(found)
         if found.inputs is not None:
             computation = run_calculator(found.inputs)
         else:
-            clarify_questions = tuple(
-                CLARIFY_TEMPLATES[finding.field]
-                for finding in found.by_outcome(Outcome.ASK)
-            )
+            assumed = ()
+        asked = [
+            CLARIFY_TEMPLATES[finding.field]
+            for finding in found.by_outcome(Outcome.ASK)
+        ]
+        if any(f in provisional_fields(found) for f in OTHER_INCOME_FIELDS):
+            asked.append(OTHER_INCOME_CLARIFY)
+        clarify_questions = tuple(asked)
     elif (
         decision.route is Route.INCOMPLETE and state.get("intent") is Intent.CALCULATION
     ):
@@ -425,6 +464,7 @@ def route_calc(
     return {
         "scope_decision": decision,
         "computation": computation,
+        "assumed_nil": assumed,
         "clarify_questions": clarify_questions,
     }
 
@@ -518,10 +558,49 @@ def decide(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> 
         for missing in state.get("missing_facts", ())
         if missing.material
     )
-    new_questions = tuple(q for q in material_questions if q not in existing)
+    new_questions: tuple[str, ...] = ()
+    asked_topics = {topic for q in existing for topic in _question_topics(q)}
+    if state.get("computation") is not None:
+        # The calculator already worked the figure out; never ask for it.
+        asked_topics.add("computed_tax")
+    for question in material_questions:
+        topics = _question_topics(question)
+        # The same fact asked twice in other words (R24's a09 asked residency
+        # three times: the calculator's template and two from reasoning).
+        if question in existing or topics & asked_topics:
+            continue
+        new_questions += (question,)
+        asked_topics |= topics
     if new_questions:
         emit(ClarifyEvent(questions=new_questions).model_dump())
     return {"clarify_questions": existing + new_questions}
+
+
+def _answers_the_last_questions(state: GraphState) -> bool:
+    question = state.get("question", "")
+    return bool(state.get("reopened")) or (
+        state.get("computation") is not None
+        and "?" not in question
+        and may_state_facts(question)
+    )
+
+
+# Facts a clarify question can be about, by a word it must use to ask for it.
+# Only for recognising a repeat; a question matching none is always kept.
+_QUESTION_TOPICS = {
+    "residency": re.compile(r"\bresiden", re.IGNORECASE),
+    "age": re.compile(r"\b(?:age|aged|senior citizen|years old)\b", re.IGNORECASE),
+    "salary": re.compile(r"\bsalary\b", re.IGNORECASE),
+    "regime": re.compile(r"\bregime\b|\bopt(?:ed|ing)? out\b", re.IGNORECASE),
+    "computed_tax": re.compile(
+        r"\btax (?:payable|amount)\b|\bincome.?tax payable\b|\brebate\b",
+        re.IGNORECASE,
+    ),
+}
+
+
+def _question_topics(question: str) -> set[str]:
+    return {name for name, cue in _QUESTION_TOPICS.items() if cue.search(question)}
 
 
 def _analysis_from_state(state: GraphState) -> ValidatedAnalysis | None:
@@ -561,9 +640,16 @@ def generate_verify(
         computation=state["computation"],
         analysis=_analysis_from_state(state),
         request=state.get("question"),
-        previous_answer=state.get("previous_answer") or None,
+        # A statement answering the last turn's questions ("I'm resident, my
+        # salary is my only income") gets a fresh answer to the reopened
+        # request, figure first, not a follow-up note on the last answer.
+        previous_answer=None
+        if _answers_the_last_questions(state)
+        else state.get("previous_answer") or None,
         calculation_pending=CALCULATION_CLARIFY in state.get("clarify_questions", ()),
         style_request=bool(state.get("style_followup")),
+        intent=state.get("intent"),
+        assumed_nil=state.get("assumed_nil", ()),
         on_repair=lambda: emit(StageEvent(stage="checking").model_dump()),
     )
     answer_text, released = release(state["pack"], events)

@@ -35,6 +35,7 @@ import {
 import { useTurnStream } from "@/components/use-turn-stream";
 import { ApiError } from "@/lib/errors";
 import { guestStatus, streamGuestTurn } from "@/lib/guest";
+import { useStickToBottom } from "@/lib/stick-to-bottom";
 
 export function GuestComposer() {
   const [question, setQuestion] = useState("");
@@ -70,12 +71,17 @@ export function GuestComposer() {
   }
 
   const showLanding = !started && !limitReached;
+  const { scrollRef, contentRef } = useStickToBottom<HTMLDivElement>(
+    turn.pending,
+  );
 
   return (
     <div
       data-mode={showLanding ? "landing" : "conversation"}
       className="texture-paper flex min-h-0 flex-1 flex-col transition-colors duration-500"
-      style={{ backgroundColor: showLanding ? "var(--canvas)" : "var(--background)" }}
+      style={{
+        backgroundColor: showLanding ? "var(--canvas)" : "var(--background)",
+      }}
     >
       {showLanding ? (
         <ChatLanding
@@ -97,8 +103,11 @@ export function GuestComposer() {
         />
       ) : (
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-[68ch] px-4 py-6 sm:px-6">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto">
+            <div
+              ref={contentRef}
+              className="mx-auto max-w-[68ch] px-4 py-6 sm:px-6"
+            >
               <TurnStream {...turn} showClarify={false} />
             </div>
           </div>
@@ -131,7 +140,8 @@ export function GuestComposer() {
           <DialogHeader>
             <DialogTitle>You&rsquo;ve used your free questions</DialogTitle>
             <DialogDescription>
-              Log in or sign up to keep going — with saved threads, facts and history.
+              Log in or sign up to keep going — with saved threads, facts and
+              history.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

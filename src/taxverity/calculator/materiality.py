@@ -26,7 +26,7 @@ from taxverity.calculator.scope import (
 )
 from taxverity.facts import FactField, ResidentialStatus, UserFacts
 
-MATERIALITY_STAGE_VERSION = 1
+MATERIALITY_STAGE_VERSION = 2
 
 
 class Outcome(StrEnum):
@@ -47,6 +47,12 @@ class Reason(StrEnum):
     NOT_ALLOWED_UNDER_202_1 = "not_allowed_under_202_1"
     BALANCE_ONLY = "balance_only"
     WAITS_ON_INCOME = "waits_on_income"
+    # A provisional figure for someone who stated a salary: other income they
+    # never mentioned is taken as nil. The answer says so in fixed text and
+    # the question is still asked. Only for unbounded amounts a salaried
+    # person usually has none of; a bounded fact that moves the tax (such as
+    # residential status) is asked instead, never assumed.
+    PROVISIONAL = "provisional"
 
 
 INCOME_FIELDS = (FactField.SALARY_INCOME, FactField.OTHER_SOURCES_INCOME)
@@ -58,6 +64,9 @@ CLAIM_FIELDS = (
     FactField.DEDUCTION_HEALTH_INSURANCE,
 )
 PAID_FIELDS = (FactField.TDS_PAID, FactField.ADVANCE_TAX_PAID)
+# What a salaried person usually has none of. Salary itself is never assumed.
+OTHER_INCOME_FIELDS = (*HEADS_NOT_COMPUTED, FactField.OTHER_SOURCES_INCOME)
+ASSUMABLE_NIL_FIELDS = (*OTHER_INCOME_FIELDS, FactField.DEDUCTION_OTHER)
 
 _OUTCOMES = {
     Reason.INCOME_UNBOUNDED: Outcome.ASK,
@@ -68,6 +77,7 @@ _OUTCOMES = {
     Reason.NOT_ALLOWED_UNDER_202_1: Outcome.ASSUME,
     Reason.BALANCE_ONLY: Outcome.NOT_COMPUTED,
     Reason.WAITS_ON_INCOME: Outcome.DEFERRED,
+    Reason.PROVISIONAL: Outcome.ASSUME,
 }
 
 
@@ -117,13 +127,23 @@ class Probe:
         return tuple(f for f in self.findings if f.outcome is outcome)
 
 
-def probe(facts: UserFacts, decision: ScopeDecision) -> Probe:
+def probe(
+    facts: UserFacts,
+    decision: ScopeDecision,
+    *,
+    provisional: bool = False,
+) -> Probe:
+    """`provisional` gives a salaried person a figure instead of a list of
+    questions. Only with a known salary, so the figure always rests on income
+    the person gave; `provisional_fields()` names what it assumed."""
     if decision.route is Route.TEXT_ONLY:
         raise ValueError("a text-only decision has nothing to probe")
     if decision.route is Route.COMPUTE:
         return Probe(findings=(), inputs=decision.inputs)
 
     unknown = set(decision.unknown)
+    provisional = provisional and FactField.SALARY_INCOME not in unknown
+    assume_nil = unknown & set(ASSUMABLE_NIL_FIELDS) if provisional else set()
     # Only stated and inferred facts reach here as known; route() already
     # counted every other status as unknown.
     values = {
@@ -134,7 +154,9 @@ def probe(facts: UserFacts, decision: ScopeDecision) -> Probe:
     spreads: dict[FactField, tuple[Decimal, Decimal]] = {}
 
     for name in decision.unknown:
-        if name in INCOME_FIELDS:
+        if name in assume_nil:
+            reasons[name], assumed[name] = Reason.PROVISIONAL, Decimal(0)
+        elif name in INCOME_FIELDS:
             reasons[name] = Reason.INCOME_UNBOUNDED
         elif name in ROUTE_CHANGING_FIELDS:
             reasons[name] = Reason.CHANGES_ROUTE
@@ -155,7 +177,7 @@ def probe(facts: UserFacts, decision: ScopeDecision) -> Probe:
         )
 
     if FactField.RESIDENTIAL_STATUS in unknown:
-        if any(name in unknown for name in INCOME_FIELDS):
+        if any(name in unknown - assume_nil for name in INCOME_FIELDS):
             reasons[FactField.RESIDENTIAL_STATUS] = Reason.WAITS_ON_INCOME
         else:
             spread = _sweep_residential_status({**values, **assumed})
@@ -166,6 +188,8 @@ def probe(facts: UserFacts, decision: ScopeDecision) -> Probe:
                 reasons[FactField.RESIDENTIAL_STATUS] = Reason.TAX_SAME
                 assumed[FactField.RESIDENTIAL_STATUS] = ResidentialStatus.NON_RESIDENT
             else:
+                # Never assumed, even provisionally: it moves the tax (the
+                # rebate is a resident's), so it is asked and the figure waits.
                 reasons[FactField.RESIDENTIAL_STATUS] = Reason.TAX_DIFFERS
 
     findings = tuple(
@@ -181,6 +205,10 @@ def probe(facts: UserFacts, decision: ScopeDecision) -> Probe:
     waiting = any(f.outcome in (Outcome.ASK, Outcome.DEFERRED) for f in findings)
     inputs = None if waiting else inputs_from({**values, **assumed})
     return Probe(findings=findings, inputs=inputs)
+
+
+def provisional_fields(result: Probe) -> tuple[FactField, ...]:
+    return tuple(f.field for f in result.findings if f.reason is Reason.PROVISIONAL)
 
 
 def _sweep_residential_status(

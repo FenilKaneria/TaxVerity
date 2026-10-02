@@ -443,3 +443,97 @@ def test_the_pending_note_reaches_the_model_as_user_data_not_system_text():
     system, user = llm.calls[0][0]
     assert CALCULATION_PENDING_NOTE not in system.content
     assert CALCULATION_PENDING_NOTE in user.content
+
+
+# --- layout by question type and the provisional-figure line ----------------------
+
+
+def test_the_layout_note_follows_the_intent():
+    llm = FakeLLM(answer(GOOD))
+    generate(llm, intent="calculation", computation=provisional_computation())
+    assert "### Your tax" in llm.calls[0][0][1].content
+    # Asked for before a figure exists: nothing may be marked [calc].
+    llm = FakeLLM(answer(GOOD))
+    generate(llm, intent="calculation")
+    assert "### How your tax is worked out" in llm.calls[0][0][1].content
+    assert "No line is marked" in llm.calls[0][0][1].content
+    llm = FakeLLM(answer(GOOD))
+    generate(llm, intent="explanation")
+    assert "no section label" in llm.calls[0][0][1].content
+
+
+def test_a_follow_up_gets_the_follow_up_layout():
+    llm = FakeLLM(answer(GOOD))
+    generate(llm, intent="eligibility", previous_answer="Earlier answer.")
+    assert "This is a follow-up" in llm.calls[0][0][1].content
+
+
+def provisional_computation():
+    return run(
+        CalculatorInputs(
+            tax_year="2026-27",
+            salary=Decimal("1000000"),
+            other_income=Decimal("0"),
+            resident_individual=True,
+            claimed={},
+            tax_deducted_at_source=None,
+            advance_tax=None,
+        )
+    )
+
+
+def test_a_provisional_figure_always_carries_its_fixed_assumption_line():
+    from taxverity.facts import FactField
+
+    llm = FakeLLM(answer("### Your tax", "Your tax payable is ₹0 [calc].", GOOD))
+    events = generate(
+        llm,
+        computation=provisional_computation(),
+        assumed_nil=(FactField.OTHER_SOURCES_INCOME, FactField.DEDUCTION_OTHER),
+    )
+    texts = [e.text for e in events if isinstance(e, ClaimEvent)]
+    assert texts[2] == (
+        "This figure assumes your salary is your only income and you claim no "
+        "other deduction [calc]."
+    )
+    assert all(e.verified for e in events if isinstance(e, ClaimEvent))
+    assert "<assumptions>" in llm.calls[0][0][1].content
+    assert len(llm.calls) == 1  # the fixed line passes; no repair
+
+
+def test_no_assumption_line_without_assumptions():
+    llm = FakeLLM(answer("Your tax payable is ₹0 [calc].", GOOD))
+    events = generate(llm, computation=provisional_computation())
+    assert not any("assumes" in e.text for e in events if isinstance(e, ClaimEvent))
+
+
+def test_the_models_own_assumption_line_is_dropped_for_the_fixed_one():
+    from taxverity.facts import FactField
+
+    llm = FakeLLM(
+        answer(
+            "Your tax payable is ₹0 [calc].",
+            "It assumes you claim no other deduction [calc].",
+            GOOD,
+        )
+    )
+    events = generate(
+        llm,
+        computation=provisional_computation(),
+        assumed_nil=(FactField.DEDUCTION_OTHER,),
+    )
+    texts = [e.text for e in events if isinstance(e, ClaimEvent)]
+    assert sum("assumes" in t for t in texts) == 1
+    assert texts[1] == "This figure assumes you claim no other deduction [calc]."
+
+
+def test_an_answer_restating_no_figure_gets_no_assumption_line():
+    from taxverity.facts import FactField
+
+    llm = FakeLLM(answer(GOOD))
+    events = generate(
+        llm,
+        computation=provisional_computation(),
+        assumed_nil=(FactField.DEDUCTION_OTHER,),
+    )
+    assert not any("assumes" in e.text for e in events if isinstance(e, ClaimEvent))

@@ -22,6 +22,7 @@ from taxverity.generation.generate import (
     STYLE_REQUEST_NOTE,
     SYSTEM_PROMPT,
     AnswerGenerator,
+    layout_note,
     render_context,
 )
 from taxverity.generation.verifier import Verifier, Violation, numbers_in
@@ -106,17 +107,30 @@ def test_a_plain_paragraph_line_is_still_content_and_must_cite():
 # --- prompt v7 ------------------------------------------------------------------
 
 
-def test_the_prompt_names_the_advisor_sections_and_bans_legalese():
-    for label in (
-        "### In short",
-        "### What this means for you",
-        "### Conditions to check",
-        "### Example",
-        "### What to do next",
-    ):
-        assert label in SYSTEM_PROMPT
+def test_the_prompt_bans_legalese_and_section_numbers_in_the_text():
     assert '"assessee"' in SYSTEM_PROMPT
+    assert '"tax liability"' in SYSTEM_PROMPT
+    assert 'or the word "section", in a line' in SYSTEM_PROMPT
     assert "## " not in SYSTEM_PROMPT.replace("### ", "")
+
+
+@pytest.mark.parametrize(
+    ("intent", "label"),
+    [
+        ("calculation", "### Your tax"),
+        ("eligibility", "### Conditions to check"),
+        ("comparison", "### How they compare"),
+        ("procedure", "### Steps"),
+    ],
+)
+def test_the_layout_follows_the_kind_of_question(intent, label):
+    assert label in layout_note(intent, follow_up=False)
+
+
+def test_an_explanation_and_a_follow_up_get_no_fixed_sections():
+    assert layout_note("explanation", follow_up=False).count("### ") == 0
+    assert "no section label" in layout_note(None, follow_up=False)
+    assert "follow-up" in layout_note("calculation", follow_up=True)
 
 
 def test_the_style_sample_states_no_figure_of_its_own():

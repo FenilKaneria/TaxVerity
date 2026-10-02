@@ -57,9 +57,12 @@ export function TurnStream({
   showClarify = true,
   onCiteClick,
 }: Props) {
-  const nothingYet = !pending && !streaming && events.length === 0 && !error && !disclaimer;
+  const nothingYet =
+    !pending && !streaming && events.length === 0 && !error && !disclaimer;
   if (nothingYet) return null;
-  const claims = events.filter((event): event is ClaimEvent => event.kind === "claim");
+  const claims = events.filter(
+    (event): event is ClaimEvent => event.kind === "claim",
+  );
   const withheld = events
     .filter((event): event is WithheldEvent => event.kind === "withheld")
     .map((event) => event.reason);
@@ -104,21 +107,29 @@ export function TurnStream({
           </p>
         )}
 
-        {claims.length > 0 && <AnswerBlocks lines={claims} onCiteClick={onCiteClick} />}
+        {claims.length > 0 && (
+          <AnswerBlocks lines={claims} onCiteClick={onCiteClick} />
+        )}
         <WithheldNote reasons={withheld} />
 
-        {showClarify && clarify.length > 0 && (
-          // Deterministic materiality-probe questions (rule 04), one
-          // missing fact per chip, never LLM-generated.
-          <div className="flex flex-wrap gap-2">
-            {clarify.map((question, i) => (
-              <span
-                key={i}
-                className="rounded-full border border-border bg-accent px-3 py-1 text-sm text-accent-foreground"
-              >
-                {question}
-              </span>
-            ))}
+        {showClarify && !streaming && clarify.length > 0 && (
+          // Questions for the person (rule 04: calculator templates, or
+          // reasoning's validated ones), shown once the answer is complete:
+          // during the turn they read as the system's own internal checklist.
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-muted-foreground">
+              To make this answer exact, tell me:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {clarify.map((question, i) => (
+                <span
+                  key={i}
+                  className="rounded-full border border-border bg-accent px-3 py-1 text-sm text-accent-foreground"
+                >
+                  {question}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 

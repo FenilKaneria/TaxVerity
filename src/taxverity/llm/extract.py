@@ -52,7 +52,7 @@ from taxverity.observability import get_logger, redact
 
 logger = get_logger(__name__)
 
-EXTRACTION_STAGE_VERSION = 4
+EXTRACTION_STAGE_VERSION = 5
 
 # Step 7.1: reasoning cannot be disabled and is billed against this cap, so a
 # cap sized for the visible JSON alone truncates it mid-object.
@@ -95,6 +95,13 @@ SYSTEM_PROMPT = (
     "leading minus sign when the person describes the amount as a loss or as "
     'negative, for example "-50000".\n\n'
     "The fields are: " + _SHAPE + "\n\n"
+    "Pay from an employer or a job is salary_income even when the person calls "
+    'it income, package, CTC or earnings: status "stated" with their words as '
+    "source_span. When the person says they have no other income, or that this "
+    "is their only income, report house_property_income, business_income, "
+    "capital_gains_short_term, capital_gains_long_term and other_sources_income "
+    'each as value "0", status "stated", with the words that say so as '
+    "source_span.\n\n"
     'The "situation_facts" array: ' + _SITUATION_SHAPE + " It never carries "
     'status "missing" — leave a situation fact out entirely rather than '
     "reporting it as missing, since there is no fixed list to be exhaustive "

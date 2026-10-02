@@ -217,7 +217,11 @@ def create_guest_turn_route(
                 )
                 generate_start = time.perf_counter()
                 events = deps.generator.generate(
-                    body.question, pack, facts=None, computation=None
+                    body.question,
+                    pack,
+                    facts=None,
+                    computation=None,
+                    intent=getattr(result, "intent", None),
                 )
                 answer_text, events = release(pack, events)
                 for event in events:

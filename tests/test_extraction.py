@@ -133,7 +133,7 @@ def capture():
 
 
 def test_stage_version_is_declared():
-    assert EXTRACTION_STAGE_VERSION == 4
+    assert EXTRACTION_STAGE_VERSION == 5
 
 
 def test_strict_format_names_the_facts_schema():

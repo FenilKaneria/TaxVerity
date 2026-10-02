@@ -45,7 +45,7 @@ from taxverity.observability import redact
 
 DATASETS = Path("evals/datasets")
 # The node as it stands: Step 7.7 plus the loss-sign fix (ADR-099).
-STORED_RUN = Settings().data_dir / "extraction" / "extraction_run_v4.json"
+STORED_RUN = Settings().data_dir / "extraction" / "extraction_run_v5.json"
 
 
 @pytest.fixture(scope="session")

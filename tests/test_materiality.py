@@ -17,6 +17,7 @@ from taxverity.calculator.materiality import (
     Probe,
     Reason,
     probe,
+    provisional_fields,
 )
 from taxverity.calculator.new_regime import new_regime_tax
 from taxverity.calculator.rates import load_rates
@@ -38,7 +39,7 @@ def outcomes(result):
 
 
 def test_the_stage_version_is_declared():
-    assert MATERIALITY_STAGE_VERSION == 1
+    assert MATERIALITY_STAGE_VERSION == 2
 
 
 def test_every_input_field_has_exactly_one_policy():
@@ -268,3 +269,86 @@ def test_a_probe_cannot_carry_inputs_while_a_question_is_open():
 
 def test_base_is_the_complete_case_the_probe_starts_from():
     assert set(BASE) == set(INPUT_FIELDS)
+
+
+# --- provisional figure for a stated salary --------------------------------------
+
+SALARY_ONLY = {
+    name: None
+    for name in (
+        "residential_status",
+        "house_property_income",
+        "business_income",
+        "capital_gains_short_term",
+        "capital_gains_long_term",
+        "other_sources_income",
+        "deduction_other",
+        "deduction_savings_insurance",
+        "deduction_health_insurance",
+        "tds_paid",
+        "advance_tax_paid",
+    )
+}
+
+
+def provisionally(**changes):
+    extracted = facts(**{**SALARY_ONLY, **changes})
+    return probe(extracted, route(extracted), provisional=True)
+
+
+def test_an_unstated_residency_that_moves_the_tax_is_asked_never_assumed():
+    # On 10 lakh the rebate (a resident's) is worth 32,500, so residency is
+    # material: asked, and no figure until it is answered.
+    result = provisionally()
+    assert result.inputs is None
+    reasons = {f.field: f.reason for f in result.findings}
+    assert reasons[F.RESIDENTIAL_STATUS] is Reason.TAX_DIFFERS
+    assert F.RESIDENTIAL_STATUS not in provisional_fields(result)
+
+
+def test_a_salary_and_residency_get_a_provisional_figure_naming_other_income():
+    result = provisionally(residential_status="resident")
+    assert result.inputs is not None
+    assert set(provisional_fields(result)) == {
+        F.HOUSE_PROPERTY_INCOME,
+        F.BUSINESS_INCOME,
+        F.CAPITAL_GAINS_SHORT_TERM,
+        F.CAPITAL_GAINS_LONG_TERM,
+        F.OTHER_SOURCES_INCOME,
+        F.DEDUCTION_OTHER,
+    }
+    assert result.inputs.other_income == D(0)
+
+
+def test_ten_lakh_of_salary_for_a_resident_owes_nothing_after_the_rebate():
+    # Hand-worked: 10,00,000 - 75,000 standard deduction = 9,25,000; slab tax
+    # 20,000 + 12,500 = 32,500; the s.156 rebate (income up to 12 lakh)
+    # cancels it.
+    result = provisionally(residential_status="resident")
+    computed = run(result.inputs).comparison.under_202_1
+    assert computed.payable.amount == D(0)
+
+
+def test_a_stated_residential_status_is_used_not_assumed():
+    result = provisionally(residential_status="non_resident")
+    assert F.RESIDENTIAL_STATUS not in provisional_fields(result)
+    assert result.inputs.resident_individual is False
+
+
+def test_no_provisional_figure_without_a_salary():
+    result = provisionally(salary_income=None, other_sources_income=D("500000"))
+    assert result.inputs is None
+    assert provisional_fields(result) == ()
+
+
+def test_provisional_is_off_by_default():
+    extracted = facts(**SALARY_ONLY)
+    result = probe(extracted, route(extracted))
+    assert result.inputs is None
+    assert provisional_fields(result) == ()
+
+
+def test_provisional_never_assumes_tax_already_paid():
+    result = provisionally(residential_status="resident")
+    paid = {f.field: f.outcome for f in result.findings if f.field in PAID_FIELDS}
+    assert set(paid.values()) == {Outcome.NOT_COMPUTED}

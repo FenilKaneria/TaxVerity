@@ -1,16 +1,16 @@
 # Extraction eval — Step 7.7
 
-42 labelled turns, 49 labelled facts, 54,964 tokens, 0s.
+42 labelled turns, 49 labelled facts, 61,830 tokens, 374s.
 
 ## Headline
 
 Detection is whether the node found the field at all; value and status accuracy are measured only over the fields it did find, because a prompt change fixes the first and `normalise_value` fixes the second.
 
-- Field precision **1.000**, recall **1.000**, f1 **1.000**
+- Field precision **1.000**, recall **0.980**, f1 **0.990**
 - Value accuracy **1.000**
-- Status accuracy **0.959**
+- Status accuracy **0.979**
 - Strict (field, value and status all right) **0.959**
-- Turns with nothing wrong: **42/42**
+- Turns with nothing wrong: **41/42**
 
 ## Source spans
 
@@ -18,7 +18,7 @@ Detection is whether the node found the field at all; value and status accuracy 
 
 - Fabricated-span rate **0.000** (0 of 45 stated attempts)
 - Stated facts quoting nothing: 0
-- Turns that needed a repair: **1**, of which the repair helped **1**
+- Turns that needed a repair: **1**, of which the repair helped **0**
 
 ## By slice
 
@@ -28,7 +28,7 @@ Detection is whether the node found the field at all; value and status accuracy 
 | formatting | 8 | 8 | 0 | 0 | 1.000 | 1.000 |
 | inferred | 4 | 4 | 0 | 0 | 1.000 | 1.000 |
 | loss | 3 | 3 | 0 | 0 | 1.000 | 1.000 |
-| multi | 15 | 15 | 0 | 0 | 1.000 | 1.000 |
+| multi | 15 | 14 | 0 | 1 | 1.000 | 0.933 |
 | none | 0 | 0 | 0 | 0 | 0.000 | 0.000 |
 | out_of_vocabulary | 0 | 0 | 0 | 0 | 0.000 | 0.000 |
 | pii | 3 | 3 | 0 | 0 | 1.000 | 1.000 |
@@ -38,7 +38,7 @@ Detection is whether the node found the field at all; value and status accuracy 
 | field | labelled | found | spurious | missed | precision | recall |
 |---|---|---|---|---|---|---|
 | tax_year | 2 | 2 | 0 | 0 | 1.000 | 1.000 |
-| regime | 3 | 3 | 0 | 0 | 1.000 | 1.000 |
+| regime | 3 | 2 | 0 | 1 | 1.000 | 0.667 |
 | age | 6 | 6 | 0 | 0 | 1.000 | 1.000 |
 | residential_status | 4 | 4 | 0 | 0 | 1.000 | 1.000 |
 | salary_income | 11 | 11 | 0 | 0 | 1.000 | 1.000 |
@@ -55,4 +55,5 @@ Detection is whether the node found the field at all; value and status accuracy 
 
 ## Every turn that was not clean
 
-None.
+- **t026** (multi) `Salary 22,00,000, house property loss 2,00,000, LTCG 1,20,000, TDS 3,50,000, new regime.`
+  - missed: regime

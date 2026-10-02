@@ -40,6 +40,7 @@ from taxverity.graph.nodes import (
 from taxverity.graph.state import (
     CALCULATION_CLARIFY,
     CLARIFY_TEMPLATES,
+    OTHER_INCOME_CLARIFY,
     ClarifyEvent,
     FinalEvent,
     GraphDeps,
@@ -229,21 +230,58 @@ def test_route_calc_skips_the_probe_when_the_thread_has_stated_no_amount_yet():
     assert recorder.events == []  # no clarify event either
 
 
-def test_route_calc_probes_once_any_amount_is_stated():
-    """The skip is specific to "nothing quantitative said yet" — a thread
-    naming even one amount field still gets the full deterministic probe."""
-    state = ThreadFactState(
-        facts={
-            FactField.SALARY_INCOME: fact(FactField.SALARY_INCOME, Decimal("1000000"))
-        },
-        provenance={FactField.SALARY_INCOME: "stated in turn 1"},
+def salary_only_state(**extra):
+    stated = {FactField.SALARY_INCOME: Decimal("1000000"), **extra}
+    return ThreadFactState(
+        facts={name: fact(name, value) for name, value in stated.items()},
+        provenance={name: "stated in turn 1" for name in stated},
+    )
+
+
+def test_a_stated_salary_alone_asks_residency_and_other_income_not_six_heads():
+    """The 10-lakh case: residency moves the tax (only a resident gets the
+    rebate), so it is asked and the figure waits; the four heads and other
+    sources are one combined question, not five chips."""
+    recorder = Recorder()
+    result = route_calc({"fact_state": salary_only_state()}, deps(), writer=recorder)
+    assert result["scope_decision"].route is Route.INCOMPLETE
+    assert result["computation"] is None
+    assert result["assumed_nil"] == ()
+    assert result["clarify_questions"] == (
+        CLARIFY_TEMPLATES[FactField.RESIDENTIAL_STATUS],
+        OTHER_INCOME_CLARIFY,
+    )
+    assert recorder.events == [
+        ClarifyEvent(questions=result["clarify_questions"]).model_dump()
+    ]
+
+
+def test_a_resident_salary_gets_a_provisional_figure_and_one_question():
+    state = salary_only_state(**{FactField.RESIDENTIAL_STATUS: "resident"})
+    result = route_calc({"fact_state": state}, deps(), writer=Recorder())
+    assert result["computation"].comparison.under_202_1.payable.amount == 0
+    assert FactField.OTHER_SOURCES_INCOME in result["assumed_nil"]
+    assert FactField.RESIDENTIAL_STATUS not in result["assumed_nil"]
+    assert result["clarify_questions"] == (OTHER_INCOME_CLARIFY,)
+
+
+def test_no_question_once_everything_that_matters_is_known():
+    zero = Decimal(0)
+    state = salary_only_state(
+        **{
+            FactField.RESIDENTIAL_STATUS: "resident",
+            FactField.HOUSE_PROPERTY_INCOME: zero,
+            FactField.BUSINESS_INCOME: zero,
+            FactField.CAPITAL_GAINS_SHORT_TERM: zero,
+            FactField.CAPITAL_GAINS_LONG_TERM: zero,
+            FactField.OTHER_SOURCES_INCOME: zero,
+        }
     )
     recorder = Recorder()
     result = route_calc({"fact_state": state}, deps(), writer=recorder)
-    assert result["scope_decision"].route is Route.INCOMPLETE
-    assert result["computation"] is None
-    assert result["clarify_questions"] != ()
-    assert recorder.events != []
+    assert result["computation"] is not None
+    assert result["clarify_questions"] == ()
+    assert recorder.events == []
 
 
 def test_route_calc_computes_when_incomplete_resolves_with_nothing_left_to_ask():
@@ -306,6 +344,7 @@ def test_classify_reads_the_category_and_response_off_the_classifier():
         "search_query": "how do I hide income?",
         "sub_queries": (),
         "intent": Intent.EXPLANATION,
+        "reopened": False,
     }
 
 
@@ -1179,3 +1218,132 @@ def test_a_follow_up_with_no_restatement_falls_back_to_the_raw_message():
         deps(classifier=classifier),
     )
     assert result["query"] == "thanks, that helps"
+
+
+def test_a_statement_answering_the_last_questions_reopens_the_last_request():
+    """R24's a09: "I'm resident and my salary is my only income" left as it
+    was searches for nothing; it is the last request with these facts."""
+    classifier = _RecordingClassifier(tax_request="")
+    state = {
+        "question": "I am a resident of India and my salary is my only income.",
+        "prior_turns": ["My income is 10 lakh. What income tax do I have to pay?"],
+    }
+    result = classify(state, deps(classifier=classifier))
+    assert result["query"] == (
+        "My income is 10 lakh. What income tax do I have to pay?\n"
+        "I am a resident of India and my salary is my only income."
+    )
+    # The joined request is classified again, on its own, before it is used.
+    assert classifier.calls[1] == {
+        "question": result["query"],
+        "prior_turns": (),
+        "previous_answer": "",
+    }
+    assert result["search_query"] == "interest on borrowed capital"
+    assert result["reopened"] is True
+
+
+def test_a_refused_request_cannot_ride_back_in_on_a_fact_statement():
+    class RefusesTheJoinedRequest(_RecordingClassifier):
+        def classify(self, question, **context):
+            self.calls.append({"question": question, **context})
+            refused = "hide" in question
+            return SimpleNamespace(
+                category=ScopeCategory.PROHIBITED
+                if refused
+                else ScopeCategory.IN_SCOPE,
+                response="I can't help with that." if refused else None,
+                search_query=question,
+                tax_request="",
+            )
+
+    state = {
+        "question": "My salary is 10 lakh.",
+        "prior_turns": ["How do I hide my cash income from the tax department?"],
+    }
+    result = classify(state, deps(classifier=RefusesTheJoinedRequest()))
+    assert result["category"] is ScopeCategory.PROHIBITED
+    assert result["fixed_response"] == "I can't help with that."
+
+
+def test_a_thank_you_is_never_turned_into_the_last_request():
+    classifier = _RecordingClassifier(tax_request="")
+    result = classify(
+        {"question": "great, thank you", "prior_turns": ["Can I claim HRA?"]},
+        deps(classifier=classifier),
+    )
+    assert result["query"] == "great, thank you"
+
+
+def test_decide_drops_a_reasoning_question_the_calculator_already_asked():
+    residency = CLARIFY_TEMPLATES[FactField.RESIDENTIAL_STATUS]
+    state = {
+        "clarify_questions": (residency,),
+        "missing_facts": (
+            MissingFact(
+                condition_id="c1",
+                question="Are you a resident individual in India this year?",
+                material=True,
+            ),
+            MissingFact(
+                condition_id="c2",
+                question="Do you meet the definition of a resident individual?",
+                material=True,
+            ),
+            MissingFact(
+                condition_id="c3", question="Do you own the house?", material=True
+            ),
+        ),
+    }
+    result = decide(state, deps(), writer=Recorder())
+    assert result["clarify_questions"] == (residency, "Do you own the house?")
+
+
+def test_decide_keeps_only_the_first_of_two_reasoning_questions_on_one_fact():
+    state = {
+        "clarify_questions": (),
+        "missing_facts": (
+            MissingFact(
+                condition_id="c1", question="Are you a resident?", material=True
+            ),
+            MissingFact(
+                condition_id="c2",
+                question="What is your residency status?",
+                material=True,
+            ),
+        ),
+    }
+    result = decide(state, deps(), writer=Recorder())
+    assert result["clarify_questions"] == ("Are you a resident?",)
+
+
+def test_decide_never_asks_for_a_figure_the_calculator_computed():
+    state = {
+        "clarify_questions": (),
+        "computation": object(),
+        "missing_facts": (
+            MissingFact(
+                condition_id="c1",
+                question="What is the income-tax payable on your income before the rebate?",
+                material=True,
+            ),
+            MissingFact(
+                condition_id="c2", question="Do you own the house?", material=True
+            ),
+        ),
+    }
+    result = decide(state, deps(), writer=Recorder())
+    assert result["clarify_questions"] == ("Do you own the house?",)
+
+
+def test_a_fact_statement_with_a_new_figure_is_answered_afresh_not_as_a_follow_up():
+    from taxverity.graph.nodes import _answers_the_last_questions
+
+    statement = "I am a resident of India and my salary is my only income."
+    assert _answers_the_last_questions({"question": statement, "computation": object()})
+    assert _answers_the_last_questions({"question": statement, "reopened": True})
+    # A real follow-up question keeps the follow-up layout.
+    assert not _answers_the_last_questions(
+        {"question": "How can I reduce it?", "computation": object()}
+    )
+    assert not _answers_the_last_questions({"question": statement})
