@@ -1,9 +1,10 @@
 """R19 Phase B (ADR-120) — what the generator emits, and how a stream becomes
 it.
 
-The model writes plain markdown, one releasable unit per line (a "## "
-heading, a "- " bullet, or a plain sentence), so each line can be verified
-and released the moment it is complete — same streaming contract as before
+The model writes plain markdown, one releasable unit per line (a "### "
+section label, a "- " bullet, a "1. " numbered step, or a plain sentence —
+R22 Part B), so each line can be verified and released the moment it is
+complete — same streaming contract as before
 (one claim = roughly one line), just a different line grammar. `iter_lines()`
 and `LineBuffer` are unchanged from the NDJSON design; only what a line
 *means* changed.
@@ -33,7 +34,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CLAIMS_STAGE_VERSION = 5
+CLAIMS_STAGE_VERSION = 7
 
 # "The Act does not ...", "The Act is silent on ...", "Nothing in the Act
 # ...": the one claim type carrying no citation, recognisable only by its own
@@ -60,13 +61,18 @@ EXAMPLE_MARKER = "[eg]"
 EXAMPLE_OPENERS = (
     "For example", "For instance", "Suppose", "Say ", "Say,", "Imagine", "E.g.", "e.g.",
 )  # fmt: skip
+# R22 Part C (ADR-128): a GUIDANCE line is practical process help the Act
+# doesn't contain (where to file, what to keep). It cites nothing and the
+# verifier bars it from stating law; see `verifier._verify_guidance`.
+GUIDE_MARKER = "[guide]"
 MARKER = re.compile(r"\[(\d+)\]")
-_NON_CITATION_MARKERS = (CALC_MARKER, FACT_MARKER, EXAMPLE_MARKER)
+_NON_CITATION_MARKERS = (CALC_MARKER, FACT_MARKER, EXAMPLE_MARKER, GUIDE_MARKER)
 
 
 class ClaimType(StrEnum):
-    # A "## " heading naming what follows. Structural only — no citation, no
-    # figure, never restates the Act.
+    # A "### " section label ("In short", "What to do next") or any other
+    # markdown heading. Structural only — no citation, no figure, never
+    # restates the Act.
     HEADING = "heading"
     # A sentence or bullet applying or restating the Act — the difference
     # between "you may deduct X" and "X is deductible" is voice, not
@@ -99,6 +105,11 @@ class ClaimType(StrEnum):
     # any equation it shows must add up (verifier.py). Never counts towards
     # the evidence gate on its own.
     EXAMPLE = "example"
+    # R22 Part C (ADR-128): "Keep the e-verification acknowledgement [guide]".
+    # General process guidance, not from the Act: no citation, no figure, no
+    # provision, no tax-treatment word (verifier.py). Never grounded, never
+    # satisfies the evidence gate, and rendered in a box labelled as such.
+    GUIDANCE = "guidance"
 
 
 class Citation(BaseModel):
@@ -162,17 +173,31 @@ DISCLAIMER = (
 
 
 _BULLET = re.compile(r"^[-*•]\s+")
+# R22 Part B: a numbered step, "1. " or "1) ". The digits are list syntax,
+# never a figure the line states; the frontend numbers the list itself.
+_LIST_NUMBER = re.compile(r"^\d{1,2}[.)]\s+")
+
+
+def strip_list_number(text: str) -> str:
+    """The line without a leading step number, so the verifier never reads
+    the "2" of "2. You can deduct ₹2,00,000 [1]" as a stated figure."""
+    return _LIST_NUMBER.sub("", text.strip())
 
 
 def line_body(text: str) -> str:
-    """The line without its markdown bullet, so a fixed opener is recognised
-    whether or not the model bulleted it."""
-    return _BULLET.sub("", text.strip())
+    """The line without its bullet or step number, so a fixed opener is
+    recognised however the model listed it."""
+    return _BULLET.sub("", strip_list_number(text))
 
 
 def classify_line(text: str) -> ClaimType:
     if _HEADING.match(text):
         return ClaimType.HEADING
+    # R22 Part C: checked before every opener, so a line marked [guide] is
+    # always verified as guidance — its stricter checks then catch any law
+    # it states, whatever words it opens with.
+    if GUIDE_MARKER in text:
+        return ClaimType.GUIDANCE
     body = line_body(text)
     # R21: "The Act does not allow X [3]" cites the passage that says so — a
     # grounded statement, verified as content. Only an uncited opener line is

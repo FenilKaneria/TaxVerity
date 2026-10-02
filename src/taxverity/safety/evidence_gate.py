@@ -27,6 +27,11 @@ Phase 13's graph runs the corrective retry (rule 02, ADR-110's minimal loop)
 before calling this: it re-packs and re-generates once on a zero-grounded-claim
 first pass. This function only judges the result that is finally in hand, and
 does not know or care whether a retry already happened.
+
+R22 Part C (ADR-128): a `guidance` line (practical process help, not from the
+Act) never counts either. When the gate replaces an answer that still has
+guidance lines, `release()` serves those lines alone under a second fixed
+template that says they are not from the Act.
 """
 
 from __future__ import annotations
@@ -36,13 +41,20 @@ from collections.abc import Sequence
 from taxverity.generation.claims import ClaimEvent, ClaimType, WithheldEvent
 from taxverity.retrieval.evidence import EvidencePack
 
-EVIDENCE_GATE_STAGE_VERSION = 4
+EVIDENCE_GATE_STAGE_VERSION = 5
 
 # Fixed template, not generated (same discipline as the safety classifier's
 # templates, rule 03).
 INSUFFICIENT_EVIDENCE_MESSAGE = (
     "I couldn't find anything in the Income-tax Act, 2025 that answers this — "
     "I don't have a grounded basis for an answer here."
+)
+
+
+# R22 Part C (ADR-128): fixed, never generated. Leads a gated answer whose
+# only served lines are general guidance.
+GUIDANCE_ONLY_MESSAGE = (
+    "The Act doesn't directly cover this. General guidance below is not from the Act."
 )
 
 
@@ -77,3 +89,27 @@ def gate(
     if served_grounded_claims(events) == 0:
         return INSUFFICIENT_EVIDENCE_MESSAGE
     return None
+
+
+def guidance_lines(events: Sequence[ClaimEvent | WithheldEvent]) -> list[ClaimEvent]:
+    return [
+        event
+        for event in events
+        if isinstance(event, ClaimEvent) and event.type is ClaimType.GUIDANCE
+    ]
+
+
+def release(
+    pack: EvidencePack, events: Sequence[ClaimEvent | WithheldEvent]
+) -> tuple[str | None, list[ClaimEvent | WithheldEvent]]:
+    """R22 Part C: the fixed text that leads the answer (None for a served
+    answer) and the events that may reach the person. A gated answer
+    releases only its guidance lines, under `GUIDANCE_ONLY_MESSAGE`, or
+    nothing at all under the insufficient-evidence message."""
+    text = gate(pack, events)
+    if text is None:
+        return None, list(events)
+    guidance = guidance_lines(events)
+    if guidance:
+        return GUIDANCE_ONLY_MESSAGE, list(guidance)
+    return text, []

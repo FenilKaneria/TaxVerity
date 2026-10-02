@@ -39,15 +39,24 @@ export interface ClarifyEvent {
 export interface ClaimEvent {
   kind: "claim";
   id: number;
-  // R19 Phase B (ADR-120): "heading" is a structural "## " line; "content"
-  // is a bullet or sentence applying or restating the Act (the old
+  // R19 Phase B (ADR-120): "heading" is a structural "### " section label
+  // (R22 Part B); "content" is a bullet, numbered step or sentence applying or restating the Act (the old
   // statute/advice split is now just voice, not a schema field); "no_basis"
   // names what the Act does not address (it carries no citations). See
   // generation/claims.py's ClaimType.
   // R20/R21: "application" applies a cited rule to the person's facts,
   // "unknown" names a condition not yet decidable, "example" illustrates a
-  // cited rule with made-up figures.
-  type: "heading" | "content" | "computation" | "no_basis" | "application" | "unknown" | "example";
+  // cited rule with made-up figures. R22 Part C: "guidance" is general
+  // process help, not from the Act (ADR-128), shown in its own labelled box.
+  type:
+    | "heading"
+    | "content"
+    | "computation"
+    | "no_basis"
+    | "application"
+    | "unknown"
+    | "example"
+    | "guidance";
   text: string;
   citations: Citation[];
   // Rule 04's invariant is a type on the wire (generation/claims.py's

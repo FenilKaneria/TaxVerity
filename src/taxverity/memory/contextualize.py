@@ -28,7 +28,7 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-CONTEXTUALIZE_STAGE_VERSION = 3
+CONTEXTUALIZE_STAGE_VERSION = 4
 
 # A rewritten question is short; reasoning cannot be disabled (Step 7.1) but
 # needs far less room here than an extraction's JSON object does.
@@ -44,6 +44,21 @@ FOLLOW_UP_MARKERS = re.compile(
     r"more|detail\w*|such|above|earlier|previous|here)\b|what if|what about",
     re.IGNORECASE,
 )
+# R22 Part B: a request to have the last answer explained again, rather than
+# a new question. Deliberately narrow: a miss only means a fresh search, as
+# before.
+STYLE_CUES = re.compile(
+    r"\b(?:simpl\w*|easy|easier|layman\w*|plain (?:english|words|language)|"
+    r"(?:didn'?t|don'?t|do not|did not|still don'?t) (?:get|understand|follow)|"
+    r"confus\w*|examples?|elaborate|in other words|"
+    r"explain (?:again|it|that|this|more)|what does (?:that|this|it) mean)\b",
+    re.IGNORECASE,
+)
+# Longer than this, a message with a style cue is usually a new question
+# that happens to ask for an example ("give me an example of how the HRA
+# exemption works for a rented flat in Mumbai").
+STYLE_FOLLOWUP_MAX_WORDS = 12
+
 # R21: how much of the last answer the rewrite sees. Enough to name the topic
 # a follow-up refers to ("the loss"), not the whole answer.
 PREVIOUS_ANSWER_CHARS = 600
@@ -68,6 +83,18 @@ def needs_contextualization(query: str, prior_turns: Sequence[str]) -> bool:
     if not prior_turns:
         return False
     return bool(FOLLOW_UP_MARKERS.search(query)) or "?" not in query
+
+
+def is_style_followup(question: str, previous_answer: str) -> bool:
+    """A short message asking for the previous answer again, explained
+    differently ("explain simply", "I don't understand", "give an example").
+    Deterministic (rule 01). The graph then answers from the passages that
+    answer cited instead of searching afresh."""
+    if not previous_answer.strip():
+        return False
+    if len(question.split()) > STYLE_FOLLOWUP_MAX_WORDS:
+        return False
+    return STYLE_CUES.search(question) is not None
 
 
 @dataclass(frozen=True)

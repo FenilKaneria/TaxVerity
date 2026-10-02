@@ -95,7 +95,7 @@ def build(*responses):
 
 
 def test_stage_version_is_declared():
-    assert CLASSIFIER_STAGE_VERSION == 11
+    assert CLASSIFIER_STAGE_VERSION == 12
 
 
 def test_strict_format_names_the_scope_schema():
@@ -552,3 +552,30 @@ def test_tokens_reads_from_the_completion_usage():
     node, _ = build(ok(payload("in_scope")))
     result = node.classify(QUESTION)
     assert result.tokens == 128
+
+
+# --- R23: follow-up context (replaces the contextualize call) ----------------
+
+
+def test_without_prior_turns_the_request_carries_only_the_question():
+    classifier, recorder = build(ok(payload("in_scope")))
+    classifier.classify("Can I claim HRA?")
+    user = json.loads(recorder.requests[0].read())["messages"][1]["content"]
+    assert user == "<question>\nCan I claim HRA?\n</question>"
+
+
+def test_a_follow_up_carries_prior_turns_and_a_bounded_previous_answer():
+    classifier, recorder = build(ok(payload("in_scope")))
+    long_answer = "x" * 5_000
+    classifier.classify(
+        "explain that more simply",
+        prior_turns=["Can I claim HRA?", "What if I live with my parents?"],
+        previous_answer=long_answer,
+    )
+    user = json.loads(recorder.requests[0].read())["messages"][1]["content"]
+    assert user.startswith(
+        "<prior_turns>\n- Can I claim HRA?\n- What if I live with my parents?\n"
+        "</prior_turns>\n<previous_answer>\n"
+    )
+    assert "x" * 600 in user and "x" * 601 not in user
+    assert user.endswith("<question>\nexplain that more simply\n</question>")

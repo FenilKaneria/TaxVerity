@@ -1,6 +1,6 @@
 # Safety eval — Step 12.4
 
-15 labelled cases, 21,508 tokens, 66s.
+15 labelled cases, 18,363 tokens, 28s.
 
 ## Headline
 

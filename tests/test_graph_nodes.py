@@ -110,7 +110,6 @@ def deps(**kwargs: object) -> GraphDeps:
         retriever=Boom(),
         packer=EvidencePacker(CHUNKS.values()),
         classifier=Boom(),
-        contextualizer=Boom(),
         extractor=Boom(),
         generator=AnswerGenerator(FakeLLM(""), CHUNKS),
         conversational=Boom(),
@@ -292,13 +291,16 @@ def test_respond_conversational_carries_the_guarded_reply_and_touches_nothing_el
 
 def test_classify_reads_the_category_and_response_off_the_classifier():
     classifier = SimpleNamespace(
-        classify=lambda q: SimpleNamespace(
+        classify=lambda q, **_: SimpleNamespace(
             category=ScopeCategory.PROHIBITED,
             response=FIXED_RESPONSES[ScopeCategory.PROHIBITED],
         )
     )
-    result = classify({"query": "how do I hide income?"}, deps(classifier=classifier))
+    result = classify(
+        {"question": "how do I hide income?"}, deps(classifier=classifier)
+    )
     assert result == {
+        "query": "how do I hide income?",
         "category": ScopeCategory.PROHIBITED,
         "fixed_response": FIXED_RESPONSES[ScopeCategory.PROHIBITED],
         "search_query": "how do I hide income?",
@@ -309,32 +311,34 @@ def test_classify_reads_the_category_and_response_off_the_classifier():
 
 def test_classify_uses_the_classifiers_search_query_when_it_sets_one():
     classifier = SimpleNamespace(
-        classify=lambda q: SimpleNamespace(
+        classify=lambda q, **_: SimpleNamespace(
             category=ScopeCategory.IN_SCOPE,
             response=None,
             search_query="interest on borrowed capital; house property",
         )
     )
-    result = classify({"query": "home loan tax benefit"}, deps(classifier=classifier))
+    result = classify(
+        {"question": "home loan tax benefit"}, deps(classifier=classifier)
+    )
     assert result["search_query"] == "interest on borrowed capital; house property"
 
 
 def test_classify_carries_the_classifiers_sub_queries():
     classifier = SimpleNamespace(
-        classify=lambda q: SimpleNamespace(
+        classify=lambda q, **_: SimpleNamespace(
             category=ScopeCategory.IN_SCOPE,
             response=None,
             search_query=q,
             sub_queries=("the slab rates", "the standard deduction"),
         )
     )
-    result = classify({"query": "what tax do I pay?"}, deps(classifier=classifier))
+    result = classify({"question": "what tax do I pay?"}, deps(classifier=classifier))
     assert result["sub_queries"] == ("the slab rates", "the standard deduction")
 
 
 def test_classify_carries_the_classifiers_intent():
     classifier = SimpleNamespace(
-        classify=lambda q: SimpleNamespace(
+        classify=lambda q, **_: SimpleNamespace(
             category=ScopeCategory.IN_SCOPE,
             response=None,
             search_query=q,
@@ -343,19 +347,19 @@ def test_classify_carries_the_classifiers_intent():
         )
     )
     result = classify(
-        {"query": "what tax do I pay on 18L salary?"}, deps(classifier=classifier)
+        {"question": "what tax do I pay on 18L salary?"}, deps(classifier=classifier)
     )
     assert result["intent"] is Intent.CALCULATION
 
 
 def test_classify_intent_defaults_to_explanation_for_a_stub_predating_it():
     classifier = SimpleNamespace(
-        classify=lambda q: SimpleNamespace(
+        classify=lambda q, **_: SimpleNamespace(
             category=ScopeCategory.IN_SCOPE, response=None
         )
     )
     result = classify(
-        {"query": "what does section 19 say?"}, deps(classifier=classifier)
+        {"question": "what does section 19 say?"}, deps(classifier=classifier)
     )
     assert result["intent"] is Intent.EXPLANATION
 
@@ -880,13 +884,8 @@ def _end_to_end_deps(schema: object) -> GraphDeps:
     return deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(
+            classify=lambda q, **_: SimpleNamespace(
                 category=ScopeCategory.IN_SCOPE, response=None, search_query=q
-            )
-        ),
-        contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(
-                query=q, rewritten=False, completion=None
             )
         ),
         extractor=SimpleNamespace(
@@ -936,14 +935,9 @@ def test_the_graph_short_circuits_a_prohibited_question_with_no_llm_or_retrieval
     prohibited = deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(
+            classify=lambda q, **_: SimpleNamespace(
                 category=ScopeCategory.PROHIBITED,
                 response=FIXED_RESPONSES[ScopeCategory.PROHIBITED],
-            )
-        ),
-        contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(
-                query=q, rewritten=False, completion=None
             )
         ),
     )
@@ -1109,3 +1103,79 @@ def test_decide_adds_no_reasoning_questions_while_the_income_question_is_pending
     )
     assert result["clarify_questions"] == (CALCULATION_CLARIFY,)
     assert recorder.events == []
+
+
+# --- R23: classify resolves follow-ups (the contextualize call is gone) -------
+
+
+class _RecordingClassifier:
+    def __init__(self, tax_request: str = "") -> None:
+        self.tax_request = tax_request
+        self.calls: list[dict] = []
+
+    def classify(self, question, **context):
+        self.calls.append({"question": question, **context})
+        return SimpleNamespace(
+            category=ScopeCategory.IN_SCOPE,
+            response=None,
+            search_query="interest on borrowed capital",
+            tax_request=self.tax_request,
+        )
+
+
+def test_a_first_turn_is_classified_and_answered_as_written():
+    classifier = _RecordingClassifier(tax_request="restated")
+    result = classify(
+        {"question": "Can I claim home loan interest?"}, deps(classifier=classifier)
+    )
+    assert classifier.calls == [
+        {
+            "question": "Can I claim home loan interest?",
+            "prior_turns": (),
+            "previous_answer": "",
+        }
+    ]
+    assert result["query"] == "Can I claim home loan interest?"
+
+
+def test_a_follow_up_sends_history_and_answers_the_resolved_question():
+    classifier = _RecordingClassifier(
+        tax_request="explain the home loan interest deduction in simple terms"
+    )
+    state = {
+        "question": "explain that more simply",
+        "prior_turns": ["Can I claim home loan interest?"],
+        "previous_answer": "You can deduct the interest.",
+    }
+    result = classify(state, deps(classifier=classifier))
+    assert classifier.calls[0]["prior_turns"] == ["Can I claim home loan interest?"]
+    assert classifier.calls[0]["previous_answer"] == "You can deduct the interest."
+    # The raw message is what gets classified...
+    assert classifier.calls[0]["question"] == "explain that more simply"
+    # ...and the resolved restatement is what gets answered.
+    assert result["query"] == "explain the home loan interest deduction in simple terms"
+    assert result["search_query"] == "interest on borrowed capital"
+
+
+def test_a_standalone_question_after_earlier_turns_gets_no_history():
+    """The deterministic check (ADR-113): no follow-up marker and a question
+    mark, so the classifier sees the message alone."""
+    classifier = _RecordingClassifier(tax_request="ignored")
+    result = classify(
+        {
+            "question": "What is the standard deduction for salaried people?",
+            "prior_turns": ["Can I claim home loan interest?"],
+        },
+        deps(classifier=classifier),
+    )
+    assert classifier.calls[0]["prior_turns"] == ()
+    assert result["query"] == "What is the standard deduction for salaried people?"
+
+
+def test_a_follow_up_with_no_restatement_falls_back_to_the_raw_message():
+    classifier = _RecordingClassifier(tax_request="")
+    result = classify(
+        {"question": "thanks, that helps", "prior_turns": ["Can I claim HRA?"]},
+        deps(classifier=classifier),
+    )
+    assert result["query"] == "thanks, that helps"

@@ -50,7 +50,9 @@ def _static_deps(category=ScopeCategory.IN_SCOPE, generator=None, conversational
     kwargs = dict(
         conn=None,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(category=category, response=response)
+            classify=lambda q, **_: SimpleNamespace(
+                category=category, response=response
+            )
         ),
         retriever=SimpleNamespace(search=lambda query, k: PACK_RESULTS),
         generator=generator,
@@ -195,7 +197,7 @@ def test_a_guest_calculation_question_packs_the_calculator_provisions_first(sche
     static = dataclasses.replace(
         static,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(
+            classify=lambda q, **_: SimpleNamespace(
                 category=ScopeCategory.IN_SCOPE,
                 response=None,
                 intent=Intent.CALCULATION,

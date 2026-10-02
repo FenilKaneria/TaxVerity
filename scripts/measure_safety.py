@@ -29,18 +29,37 @@ from taxverity.evals.safety import (
     load_safety_cases,
     store_run,
 )
-from taxverity.llm.client import GEMINI, GROQ_20B, LLMError
+from taxverity.llm.client import (
+    GEMINI,
+    GROQ,
+    GROQ_20B,
+    OPENAI_MINI,
+    LLMError,
+    Provider,
+)
 from taxverity.observability import configure_logging, get_logger
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 
 logger = get_logger(__name__)
+
+
+# R23 (ADR-129): --model -> (primary, fallback). None = the class default.
+MODELS: dict[str, tuple[Provider | None, Provider]] = {
+    "120b": (None, GEMINI),
+    "20b": (GROQ_20B, GEMINI),
+    "gpt-5-mini": (OPENAI_MINI, GROQ),
+}
 
 # (gold file, run file, report) per dataset. v4: CLASSIFIER_STAGE_VERSION 10
 # (tax_request routing). `routing` is the conversational/in_scope boundary,
 # kept out of safety_v1 so that set's prohibited/in_scope balance holds.
 DATASETS = {
     "safety": ("safety_v1.jsonl", "safety_run_v4.json", Path("reports/safety_eval.md")),
-    "routing": ("routing_v1.jsonl", "routing_run_v1.json", Path("reports/routing_eval.md")),
+    "routing": (
+        "routing_v1.jsonl",
+        "routing_run_v1.json",
+        Path("reports/routing_eval.md"),
+    ),
 }
 
 # Step 7.1 measured 8,000 tokens a minute on the free tier. A classification is
@@ -114,10 +133,7 @@ def render(score: SafetyScore, cases: list[SafetyCase], elapsed: float) -> str:
         "",
     ]
     lines += table(
-        [
-            (category.value, score.per_category[category])
-            for category in ScopeCategory
-        ]
+        [(category.value, score.per_category[category]) for category in ScopeCategory]
     )
     lines += ["", "## Misclassifications", ""]
     if not score.mistakes:
@@ -140,7 +156,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--model",
-        choices=("120b", "20b"),
+        choices=tuple(MODELS),
         default="120b",
         help="R18: re-measure against Groq's 20b model instead of the "
         "production default. Writes a separate _20b run file, never "
@@ -153,7 +169,7 @@ def main() -> int:
     settings = Settings()
     gold_file, run_file, base_report = DATASETS[args.dataset]
     cases = list(load_safety_cases(settings.evals_dir / "datasets", gold_file))
-    suffix = "" if args.model == "120b" else "_20b"
+    suffix = "" if args.model == "120b" else "_" + args.model.replace("-", "")
     stored = settings.data_dir / "safety" / run_file.replace(".json", f"{suffix}.json")
 
     started = time.perf_counter()
@@ -164,8 +180,8 @@ def main() -> int:
         try:
             classifier = IntentClassifier.from_settings(
                 settings,
-                primary=GROQ_20B if args.model == "20b" else None,
-                fallback=GEMINI,
+                primary=MODELS[args.model][0],
+                fallback=MODELS[args.model][1],
             )
         except MissingSettingError as error:
             print(f"cannot run: {error}")

@@ -21,6 +21,11 @@ const WITHHELD_REASONS: Record<string, string> = {
   malformed_example: "an example wasn't framed as a hypothetical",
   invented_law: "an example stated a rate or limit the Act doesn't give",
   bad_arithmetic: "an example's arithmetic didn't add up",
+  off_act_procedure: "it described a website or portal step the Act doesn't contain",
+  malformed_guidance: "a general-guidance line cited a provision",
+  guidance_states_law: "a general-guidance line stated a figure, date or rule of law",
+  guidance_unsafe: "a general-guidance line carried a link or unsafe advice",
+  guidance_too_long: "a general-guidance line was too long",
 };
 
 export function describeWithheldReason(reason: string): string {

@@ -1,14 +1,15 @@
 // Presentational live-turn transcript: the question just submitted (as a
-// user bubble, matching MessageList's), the stage indicator, each verified
-// claim/withheld event as it arrives, clarify chips, and the non-dismissible
-// disclaimer. Consumes a `useTurnStream()` result — see
+// user bubble, matching MessageList's), the stage indicator, the verified
+// claims as they arrive (grouped into the advisor layout's blocks, the same
+// renderer history uses), one footer counting withheld lines (R22 Part B:
+// never shown inline), clarify chips, and the non-dismissible disclaimer. Consumes a `useTurnStream()` result — see
 // components/use-turn-stream.ts for the state this renders.
 
-import { Loader2, RotateCw, ShieldAlert } from "lucide-react";
+import { Loader2, RotateCw } from "lucide-react";
 import type { ClickedCitation } from "@/components/citation-dialog";
 import { TracePanel } from "@/components/trace-panel";
-import { ClaimLine } from "@/lib/markdown";
-import { describeWithheldReason } from "@/lib/withheld-reasons";
+import { WithheldNote } from "@/components/withheld-note";
+import { AnswerBlocks } from "@/lib/markdown";
 import type { ClaimEvent, Stage, TraceEntry, WithheldEvent } from "@/lib/sse";
 
 const STAGE_LABELS: Record<Stage, string> = {
@@ -29,8 +30,9 @@ interface Props {
   clarify: string[];
   disclaimer: string | null;
   // The fixed/gated answer text carried on the final event (a refusal, the
-  // conversational reply, or the insufficient-evidence message) — never a
-  // claim, so no Typewriter and no citation chips.
+  // conversational reply, the insufficient-evidence message, or the
+  // guidance-only notice) — never a claim, so no Typewriter and no citation
+  // chips.
   finalText?: string | null;
   // Provision paths actually searched, shown under `finalText` only when it
   // names an insufficient-evidence refusal.
@@ -57,6 +59,10 @@ export function TurnStream({
 }: Props) {
   const nothingYet = !pending && !streaming && events.length === 0 && !error && !disclaimer;
   if (nothingYet) return null;
+  const claims = events.filter((event): event is ClaimEvent => event.kind === "claim");
+  const withheld = events
+    .filter((event): event is WithheldEvent => event.kind === "withheld")
+    .map((event) => event.reason);
 
   return (
     <div className="flex flex-col gap-4">
@@ -89,22 +95,17 @@ export function TurnStream({
           </p>
         )}
 
-        {events.map((event, i) =>
-          event.kind === "claim" ? (
-            <ClaimLine
-              key={i}
-              type={event.type}
-              text={event.text}
-              citations={event.citations}
-              onCiteClick={onCiteClick}
-            />
-          ) : (
-            <p key={i} className="flex items-center gap-1.5 text-sm text-withheld italic">
-              <ShieldAlert className="size-3.5 shrink-0 not-italic" />
-              A statement was withheld — {describeWithheldReason(event.reason)}.
-            </p>
-          ),
+        {finalText && (
+          // A fixed/gated template, not a claim — no Typewriter, no chips.
+          // Above the claims: on a guidance-only turn (R22 Part C) it is the
+          // notice that the guidance below is not from the Act.
+          <p className="whitespace-pre-line text-[15px] leading-relaxed text-foreground">
+            {finalText}
+          </p>
         )}
+
+        {claims.length > 0 && <AnswerBlocks lines={claims} onCiteClick={onCiteClick} />}
+        <WithheldNote reasons={withheld} />
 
         {showClarify && clarify.length > 0 && (
           // Deterministic materiality-probe questions (rule 04), one
@@ -124,13 +125,6 @@ export function TurnStream({
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
-          </p>
-        )}
-
-        {finalText && (
-          // A fixed/gated template, not a claim — no Typewriter, no chips.
-          <p className="whitespace-pre-line text-[15px] leading-relaxed text-foreground">
-            {finalText}
           </p>
         )}
 

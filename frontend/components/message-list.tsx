@@ -1,9 +1,8 @@
-import { ShieldAlert } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo";
 import type { ClickedCitation } from "@/components/citation-dialog";
 import { TracePanel } from "@/components/trace-panel";
+import { WithheldNote } from "@/components/withheld-note";
 import { MarkdownAnswer } from "@/lib/markdown";
-import { describeWithheldReason } from "@/lib/withheld-reasons";
 import type { Message } from "@/lib/threads";
 
 // Step 16.3, restyled. A persisted message carries its citations as
@@ -51,14 +50,7 @@ export function MessageList({
                   {message.content}
                 </p>
               )}
-              {message.withheld.length > 0 && (
-                <p className="flex items-center gap-1.5 text-xs text-withheld italic">
-                  <ShieldAlert className="size-3 shrink-0 not-italic" />
-                  {message.withheld.length === 1
-                    ? `1 statement was withheld — ${describeWithheldReason(message.withheld[0].reason)}.`
-                    : `${message.withheld.length} statements were withheld — couldn't be verified against the Act.`}
-                </p>
-              )}
+              <WithheldNote reasons={message.withheld.map((w) => w.reason)} />
               <TracePanel trace={message.trace} />
             </div>
           </li>

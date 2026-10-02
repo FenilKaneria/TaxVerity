@@ -124,7 +124,6 @@ def run_live(settings: Settings, pause: float) -> dict[str, Any]:
         retriever=retriever,
         packer=packer,
         classifier=None,  # type: ignore[arg-type]
-        contextualizer=None,  # type: ignore[arg-type]
         extractor=None,  # type: ignore[arg-type]
         generator=generator,
     )
@@ -153,7 +152,9 @@ def run_live(settings: Settings, pause: float) -> dict[str, Any]:
 
 def render(run: dict[str, Any]) -> str:
     served_on_negative = [
-        r["query_id"] for r in run["records"] if r["slice"] == QuerySlice.NEGATIVE.value and r["served"]
+        r["query_id"]
+        for r in run["records"]
+        if r["slice"] == QuerySlice.NEGATIVE.value and r["served"]
     ]
     retried = [r["query_id"] for r in run["records"] if r["retried"]]
     rescued = [r["query_id"] for r in run["records"] if r["retried"] and r["served"]]
@@ -195,7 +196,9 @@ def render(run: dict[str, Any]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pause", type=float, default=DEFAULT_PAUSE)
-    parser.add_argument("--stored", action="store_true", help="re-report the stored run")
+    parser.add_argument(
+        "--stored", action="store_true", help="re-report the stored run"
+    )
     args = parser.parse_args()
     configure_logging()
     settings = Settings()
@@ -218,7 +221,9 @@ def main() -> int:
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(render(run), encoding="utf-8", newline="")
     served_on_negative = [
-        r["query_id"] for r in run["records"] if r["slice"] == QuerySlice.NEGATIVE.value and r["served"]
+        r["query_id"]
+        for r in run["records"]
+        if r["slice"] == QuerySlice.NEGATIVE.value and r["served"]
     ]
     print(f"served on negative: {', '.join(served_on_negative) or 'none'}")
     print(f"tokens {run['tokens']:,}")

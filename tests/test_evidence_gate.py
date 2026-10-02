@@ -120,7 +120,7 @@ def withheld_event(claim_id: int = 1) -> WithheldEvent:
 
 
 def test_stage_version_is_declared():
-    assert EVIDENCE_GATE_STAGE_VERSION == 4
+    assert EVIDENCE_GATE_STAGE_VERSION == 5
 
 
 # --- served_grounded_claims ----------------------------------------------------

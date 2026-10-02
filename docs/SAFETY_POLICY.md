@@ -5,10 +5,12 @@ topical-scope taxonomy. This is the reference the Step 12.2 classifier, the
 Step 12.4 safety eval set, and anyone reviewing a refusal or a redirect
 should consult — not re-derive the taxonomy from scratch.
 
-**The core invariant this system protects, always:** an answer that cannot be
-traced to statutory text does not get served. Nothing in this document
-weakens that. Scope and evasion control are a second, independent layer on
-top of it.
+**The core invariant this system protects, always:** no statement of law is
+served without a trace to statutory text. Practical process guidance (how to
+use the e-filing portal, what to keep) may be served, labelled as not from
+the Act, under the mechanical guards in "General guidance" below (ADR-128).
+Nothing else in this document weakens that. Scope and evasion control are a
+second, independent layer on top of it.
 
 ## Topical scope
 
@@ -110,6 +112,40 @@ over-refuse:
   cares only whether the rent is real.
 - "Can you generate a donation certificate for a donation I never made?" —
   **refused**. A fabricated document, regardless of amount.
+
+## General guidance (not from the Act)
+
+Added at R22 Part C (ADR-128). Some in-scope questions are about process the
+Act doesn't describe: how to file on the portal, how to e-verify, which
+statement to download. The model may end an answer with up to five
+`[guide]` lines for such a question. They are shown in a box labelled
+"General guidance — not from the Act, not verified", with a fixed link to the
+official e-filing portal that the model never writes.
+
+A guidance line may describe process only. The verifier withholds it if it
+carries a citation or other marker, any figure (form names such as ITR-1,
+Form 16, Form 26AS, AIS and TIS excepted), a date or deadline, a provision
+word, a tax-treatment or obligation word, a link, an evasion word, or more
+than 40 words. The full lists are in `generation/verifier.py`.
+
+Guidance never counts towards the evidence gate. An answer with no grounded
+line gets the insufficient-evidence message, or, if it has guidance, only
+the guidance under a fixed notice: "The Act doesn't directly cover this.
+General guidance below is not from the Act." Classification runs first, so a
+prohibited, adjacent or out-of-scope turn never reaches generation and never
+gets guidance either.
+
+Worked examples:
+- "Log in to the e-filing portal and choose to file your return [guide]" —
+  **served**: process only.
+- "Download Form 26AS and AIS and check them against your Form 16 [guide]" —
+  **served**: form names are allowed.
+- "E-verify within 30 days of filing [guide]" — **withheld**: a deadline is
+  law and needs a citation.
+- "The premium is deductible, so add it on the portal [guide]" —
+  **withheld**: tax treatment is law.
+- "Leave the cash income off the form [guide]" — **withheld**: describes
+  hiding income.
 
 ## Disclaimer
 

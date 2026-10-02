@@ -20,6 +20,7 @@ from taxverity.generation.generate import (
     CALCULATION_PENDING_NOTE,
     SYSTEM_PROMPT,
     AnswerGenerator,
+    passage_numbers_note,
     render_computation,
     render_context,
 )
@@ -165,6 +166,21 @@ def test_the_prompt_fences_the_question_and_numbers_evidence_in_pack_order():
     for unit in PACK.units:
         assert unit.chunk.text in user
     assert kwargs["temperature"] == 0.0
+
+
+def test_generation_and_repair_state_the_valid_passage_numbers():
+    llm = FakeLLM(answer(GOOD, FABRICATED), answer(GOOD))
+    generate(llm)
+    count = len(PACK.units)
+    for messages, _ in llm.calls:
+        assert f'numbered "[1]" to "[{count}]"' in messages[1].content
+    one = passage_numbers_note(1)
+    assert 'There is 1 passage. Cite it only as "[1]".' in one
+    assert "never the sub-section's" in one
+
+
+def test_the_shared_context_used_by_reason_has_no_passage_numbers_note():
+    assert "<passage_numbers>" not in render_context(QUESTION, PACK, None, None)
 
 
 def test_the_prompt_carries_the_validated_analysis_when_given():

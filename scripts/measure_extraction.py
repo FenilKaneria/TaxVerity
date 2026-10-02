@@ -31,11 +31,26 @@ from taxverity.evals.extraction import (
     store_run,
 )
 from taxverity.facts import FactField
-from taxverity.llm.client import GEMINI, GROQ_20B, LLMError
+from taxverity.llm.client import (
+    GEMINI,
+    GROQ,
+    GROQ_20B,
+    OPENAI_MINI,
+    LLMError,
+    Provider,
+)
 from taxverity.llm.extract import FactExtractor
 from taxverity.observability import configure_logging, get_logger
 
 logger = get_logger(__name__)
+
+
+# R23 (ADR-129): --model -> (primary, fallback). None = the class default.
+MODELS: dict[str, tuple[Provider | None, Provider]] = {
+    "120b": (None, GEMINI),
+    "20b": (GROQ_20B, GEMINI),
+    "gpt-5-mini": (OPENAI_MINI, GROQ),
+}
 
 REPORT = Path("reports/extraction_eval.md")
 # v1 is Step 7.7's run; v2 is the node after the loss-sign fix (ADR-099); v3
@@ -49,9 +64,7 @@ RUN_FILENAME = "extraction_run_v4.json"
 DEFAULT_PAUSE = 8.0
 
 
-def measure(
-    turns: list[LabelledTurn], extractor: FactExtractor, pause: float
-) -> dict:
+def measure(turns: list[LabelledTurn], extractor: FactExtractor, pause: float) -> dict:
     run = {}
     for index, labelled in enumerate(turns, start=1):
         started = time.perf_counter()
@@ -115,8 +128,7 @@ def render(score: ExtractionScore, turns: list[LabelledTurn], elapsed: float) ->
         f"- Fabricated-span rate **{score.fabricated_span_rate:.3f}** "
         f"({sum(t.fabricated_spans for t in score.turns)} of "
         f"{sum(t.stated_attempts for t in score.turns)} stated attempts)",
-        f"- Stated facts quoting nothing: "
-        f"{sum(t.unquoted for t in score.turns)}",
+        f"- Stated facts quoting nothing: {sum(t.unquoted for t in score.turns)}",
         f"- Turns that needed a repair: **{score.repaired_turns}**, "
         f"of which the repair helped **{score.repairs_that_helped}**",
         "",
@@ -156,9 +168,7 @@ def render(score: ExtractionScore, turns: list[LabelledTurn], elapsed: float) ->
             f"`{labels[judgement.turn_id].turn}`"
         )
         if judgement.missed:
-            lines.append(
-                f"  - missed: {', '.join(f.value for f in judgement.missed)}"
-            )
+            lines.append(f"  - missed: {', '.join(f.value for f in judgement.missed)}")
         if judgement.spurious:
             lines.append(
                 f"  - invented: {', '.join(f.value for f in judgement.spurious)}"
@@ -166,9 +176,7 @@ def render(score: ExtractionScore, turns: list[LabelledTurn], elapsed: float) ->
         for field, expected, actual in judgement.value_wrong:
             lines.append(f"  - {field.value}: expected {expected}, got {actual}")
         for field, expected, actual in judgement.status_wrong:
-            lines.append(
-                f"  - {field.value}: expected status {expected}, got {actual}"
-            )
+            lines.append(f"  - {field.value}: expected status {expected}, got {actual}")
     return "\n".join(lines) + "\n"
 
 
@@ -185,7 +193,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--model",
-        choices=("120b", "20b"),
+        choices=tuple(MODELS),
         default="120b",
         help="R18: re-measure against Groq's 20b model instead of the "
         "production default. Writes a separate _20b run file, never "
@@ -196,8 +204,12 @@ def main() -> int:
 
     settings = Settings()
     turns = list(load_extraction_gold(settings.evals_dir / "datasets"))
-    suffix = "" if args.model == "120b" else "_20b"
-    stored = settings.data_dir / "extraction" / RUN_FILENAME.replace(".json", f"{suffix}.json")
+    suffix = "" if args.model == "120b" else "_" + args.model.replace("-", "")
+    stored = (
+        settings.data_dir
+        / "extraction"
+        / RUN_FILENAME.replace(".json", f"{suffix}.json")
+    )
 
     started = time.perf_counter()
     if args.stored:
@@ -208,8 +220,8 @@ def main() -> int:
             extractor = FactExtractor.from_settings(
                 settings,
                 repair=not args.no_repair,
-                primary=GROQ_20B if args.model == "20b" else None,
-                fallback=GEMINI,
+                primary=MODELS[args.model][0],
+                fallback=MODELS[args.model][1],
             )
         except MissingSettingError as error:
             print(f"cannot run: {error}")
@@ -223,7 +235,11 @@ def main() -> int:
     elapsed = time.perf_counter() - started
 
     score = judge_extraction(turns, run)
-    report = REPORT if suffix == "" else REPORT.with_name(REPORT.stem + suffix + REPORT.suffix)
+    report = (
+        REPORT
+        if suffix == ""
+        else REPORT.with_name(REPORT.stem + suffix + REPORT.suffix)
+    )
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(render(score, turns, elapsed), encoding="utf-8", newline="")
 

@@ -15,12 +15,15 @@ from conftest import register_account
 from taxverity.facts import UserFacts
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph.build import build_graph
+from taxverity.graph.nodes import RETRY_POOL
 from taxverity.llm.extract import ExtractionResult
 from taxverity.retrieval.base import ScoredChunk
 from taxverity.safety.classifier import ScopeCategory
+from taxverity.safety.evidence_gate import INSUFFICIENT_EVIDENCE_MESSAGE
 from taxverity.threads.store import create_thread
 from test_generation import FABRICATED, GOOD, answer
 from test_graph_nodes import PASSWORD, FakeLLM, deps
+from test_graph_paths import RESCUABLE
 from test_verifier import CHUNKS, QUESTION
 
 # Retrieved: 22(1) and 24, matching test_verifier.PACK (not 23).
@@ -44,13 +47,8 @@ def _streaming_deps(schema, generator):
     return deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(
+            classify=lambda q, **_: SimpleNamespace(
                 category=ScopeCategory.IN_SCOPE, response=None, search_query=q
-            )
-        ),
-        contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(
-                query=q, rewritten=False, completion=None
             )
         ),
         extractor=SimpleNamespace(
@@ -134,3 +132,53 @@ def test_fault_injection_withholds_the_bad_claim_and_keeps_the_good_one_intact(
     assert len(withheld_events) == 1
     assert withheld_events[0]["id"] == 2
     assert withheld_events[0]["reason"] == "marker_not_in_evidence"
+
+
+# --- R22 Part B: release only what will be served ------------------------------
+
+
+def test_a_corrective_retry_streams_only_its_own_pass(schema, alice, thread_id):
+    """First pass: nothing retrieved, so RESCUABLE's [1] resolves to nothing
+    and the pass serves no grounded claim. None of its events reach the
+    stream; the retry's pass (pack = `23`) is the only answer shown."""
+    retriever = SimpleNamespace(
+        search=lambda query, k: (
+            [ScoredChunk(chunk=CHUNKS["23"], score=1.0)] if k == RETRY_POOL else []
+        )
+    )
+    d = _streaming_deps(
+        schema,
+        AnswerGenerator(
+            FakeLLM(answer(RESCUABLE), answer(RESCUABLE), answer(RESCUABLE)), CHUNKS
+        ),
+    )
+    d.retriever = retriever
+    emitted = _stream(d, alice, thread_id)
+
+    claims = [e for e in emitted if "verified" in e]
+    assert [claim["text"] for claim in claims] == [RESCUABLE]
+    assert all(claim["verified"] is True for claim in claims)
+    assert not [e for e in emitted if "reason" in e]  # first pass's withheld rows
+    stages = [e["stage"] for e in emitted if "stage" in e]
+    refining = stages.index("refining search")
+    first_claim = emitted.index(claims[0])
+    assert (
+        emitted.index({"stage": "refining search", "facts": None, "chunks": None})
+        < first_claim
+    )
+    assert refining > 0
+    assert emitted[-1]["text"] is None
+
+
+def test_a_turn_gated_after_the_retry_streams_no_claim_or_withheld_row(
+    schema, alice, thread_id
+):
+    d = _streaming_deps(
+        schema, AnswerGenerator(FakeLLM(*([answer(RESCUABLE)] * 4)), CHUNKS)
+    )
+    d.retriever = SimpleNamespace(search=lambda query, k: [])
+    emitted = _stream(d, alice, thread_id)
+
+    assert not [e for e in emitted if "verified" in e or "reason" in e]
+    assert emitted[-1]["text"] == INSUFFICIENT_EVIDENCE_MESSAGE
+    assert emitted[-1]["citations"] == ()

@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # fails over between both before ever touching the fallback provider.
     groq_api_key_2: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
+    # R23 (ADR-129): OpenAI's paid API.
+    openai_api_key: SecretStr | None = None
+    # R23 (ADR-129): who writes the answer (generate + repair). "openai" is
+    # gpt-5-mini with Groq's 120b as its fallback; "groq" is the pre-R23
+    # 120b + Gemini pair. Every other node stays on Groq.
+    generation_llm: Literal["groq", "openai"] = "openai"
     jina_api_key: SecretStr | None = None
     database_url: SecretStr | None = None
     # Signs access tokens (Step 11.3). At least 32 bytes.

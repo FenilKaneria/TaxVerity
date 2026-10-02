@@ -49,8 +49,10 @@ from taxverity.corpus.nodes import NodePath
 from taxverity.facts import FactStatus, UserFacts
 from taxverity.generation.claims import (
     CALC_MARKER,
+    EXAMPLE_MARKER,
     EXAMPLE_OPENERS,
     FACT_MARKER,
+    GUIDE_MARKER,
     MARKER,
     NO_BASIS_OPENERS,
     UNKNOWN_OPENERS,
@@ -58,6 +60,7 @@ from taxverity.generation.claims import (
     Claim,
     ClaimType,
     line_body,
+    strip_list_number,
     strip_non_citation_markers,
 )
 from taxverity.reasoning.models import CheckStatus
@@ -70,7 +73,7 @@ from taxverity.retrieval.evidence import EvidencePack, EvidenceUnit
 if TYPE_CHECKING:
     from taxverity.reasoning.validate import ValidatedAnalysis
 
-VERIFIER_STAGE_VERSION = 5
+VERIFIER_STAGE_VERSION = 9
 
 _CITATION_PREFIX = re.compile(r"^(?:sections?|sec\.?|s\.|u/s\.?)\s*", re.IGNORECASE)
 _SPACE_BEFORE_BRACKET = re.compile(r"\s+\(")
@@ -171,6 +174,52 @@ _TOKEN = re.compile(
 )
 _EXAMPLE_BULLET = re.compile(r"^[-*•\s]+")
 _NIL = re.compile(r"\bnil\b", re.IGNORECASE)
+# R22 Part B: words naming an online system. The Act sets who files and by
+# when, not how a website works, so a cited line using one of these words is
+# withheld unless a passage it cites uses the same word. A no_basis line
+# ("The Act does not describe the portal") cites nothing and is not checked.
+_ONLINE_PROCEDURE = re.compile(
+    r"\b(?:portal|website|web site|log ?in|sign in|click|app|online|"
+    r"e[-‐‑–]?filing|upload|download|otp|net ?banking)\b",
+    re.IGNORECASE,
+)
+
+# R22 Part C (ADR-128): what a GUIDANCE line may never contain. Guidance is
+# served without a citation, so it may describe process (where to file, what
+# to keep, how to e-verify) but never state law: no figure, date, provision,
+# tax treatment or obligation. A blocklist can only withhold, never serve, so
+# a word it over-catches costs one line, never correctness.
+GUIDANCE_MAX_WORDS = 40
+# Form and statement names carry digits but state no figure. Stripped before
+# the figure check; any other digit withholds the line.
+_FORM_NAME = re.compile(
+    r"\bITR[-\s]?(?:[1-7]|U|V)\b|\bForm\s*(?:No\.?\s*)?(?:16A|16|26AS)\b|"
+    r"\b26AS\b|\bAIS\b|\bTIS\b",
+    re.IGNORECASE,
+)
+_GUIDANCE_LAW = re.compile(
+    r"\b(?:deduct\w*|exempt\w*|taxable|tax[-\s]free|rebate\w*|slabs?|entitle\w*|"
+    r"liab\w*|allow\w*|penalt\w*|rates?|limits?|regimes?|interest|fees?|fines?|"
+    r"due\s+date|deadlines?|last\s+date|"
+    r"january|february|march|april|june|july|august|september|october|"
+    r"november|december|sections?|sub-?sections?|schedules?|clauses?|chapters?|"
+    r"provisos?|provisions?|rules?|laws?|legal\w*|statut\w*|mandatory|"
+    r"compulsor\w*|obligat\w*|required\s+by|eligib\w*|qualif\w*)\b",
+    re.IGNORECASE,
+)
+# The statute, matched case-sensitively so "act on it" still passes. ("May"
+# is left out of the month names above for the same reason; a real date
+# carries a figure the figure check already catches.)
+_ACT = re.compile(r"\bAct\b")
+_GUIDANCE_EVASION = re.compile(
+    r"\b(?:conceal\w*|hid(?:e|es|ing|den)|backdat\w*|fake\w*|fabricat\w*|forg(?:e|ed|ing|ery)|"
+    r"benami|hawala|undisclosed|unreported|evad\w*|evasion|cash|"
+    r"(?:not|never|avoid|without)\s+(?:report\w*|disclos\w*|declar\w*|show\w*))\b",
+    re.IGNORECASE,
+)
+_URL = re.compile(
+    r"https?://|\bwww\.|\b[\w-]+\.(?:gov|com|in|org|net)\b", re.IGNORECASE
+)
 
 
 class Violation(StrEnum):
@@ -194,6 +243,14 @@ class Violation(StrEnum):
     # the one thing an illustration may never do.
     INVENTED_LAW = "invented_law"
     BAD_ARITHMETIC = "bad_arithmetic"
+    # R22 Part B: a step on a website, portal or app ("log in to the
+    # e-filing portal [1]") attributed to a passage that never mentions one.
+    OFF_ACT_PROCEDURE = "off_act_procedure"
+    # R22 Part C (ADR-128): GUIDANCE-line checks.
+    MALFORMED_GUIDANCE = "malformed_guidance"
+    GUIDANCE_STATES_LAW = "guidance_states_law"
+    GUIDANCE_UNSAFE = "guidance_unsafe"
+    GUIDANCE_TOO_LONG = "guidance_too_long"
 
 
 @dataclass(frozen=True)
@@ -257,6 +314,17 @@ class Verifier:
                 self._condition_status[check.condition_id] = check.status
 
     def verify(self, claim: Claim) -> Verdict:
+        """R22 Part B: every check reads the line without its step number;
+        the released claim keeps the line exactly as written."""
+        body = strip_list_number(claim.text)
+        if body == claim.text.strip():
+            return self._verify(claim)
+        verdict = self._verify(claim.model_copy(update={"text": body}))
+        return dataclasses.replace(
+            verdict, claim=verdict.claim.model_copy(update={"text": claim.text})
+        )
+
+    def _verify(self, claim: Claim) -> Verdict:
         if claim.type is ClaimType.HEADING:
             return self._verify_heading(claim)
         if claim.type is ClaimType.NO_BASIS:
@@ -269,7 +337,55 @@ class Verifier:
             return self._verify_application(claim)
         if claim.type is ClaimType.EXAMPLE:
             return self._verify_example(claim)
+        if claim.type is ClaimType.GUIDANCE:
+            return self._verify_guidance(claim)
         return self._verify_content(claim)
+
+    def _verify_guidance(self, claim: Claim) -> Verdict:
+        """R22 Part C (ADR-128): the one served line with no source, so it
+        may state nothing a source would be needed for. Every check reads the
+        whole line; none consults the pack, the facts or the computation, so
+        nothing the person wrote can make a guidance line pass."""
+        findings: list[Finding] = []
+        text = claim.text.replace(GUIDE_MARKER, " ")
+        if MARKER.search(text) or any(
+            marker in text for marker in (CALC_MARKER, FACT_MARKER, EXAMPLE_MARKER)
+        ):
+            findings.append(
+                Finding(
+                    Violation.MALFORMED_GUIDANCE,
+                    "a guidance line carries a citation or another line's marker",
+                )
+            )
+        if numbers_in(_FORM_NAME.sub(" ", MARKER.sub(" ", text))):
+            findings.append(
+                Finding(
+                    Violation.GUIDANCE_STATES_LAW, "a guidance line states a figure"
+                )
+            )
+        law = _GUIDANCE_LAW.search(text) or _ACT.search(text)
+        if law is not None:
+            findings.append(
+                Finding(
+                    Violation.GUIDANCE_STATES_LAW,
+                    f'a guidance line states law ("{law.group(0)}")',
+                )
+            )
+        if _URL.search(text) or _GUIDANCE_EVASION.search(text):
+            findings.append(
+                Finding(
+                    Violation.GUIDANCE_UNSAFE,
+                    "a guidance line carries a link or describes hiding something",
+                )
+            )
+        if len(_WORD.findall(line_body(text))) > GUIDANCE_MAX_WORDS:
+            findings.append(
+                Finding(
+                    Violation.GUIDANCE_TOO_LONG,
+                    f"a guidance line runs past {GUIDANCE_MAX_WORDS} words",
+                )
+            )
+        return Verdict(claim=claim, findings=tuple(findings))
 
     def _verify_example(self, claim: Claim) -> Verdict:
         """R21 (ADR-127): the model may illustrate, never invent law.
@@ -385,6 +501,13 @@ class Verifier:
             )
 
         cited_units = [self._units[m] for m in markers if m in self._units]
+        if _names_an_unsourced_online_step(claim.text, cited_units):
+            findings.append(
+                Finding(
+                    Violation.OFF_ACT_PROCEDURE,
+                    "describes a website or portal step no cited passage mentions",
+                )
+            )
         if cited_units and _asserts_the_opposite_of_its_source(claim.text, cited_units):
             findings.append(
                 Finding(
@@ -482,6 +605,13 @@ class Verifier:
             findings.append(_unsupported_finding(unsupported))
 
         cited_units = [self._units[m] for m in markers if m in self._units]
+        if _names_an_unsourced_online_step(claim.text, cited_units):
+            findings.append(
+                Finding(
+                    Violation.OFF_ACT_PROCEDURE,
+                    "describes a website or portal step no cited passage mentions",
+                )
+            )
         if cited_units and _asserts_the_opposite_of_its_source(claim.text, cited_units):
             findings.append(
                 Finding(
@@ -525,6 +655,13 @@ class Verifier:
             findings.append(_unsupported_finding(unsupported))
 
         cited_units = [self._units[m] for m in markers if m in self._units]
+        if _names_an_unsourced_online_step(claim.text, cited_units):
+            findings.append(
+                Finding(
+                    Violation.OFF_ACT_PROCEDURE,
+                    "describes a website or portal step no cited passage mentions",
+                )
+            )
         if cited_units and _asserts_the_opposite_of_its_source(claim.text, cited_units):
             findings.append(
                 Finding(
@@ -760,6 +897,17 @@ def ground_numbers(unit: EvidenceUnit) -> frozenset[Decimal]:
     ):
         numbers |= {Decimal(0)}
     return numbers
+
+
+def _names_an_unsourced_online_step(text: str, units: list[EvidenceUnit]) -> bool:
+    sources = " ".join(
+        [unit.chunk.text for unit in units]
+        + [line.text for unit in units for line in unit.context]
+    ).lower()
+    return any(
+        re.search(rf"\b{re.escape(found.group(0).lower())}", sources) is None
+        for found in _ONLINE_PROCEDURE.finditer(normalise(text))
+    )
 
 
 def _asserts_the_opposite_of_its_source(text: str, units: list[EvidenceUnit]) -> bool:

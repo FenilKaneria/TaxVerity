@@ -43,6 +43,10 @@ from taxverity.graph.state import (
     TraceEntry,
 )
 from taxverity.llm.extract import no_facts
+from taxverity.memory.contextualize import (
+    is_style_followup,
+    needs_contextualization,
+)
 from taxverity.memory.fact_state import (
     ThreadFactState,
     load_fact_state,
@@ -53,7 +57,7 @@ from taxverity.observability import get_logger
 from taxverity.reasoning.validate import ValidatedAnalysis, validate
 from taxverity.retrieval.base import ScoredChunk
 from taxverity.safety.classifier import Intent
-from taxverity.safety.evidence_gate import gate
+from taxverity.safety.evidence_gate import guidance_lines, release
 from taxverity.threads.store import append_message, list_messages
 
 logger = get_logger(__name__)
@@ -124,9 +128,12 @@ def load_thread(
     messages = list_messages(deps.conn, state["user_id"], state["thread_id"])
     user_turns = [message.content for message in messages if message.role == "user"]
     fact_state = load_fact_state(deps.conn, state["user_id"], state["thread_id"])
+    previous_answer = _previous_answer(messages)
     return {
         "prior_turns": user_turns[-RECENT_TURNS_WINDOW:],
-        "previous_answer": _previous_answer(messages),
+        "previous_answer": previous_answer,
+        "previous_citations": _previous_citations(messages),
+        "style_followup": is_style_followup(state.get("question", ""), previous_answer),
         "turn": len(user_turns) + 1,
         "fact_state": fact_state,
     }
@@ -141,27 +148,41 @@ def _previous_answer(messages: Sequence[Any]) -> str:
     return ""
 
 
-def contextualize(
-    state: GraphState, deps: GraphDeps, writer: Writer | None = None
-) -> dict:
-    result = deps.contextualizer.contextualize(
-        state["question"],
-        state["prior_turns"],
-        previous_answer=state.get("previous_answer", ""),
-    )
-    return {"query": result.query}
+def _previous_citations(messages: Sequence[Any]) -> tuple[str, ...]:
+    for message in reversed(messages):
+        if message.role != "assistant":
+            continue
+        records = (message.payload or {}).get("citations") or ()
+        paths = (record.get("path") for record in records if isinstance(record, dict))
+        return tuple(dict.fromkeys(path for path in paths if path))
+    return ()
 
 
 def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
-    result = deps.classifier.classify(state["query"])
+    """R23: also resolves a follow-up, replacing the separate contextualize
+    call. The deterministic check (ADR-113) decides whether the classifier
+    sees the recent turns; a standalone question is classified and answered
+    exactly as written."""
+    question = state["question"]
+    prior_turns = state.get("prior_turns") or []
+    follow_up = needs_contextualization(question, prior_turns)
+    result = deps.classifier.classify(
+        question,
+        prior_turns=prior_turns if follow_up else (),
+        previous_answer=state.get("previous_answer", "") if follow_up else "",
+    )
+    # A follow-up is answered as the classifier's resolved restatement of it,
+    # a standalone question as the person wrote it.
+    query = (getattr(result, "tax_request", "") or question) if follow_up else question
     # getattr, not result.search_query: a test double's classifier stub may
     # predate R19 Phase B (ADR-120) and not set it.
-    search_query = getattr(result, "search_query", None) or state["query"]
+    search_query = getattr(result, "search_query", None) or query
     # R20 Step 20.2: same getattr guard for a stub predating sub_queries.
     sub_queries = tuple(getattr(result, "sub_queries", None) or ())
     # R20 Step 20.3: same getattr guard for a stub predating intent.
     intent = getattr(result, "intent", None) or Intent.EXPLANATION
     return {
+        "query": query,
         "category": result.category,
         "fixed_response": result.response,
         "search_query": search_query,
@@ -291,10 +312,33 @@ def pinned_first(
     ]
 
 
+def _style_pins(state: GraphState, deps: GraphDeps) -> list[ScoredChunk]:
+    """R22 Part B: the passages the last answer cited, for a style follow-up
+    ("explain simply"). The rewrite then works from the same law that answer
+    stood on, instead of a fresh search re-reading the statute."""
+    if not state.get("style_followup") or deps.citation_lookup is None:
+        return []
+    found = (deps.citation_lookup(path) for path in state.get("previous_citations", ()))
+    # Two cited paths can resolve to the same chunk (an ancestor fallback).
+    unique = {hit.chunk.chunk_id: hit for hit in found if hit is not None}
+    return list(unique.values())
+
+
 def _retrieve(
     state: GraphState, deps: GraphDeps, writer: Writer | None, *, k: int, expand: bool
 ) -> dict:
     emit = writer or get_stream_writer()
+    # The first pass only: a corrective retry searches afresh, which is also
+    # what rescues a message misread as a style follow-up.
+    style_pins = [] if expand else _style_pins(state, deps)
+    if style_pins:
+        pack = deps.packer.pack(pinned_first(style_pins, []), expand=False)
+        emit(
+            StageEvent(
+                stage="evidence", chunks=tuple(unit.citation for unit in pack.units)
+            ).model_dump()
+        )
+        return {"pack": pack, "trace": []}
     # R19 Phase B (ADR-120): retrieval runs on the classifier's Act-vocabulary
     # rewrite when one exists, falling back to the raw query for callers
     # (tests, an older classifier stub) that don't set it.
@@ -499,11 +543,18 @@ def _analysis_from_state(state: GraphState) -> ValidatedAnalysis | None:
 def generate_verify(
     state: GraphState, deps: GraphDeps, writer: Writer | None = None
 ) -> dict:
+    """R22 Part B: releases only what will be served. The events are held
+    until the evidence gate has judged them; an answer the gate replaces (an
+    empty pack, or zero grounded claims, whether or not the corrective retry
+    still follows) emits none of them. A retry therefore shows only its own
+    pass, never a first pass stacked above it.
+
+    R22 Part C: once no retry is left, a gated answer that still has
+    guidance lines releases those alone (`evidence_gate.release`)."""
     emit = writer or get_stream_writer()
     facts = state["fact_state"].as_user_facts()
-    events: list[ClaimEvent | WithheldEvent] = []
     emit(StageEvent(stage="writing").model_dump())
-    for event in deps.generator.generate(
+    events = deps.generator.generate(
         state["query"],
         state["pack"],
         facts=facts,
@@ -512,11 +563,16 @@ def generate_verify(
         request=state.get("question"),
         previous_answer=state.get("previous_answer") or None,
         calculation_pending=CALCULATION_CLARIFY in state.get("clarify_questions", ()),
+        style_request=bool(state.get("style_followup")),
         on_repair=lambda: emit(StageEvent(stage="checking").model_dump()),
-    ):
+    )
+    answer_text, released = release(state["pack"], events)
+    if answer_text is not None and not state.get("retried"):
+        # Gated with the retry still to come: the retry's pass replaces this.
+        released = []
+    for event in released:
         emit(event.model_dump())
-        events.append(event)
-    return {"events": events, "answer_text": gate(state["pack"], events)}
+    return {"events": list(events), "answer_text": answer_text}
 
 
 def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
@@ -533,6 +589,12 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     answer_text = state.get("answer_text")
     text = answer_text if answer_text is not None else _served_text(events)
     computation = state.get("computation")
+    if answer_text is not None:
+        # A gated turn keeps only its guidance lines (R22 Part C); a refusal
+        # or conversational reply has no events at all.
+        events = guidance_lines(events)
+        if events:
+            text = answer_text + "\n" + _served_text(events)
     citations = _served_citations(events)
     pack = state.get("pack")
     searched = (
@@ -572,7 +634,7 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
             # template, the conversational reply, or the insufficient-
             # evidence message) — those are never run through line
             # classification, and never bulleted.
-            "structured": answer_text is None,
+            "structured": answer_text is None or bool(events),
         },
     )
     return {"final": final_event}

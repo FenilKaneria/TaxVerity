@@ -51,11 +51,17 @@ from taxverity.embedding.jina_api import JinaAPIEmbedder
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.graph import nodes
 from taxverity.graph.state import CALC_PIN_CITATIONS, GraphDeps, GraphState
-from taxverity.llm.client import GEMINI, GROQ_20B, LLMClient
+from taxverity.llm.client import (
+    GEMINI,
+    GROQ,
+    GROQ_20B,
+    OPENAI_MINI,
+    LLMClient,
+    Provider,
+)
 from taxverity.llm.conversational import Conversationalist
 from taxverity.llm.extract import FactExtractor
 from taxverity.llm.tracing import LangfuseTracer, TracedLLMClient
-from taxverity.memory.contextualize import QueryContextualizer
 from taxverity.reasoning.reason import Reasoner
 from taxverity.retrieval.bm25 import BM25Retriever
 from taxverity.retrieval.bridge import BridgedRetriever, TermBridge, load_bridge_map
@@ -68,7 +74,7 @@ from taxverity.retrieval.rerank import CachedReranker, JinaReranker, RerankRetri
 from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 from taxverity.safety.evidence_gate import served_grounded_claims
 
-GRAPH_BUILD_STAGE_VERSION = 10
+GRAPH_BUILD_STAGE_VERSION = 11
 
 # R19 Phase B (ADR-120): a smaller pack than `EvidencePacker`'s own
 # `EVIDENCE_BUDGET` default (4,000) — that constant stays put so every past
@@ -86,7 +92,6 @@ QUERY_EMBED_ATTEMPTS = 2
 
 _NODES = (
     "load_thread",
-    "contextualize",
     "classify",
     "respond_fixed",
     "respond_conversational",
@@ -147,16 +152,19 @@ def build_deps(
     )
 
     by_path = {chunk.node_path: chunk for chunk in chunks}
-    # R22 Part A measured generation on Gemini (free tier) as primary and
-    # rejected it (ADR-118 amended): it answered 4 calls, then 503s and 429s
-    # sent 13 more to the Groq fallback anyway, and the median turn went from
-    # 4.8 s to 11.9 s (`reports/advisor_smoke.md`). Generation stays on
-    # Groq's 120b with Gemini as the fallback.
-    llm: object = LLMClient.from_settings(settings)
+    # R23 (ADR-129): generate + repair is the one node on OpenAI. It is
+    # about two thirds of each turn's 120b tokens (generate ~5K, repair
+    # ~3.8K), so on Groq's 8K-TPM free tier it alone waited out 429s (up to
+    # 37 s); gpt-5-mini answered it in ~4 s with no wait. Gemini as primary
+    # was rejected at R22 Part A (free-tier 503/429s).
+    generation_primary, generation_fallback = generation_providers(settings)
+    llm: object = LLMClient.from_settings(
+        settings, primary=generation_primary, fallback=generation_fallback
+    )
     llm = TracedLLMClient(llm, LangfuseTracer.from_settings(settings))
 
-    # R18 per-node routing (ADR-118, PLAN R18): `classify` and `contextualize`
-    # moved to Groq's 20b model after clearing all three gates (streaming
+    # R18 per-node routing (ADR-118, PLAN R18): `classify` (and the former
+    # `contextualize`, merged into it at R23) moved to Groq's 20b model after clearing all three gates (streaming
     # correctness argued from `LineBuffer.feed()` plus a partial live check —
     # neither node streams, so gate 1 doesn't apply to them; a live two-arm
     # answer-quality check isn't meaningful for a schema-bound classification/
@@ -175,9 +183,6 @@ def build_deps(
         classifier=IntentClassifier.from_settings(
             settings, cache=False, primary=GROQ_20B, fallback=GEMINI
         ),
-        contextualizer=QueryContextualizer.from_settings(
-            settings, cache=False, primary=GROQ_20B, fallback=GEMINI
-        ),
         extractor=FactExtractor.from_settings(settings, cache=False),
         generator=AnswerGenerator(llm, by_path),
         conversational=Conversationalist.from_settings(settings, cache=False),
@@ -191,8 +196,18 @@ def build_deps(
         # must-stay-rigorous list is cautious about, and R18 never gated it.
         reasoner=Reasoner.from_settings(settings, cache=False),
         calc_pins=calc_pins,
+        citation_lookup=citations.lookup,
     )
     return deps, served
+
+
+def generation_providers(settings: Settings) -> tuple[Provider, Provider]:
+    """(primary, fallback) for generate + repair. R23 (ADR-129): "openai" is
+    gpt-5-mini backed by Groq's 120b; "groq" is the pre-R23 120b backed by
+    Gemini. Other nodes do not read this setting."""
+    if settings.generation_llm == "openai":
+        return OPENAI_MINI, GROQ
+    return GROQ, GEMINI
 
 
 def _timed(name: str, fn: Callable[..., dict]) -> Callable[..., dict]:
@@ -242,8 +257,7 @@ def build_graph(deps: GraphDeps) -> CompiledStateGraph:
         )
 
     graph.add_edge(START, "load_thread")
-    graph.add_edge("load_thread", "contextualize")
-    graph.add_edge("contextualize", "classify")
+    graph.add_edge("load_thread", "classify")
     graph.add_conditional_edges(
         "classify",
         _scope_branch,

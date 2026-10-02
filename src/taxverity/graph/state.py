@@ -15,6 +15,7 @@ from one place without `nodes.py` importing `build.py` back.
 from __future__ import annotations
 
 import operator
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Literal, TypedDict
 from uuid import UUID
@@ -29,7 +30,6 @@ from taxverity.generation.claims import DISCLAIMER, ClaimEvent, WithheldEvent
 from taxverity.generation.generate import AnswerGenerator
 from taxverity.llm.conversational import Conversationalist
 from taxverity.llm.extract import ExtractionResult, FactExtractor
-from taxverity.memory.contextualize import QueryContextualizer
 from taxverity.memory.fact_state import ThreadFactState
 from taxverity.reasoning.models import (
     AnswerPlan,
@@ -42,7 +42,7 @@ from taxverity.retrieval.base import Retriever, ScoredChunk
 from taxverity.retrieval.evidence import EVIDENCE_POOL, EvidencePack, EvidencePacker
 from taxverity.safety.classifier import Intent, IntentClassifier, ScopeCategory
 
-GRAPH_STAGE_VERSION = 11
+GRAPH_STAGE_VERSION = 12
 
 # rule 04: "a short recent-turns window (2-3 turns of text)".
 RECENT_TURNS_WINDOW = 3
@@ -168,6 +168,13 @@ class GraphState(TypedDict, total=False):
     # follow-up ("explain simply", "give examples") builds on it rather than
     # re-answering blind. Context only — never evidence, never fact truth.
     previous_answer: str
+    # R22 Part B: provision paths the last served answer cited, in the order
+    # it first cited them (its persisted `payload["citations"]`).
+    previous_citations: tuple[str, ...]
+    # R22 Part B: `memory.contextualize.is_style_followup` on this turn. When
+    # set, `retrieve` packs `previous_citations` instead of searching, and
+    # generation gets the fixed rewrite note.
+    style_followup: bool
     turn: int
     query: str
     # R19 Phase B (ADR-120): the classifier's Act-vocabulary rewrite of
@@ -225,7 +232,6 @@ class GraphDeps:
     retriever: Retriever
     packer: EvidencePacker
     classifier: IntentClassifier
-    contextualizer: QueryContextualizer
     extractor: FactExtractor
     generator: AnswerGenerator
     conversational: Conversationalist
@@ -233,3 +239,6 @@ class GraphDeps:
     pool_k: int = field(default=EVIDENCE_POOL)
     # CALC_PIN_CITATIONS resolved to chunks once at startup (`build_deps`).
     calc_pins: tuple[ScoredChunk, ...] = ()
+    # R22 Part B: `CitationRetriever.lookup`, so a style follow-up can rebuild
+    # the last answer's passages. None leaves every turn on a fresh search.
+    citation_lookup: Callable[[str], ScoredChunk | None] | None = None

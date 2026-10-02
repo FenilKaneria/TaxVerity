@@ -24,9 +24,11 @@ logic, so every routing change lands here too, not just in `graph/nodes.py`:
 a refusal or conversational reply now streams its text on the final event
 (it used to be dropped entirely on this path, unlike the authenticated graph,
 which at least persisted it to the database); an in-scope turn now calls
-`safety.evidence_gate.gate()` after generation, exactly like
+`safety.evidence_gate.release()` after generation, exactly like
 `generate_verify` does, so a zero-grounded-claim guest answer gets the fixed
-insufficient-evidence message instead of silence. Deliberately **not**
+insufficient-evidence message instead of silence. Since R22 Part C the
+events are held until then, so a gated guest answer streams no claim (only
+its guidance lines, if any, under the guidance template). Deliberately **not**
 added: the graph's one-shot corrective retry (ADR-110 scopes it to the
 authenticated graph) — re-running retrieval here would double the cost of
 every guest turn on the free tier for a user this project does not know yet.
@@ -59,7 +61,7 @@ from taxverity.guests.quota import (
 )
 from taxverity.observability import get_logger
 from taxverity.safety.classifier import Intent, ScopeCategory
-from taxverity.safety.evidence_gate import gate
+from taxverity.safety.evidence_gate import release
 
 logger = get_logger(__name__)
 
@@ -214,19 +216,18 @@ def create_guest_turn_route(
                     ).model_dump()
                 )
                 generate_start = time.perf_counter()
-                events: list = []
-                for event in deps.generator.generate(
+                events = deps.generator.generate(
                     body.question, pack, facts=None, computation=None
-                ):
+                )
+                answer_text, events = release(pack, events)
+                for event in events:
                     yield _sse(event.model_dump())
-                    events.append(event)
                 trace.append(
                     TraceEntry(
                         node="generate_verify",
                         ms=round((time.perf_counter() - generate_start) * 1000, 1),
                     )
                 )
-                answer_text = gate(pack, events)
                 searched = (
                     tuple(unit.citation for unit in pack.units)
                     if answer_text is not None

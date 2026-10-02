@@ -79,6 +79,9 @@ class Provider:
     settings_key: str
     # Request fields this provider understands and the other may not.
     extras: Mapping[str, Any] = field(default_factory=dict)
+    # Request fields this provider refuses. GPT-5 models are reasoning models
+    # and reject any `temperature` but the default.
+    omit: frozenset[str] = frozenset()
 
 
 GROQ = Provider(
@@ -119,6 +122,30 @@ GEMINI = Provider(
     settings_key="gemini_api_key",
     extras={"reasoning_effort": "low"},
 )
+
+# R23 (ADR-129): OpenAI's paid API (Tier 1: 500K TPM, 500 RPM on
+# gpt-5-mini — probed 2026-10-02), so the hot path no longer sleeps on a free
+# tier's 8K TPM. One model for every node. Reasoning bills as output and
+# counts against the cap, so it is "minimal": on "low" the `reason` node
+# spent its whole 1,536-token cap reasoning and returned nothing on 6 of its
+# smoke-set calls, and classify's 450-token cap ran out the same way.
+# gpt-5-nano failed the classify gate (safety accuracy 0.824, refusal recall
+# 0.90, routing 14/15).
+OPENAI_MINI = Provider(
+    name="openai",
+    base_url="https://api.openai.com/v1",
+    model="gpt-5-mini",
+    settings_key="openai_api_key",
+    extras={"reasoning_effort": "minimal"},
+    omit=frozenset({"temperature"}),
+)
+
+
+def _payload(provider: Provider, body: Mapping[str, Any]) -> dict[str, Any]:
+    payload = {**body, **provider.extras, "model": provider.model}
+    for name in provider.omit:
+        payload.pop(name, None)
+    return payload
 
 
 class Message(BaseModel):
@@ -401,7 +428,7 @@ class LLMClient:
     def _open_with_retries(
         self, provider: Provider, body: dict[str, Any], *, degraded: bool
     ) -> _OpenStream:
-        payload = {**body, **provider.extras, "model": provider.model}
+        payload = _payload(provider, body)
         keys = self._ordered_keys(provider)
         url = f"{provider.base_url}/chat/completions"
         last: Exception | None = None
@@ -469,7 +496,7 @@ class LLMClient:
         degraded: bool,
         may_spill: bool | None = None,
     ) -> Completion:
-        payload = {**body, **provider.extras, "model": provider.model}
+        payload = _payload(provider, body)
         # Only the primary can spill: the fallback has nowhere left to go.
         if may_spill is None:
             may_spill = not degraded and self._fallback is not None

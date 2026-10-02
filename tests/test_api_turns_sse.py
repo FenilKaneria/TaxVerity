@@ -58,13 +58,8 @@ def _static_deps(generator):
     return deps(
         conn=None,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(
+            classify=lambda q, **_: SimpleNamespace(
                 category=ScopeCategory.IN_SCOPE, response=None, search_query=q
-            )
-        ),
-        contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(
-                query=q, rewritten=False, completion=None
             )
         ),
         extractor=SimpleNamespace(

@@ -1,0 +1,305 @@
+{
+ "version": 1,
+ "tables": [
+  {
+   "owner": "193",
+   "page": 231,
+   "header": [
+    "Sl. No.",
+    "Income",
+    "Rate of Income- tax payable"
+   ],
+   "rows": [
+    [
+     "1.",
+     "Income from dividend on Global Depository Receipts of an Indian company engaged in specified knowledge based industry or\nservice, issued as per such Employees' Stock Option Scheme as the Central Government may, by notification, specify in this behalf\nand purchased by him in foreign currency.",
+     "10%"
+    ],
+    [
+     "2.",
+     "Income from long-term capital gains arising from the transfer of Global Depository Receipts referred to in serial number 1.",
+     "12.5%"
+    ],
+    [
+     "3.",
+     "Total income as reduced by income referred to in serial numbers 1 and 2.",
+     "Rates in force."
+    ]
+   ]
+  },
+  {
+   "owner": "208",
+   "page": 252,
+   "header": [
+    "Sl. No.",
+    "Income",
+    "Rate of income-tax payable"
+   ],
+   "rows": [
+    [
+     "1.",
+     "Income received in respect of units purchased in foreign currency.",
+     "10%"
+    ],
+    [
+     "2.",
+     "Long-term capital gains arising from the transfer of units purchased in foreign currency.",
+     "12.5%"
+    ],
+    [
+     "3.",
+     "Total income as reduced by income referred against serial numbers 1 and 2.",
+     "Rates in force."
+    ]
+   ]
+  },
+  {
+   "owner": "211",
+   "page": 255,
+   "header": [
+    "Sl. No.",
+    "Income",
+    "Rate of Income-tax payable"
+   ],
+   "rows": [
+    [
+     "1.",
+     "Income referred to in clause (a) or (b) or (c).",
+     "20%"
+    ],
+    [
+     "2.",
+     "Total income as reduced by income referred to in clause (a) or (b) or (c).",
+     "Rates in force."
+    ]
+   ]
+  },
+  {
+   "owner": "214",
+   "page": 258,
+   "header": [
+    "Sl. No.",
+    "Income",
+    "Rate of Income-tax payable"
+   ],
+   "rows": [
+    [
+     "1.",
+     "Income from investment.",
+     "20%"
+    ],
+    [
+     "2.",
+     "Income from long-term capital gains on specified asset.",
+     "12.5%"
+    ],
+    [
+     "3.",
+     "Total income as reduced by income referred to against serial numbers 1 and 2.",
+     "Rates in force."
+    ]
+   ]
+  },
+  {
+   "owner": "218",
+   "page": 262,
+   "header": [
+    "Sl. No.",
+    "Income",
+    "Rate of income-tax payable"
+   ],
+   "rows": [
+    [
+     "1.",
+     "Income referred to in section 147(3)",
+     "15%"
+    ],
+    [
+     "2.",
+     "Total income as reduced by income referred to in Sl. No. (1)",
+     "Rates in force.]"
+    ]
+   ]
+  },
+  {
+   "owner": "263",
+   "page": 312,
+   "header": [
+    "Sl. No.",
+    "Person",
+    "Conditions",
+    "Due date"
+   ],
+   "rows": [
+    [
+     "1.",
+     "Assessee, including the partners of the firm or the spouse of such partner (if section 10 applies to\nsuch spouse).",
+     "Where the provisions of section\n172 apply.",
+     "30th\nNovember."
+    ],
+    [
+     "2.",
+     "(i) Company;\n(ii) Assessee (other than a company) whose accounts are required to be audited under this Act or\nunder any other law in force;\n(iii) partner of a firm whose accounts are required to be audited under this Act or under any other\nlaw in force; or the spouse of such partner (if section 10 applies to such spouse).",
+     "Where the provisions of section\n172 do not apply.",
+     "31st\nOctober."
+    ],
+    [
+     "3.",
+     "(i) Assessee having income from profits and gains of business or profession whose accounts are not\nrequired to be audited under this Act or under any other law in force;\n(ii) partner of a firm whose accounts are not required to be audited under this Act or under any other\nlaw in force or the spouse of such partner (if section 10 applies to such spouse).",
+     "Where the provisions of section\n172 do not apply.",
+     "31st August."
+    ],
+    [
+     "4.",
+     "Any other assessee.",
+     "",
+     "31st July.]"
+    ]
+   ]
+  },
+  {
+   "owner": "408",
+   "page": 485,
+   "header": [
+    "Sl. No.",
+    "Due date of instalment",
+    "Amount payable"
+   ],
+   "rows": [
+    [
+     "1.",
+     "On or before the 15th June.",
+     "Not less than 15% of such advance tax."
+    ],
+    [
+     "2.",
+     "On or before the 15th\nSeptember.",
+     "Not less than 45% of such advance tax, as reduced by the amount, if any, paid in the earlier instalment."
+    ],
+    [
+     "3.",
+     "On or before the 15th\nDecember.",
+     "Not less than 75% of such advance tax, as reduced by the amount or amounts, if any, paid in the earlier instalment\nor instalments."
+    ],
+    [
+     "4.",
+     "On or before the 15th March.",
+     "The whole amount of such advance tax, as reduced by the amount or amounts, if any, paid in the earlier instalment\nor instalments."
+    ]
+   ]
+  },
+  {
+   "owner": "425",
+   "page": 505,
+   "header": [
+    "Sl. No.",
+    "Due date of Instalment",
+    "Advance tax due on returned income",
+    "Amount of Shortfall of advance tax being advance tax due as per column C, as reduced by advance tax already paid on or before the date specified in column B",
+    "Interest payable on shortfall as specified in column D"
+   ],
+   "rows": [
+    [
+     "1.",
+     "15th day of\nJune",
+     "15% of the tax due on\nreturned income.",
+     "Shortfall till 15th day of June",
+     "3%"
+    ],
+    [
+     "2.",
+     "15th day of\nSeptember.",
+     "45% of the tax due on\nreturned income.",
+     "Shortfall till 15th day of September",
+     "3%"
+    ],
+    [
+     "3.",
+     "15th day of\nDecember.",
+     "75% of the tax due on\nreturned income.",
+     "Shortfall till 15th day of December",
+     "3%"
+    ],
+    [
+     "4.",
+     "15th day of\nMarch.",
+     "100% of the tax due\non returned income.",
+     "Shortfall till 15th day of March",
+     "1%."
+    ]
+   ]
+  },
+  {
+   "owner": "536",
+   "page": 619,
+   "header": [
+    "Sl. No.",
+    "Source or head of income under the repealed Income-tax Act",
+    "Section of the repealed Income-tax Act"
+   ],
+   "rows": [
+    [
+     "1.",
+     "Income from house property.",
+     "71B."
+    ],
+    [
+     "2.",
+     "Profits and gains of business or profession.",
+     "72."
+    ],
+    [
+     "3.",
+     "Speculation business.",
+     "73."
+    ],
+    [
+     "4.",
+     "Specified Business.",
+     "73A."
+    ],
+    [
+     "5.",
+     "Activity of owning and maintaining race horses.",
+     "74A."
+    ]
+   ]
+  },
+  {
+   "owner": "Schedule XV",
+   "page": 661,
+   "header": [
+    "Sl. No.",
+    "Nature of payment",
+    "Conditions for disallowance of the deduction in respect of payment provided in column B"
+   ],
+   "rows": [
+    [
+     "1.",
+     "Premium paid for a life insurance policy.",
+     "Where the assessee terminates his contract of insurance, by notice to that effect or where the\ncontract ceases to be in force by reason of failure to pay any premium, by not reviving contract of\ninsurance,—"
+    ],
+    [
+     "",
+     "",
+     "(a) in case of any single premium policy, within two years after the date of commencement of\ninsurance; or"
+    ],
+    [
+     "",
+     "",
+     "(b) in any other case, before premiums have been paid for two years."
+    ],
+    [
+     "2.",
+     "(a) Contribution for participation in the Unit-",
+     "Where the assessee terminates his participation in such plan, by notice to that effect or"
+    ],
+    [
+     "",
+     "Linked Insurance Plan, 1971;",
+     "where he ceases to participate by reason of failure to pay any contribution, by not reviving his\nparticipation, before contributions in respect of such participation have been paid for five years."
+    ]
+   ]
+  }
+ ]
+}

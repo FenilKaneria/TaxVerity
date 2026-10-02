@@ -65,13 +65,8 @@ def _in_scope_deps(schema, **kwargs) -> object:
     base = dict(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(
+            classify=lambda q, **_: SimpleNamespace(
                 category=ScopeCategory.IN_SCOPE, response=None, search_query=q
-            )
-        ),
-        contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(
-                query=q, rewritten=False, completion=None
             )
         ),
     )
@@ -87,7 +82,7 @@ def _in_scope_deps_with_intent(schema, intent: Intent, **kwargs) -> object:
     kwargs.setdefault(
         "classifier",
         SimpleNamespace(
-            classify=lambda q: SimpleNamespace(
+            classify=lambda q, **_: SimpleNamespace(
                 category=ScopeCategory.IN_SCOPE,
                 response=None,
                 search_query=q,
@@ -200,13 +195,8 @@ def test_refused_categories_short_circuit_to_the_fixed_template(
     d = deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(
+            classify=lambda q, **_: SimpleNamespace(
                 category=category, response=FIXED_RESPONSES[category], search_query=q
-            )
-        ),
-        contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(
-                query=q, rewritten=False, completion=None
             )
         ),
     )
@@ -233,13 +223,8 @@ def test_conversational_category_short_circuits_to_a_guarded_reply(
     d = deps(
         conn=schema,
         classifier=SimpleNamespace(
-            classify=lambda q: SimpleNamespace(
+            classify=lambda q, **_: SimpleNamespace(
                 category=ScopeCategory.CONVERSATIONAL, response=None, search_query=q
-            )
-        ),
-        contextualizer=SimpleNamespace(
-            contextualize=lambda q, prior, **_: SimpleNamespace(
-                query=q, rewritten=False, completion=None
             )
         ),
         conversational=SimpleNamespace(reply=lambda q: "Hello! Ask me about the Act."),
