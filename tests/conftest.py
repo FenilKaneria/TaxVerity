@@ -6,7 +6,7 @@ import numpy as np
 import psycopg
 import pytest
 from psycopg import sql
-from psycopg.conninfo import make_conninfo
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from taxverity.chunking.chunker import build_chunks
 from taxverity.chunking.models import Chunk
@@ -187,12 +187,29 @@ def retrieval_legs(gold, stored_chunks):
 # never touched and tests cannot see each other's rows.
 
 
-@pytest.fixture(scope="module")
-def admin_url():
+LOCAL_DATABASE_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def local_database_url() -> str:
+    """The configured database URL, only if it is the local compose database.
+    `isolated_environment` strips TAXVERITY_* from the environment, so a test
+    falls back to `.env`, which may point at production: tests create and
+    drop whole databases, so anything not on this machine is skipped."""
     url = Settings().database_url
     if url is None:
         pytest.skip("TAXVERITY_DATABASE_URL not set; run `docker compose up -d`")
-    return url.get_secret_value()
+    value = url.get_secret_value()
+    host = conninfo_to_dict(value).get("host") or ""
+    if host not in LOCAL_DATABASE_HOSTS:
+        pytest.skip(
+            "TAXVERITY_DATABASE_URL is not a local database; tests never touch it"
+        )
+    return value
+
+
+@pytest.fixture(scope="module")
+def admin_url():
+    return local_database_url()
 
 
 @pytest.fixture

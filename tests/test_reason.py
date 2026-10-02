@@ -164,6 +164,36 @@ def test_the_refusal_is_paid_once_per_process():
     ]
 
 
+def out_of_tokens() -> httpx2.Response:
+    # Groq's own wording, as logged on 2026-10-02.
+    return httpx2.Response(
+        400,
+        text='{"error":{"message":"max completion tokens reached before '
+        'generating a valid document"}}',
+    )
+
+
+def test_running_out_of_tokens_gives_no_analysis_and_does_not_latch():
+    node, recorder = build(out_of_tokens(), ok(good_payload()))
+    first = node.reason(QUESTION, PACK, EMPTY_STATE, None)
+    assert first.analysis is None
+    assert first.tokens == 0
+    assert node.schema_refused is False
+    second = node.reason(QUESTION, PACK, EMPTY_STATE, None)
+    assert second.analysis is not None
+    assert [b["response_format"] for b in recorder.bodies] == [
+        STRICT_FORMAT,
+        STRICT_FORMAT,
+    ]
+
+
+def test_running_out_of_tokens_after_a_real_refusal_still_gives_no_analysis():
+    node, recorder = build(refusal(), out_of_tokens())
+    result = node.reason(QUESTION, PACK, EMPTY_STATE, None)
+    assert result.analysis is None
+    assert node.schema_refused is True
+
+
 def test_the_prompt_carries_the_question_and_numbered_evidence():
     node, recorder = build(ok(good_payload()))
     node.reason(QUESTION, PACK, EMPTY_STATE, None)

@@ -75,11 +75,12 @@ class ReasonResult:
     # None means the completion did not parse as a `ReasoningAnalysis` at
     # all — the caller falls back to plain generation, it never raises.
     analysis: ReasoningAnalysis | None
-    completion: Completion
+    # None when the provider ran out of completion tokens before answering.
+    completion: Completion | None
 
     @property
     def tokens(self) -> int:
-        return self.completion.usage.total_tokens
+        return self.completion.usage.total_tokens if self.completion else 0
 
 
 class Reasoner:
@@ -128,12 +129,18 @@ class Reasoner:
         computation: Computation | None,
     ) -> ReasonResult:
         prompt = render_reason_prompt(question, pack, fact_state, computation)
-        completion = self._complete(
-            [
-                Message(role="system", content=self._system_prompt),
-                Message(role="user", content=prompt),
-            ]
-        )
+        try:
+            completion = self._complete(
+                [
+                    Message(role="system", content=self._system_prompt),
+                    Message(role="user", content=prompt),
+                ]
+            )
+        except LLMRequestError as error:
+            if not _out_of_tokens(error):
+                raise
+            logger.warning("reasoning ran out of completion tokens; no analysis")
+            return ReasonResult(analysis=None, completion=None)
         return ReasonResult(analysis=_parse(completion.text), completion=completion)
 
     def _complete(self, messages: Sequence[Message]) -> Completion:
@@ -142,6 +149,11 @@ class Reasoner:
         try:
             return self._call(messages, STRICT_FORMAT)
         except LLMRequestError as error:
+            # Groq reports an exhausted token cap as a 400 too. That is this
+            # completion's length, not the schema: latching on it sent every
+            # later turn to json_object, which then failed to parse.
+            if _out_of_tokens(error):
+                raise
             logger.warning(
                 "provider refused the strict reasoning schema (%s); using json_object",
                 error,
@@ -158,6 +170,10 @@ class Reasoner:
             response_format=response_format,
             temperature=REASON_TEMPERATURE,
         )
+
+
+def _out_of_tokens(error: LLMRequestError) -> bool:
+    return "max completion tokens" in str(error).lower()
 
 
 def _parse(text: str) -> ReasoningAnalysis | None:

@@ -655,6 +655,16 @@ class Verifier:
             findings.append(_unsupported_finding(unsupported))
 
         cited_units = [self._units[m] for m in markers if m in self._units]
+        # A person's own figures may ground an application line, but a
+        # provision number never comes from the person: "section 999" typed
+        # into the question must not ground through `_user_numbers`.
+        from_law: set[Decimal] = set()
+        for unit in cited_units:
+            from_law |= ground_numbers(unit)
+        unsourced_provisions = sorted(_provision_numbers(text) - from_law)
+        if unsourced_provisions:
+            findings.append(_unsupported_finding(unsourced_provisions))
+
         if _names_an_unsourced_online_step(claim.text, cited_units):
             findings.append(
                 Finding(
@@ -867,6 +877,17 @@ def _evaluate(expression: str) -> Decimal | None:
 
     result = add()
     return result if position == len(tokens) else None
+
+
+_PROVISION_NUMBER = re.compile(
+    r"\b(?:sub-?sections?|sections?|sec\.|s\.|u/s\.?|clauses?|rules?|schedules?)"
+    r"\s*\(?(\d+)",
+    re.IGNORECASE,
+)
+
+
+def _provision_numbers(text: str) -> frozenset[Decimal]:
+    return frozenset(Decimal(m) for m in _PROVISION_NUMBER.findall(text))
 
 
 def _unsupported_finding(unsupported: list[Decimal]) -> Finding:

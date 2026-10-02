@@ -11,8 +11,7 @@ import psycopg
 import pytest
 
 from conftest import MICRO_V1 as V1
-from conftest import VECTOR_STORE, Offline, micro_chunks
-from taxverity.config import Settings
+from conftest import VECTOR_STORE, Offline, local_database_url, micro_chunks
 from taxverity.embedding.store import load_vector_store
 from taxverity.evals.metrics import CreditMode, RunReport, Scores
 from taxverity.evals.parity import (
@@ -165,12 +164,10 @@ def test_hnsw_rule_refuses_to_compare_two_different_k():
 def served_set(stored_chunks):
     """The embedding set holding the local store's own vectors. Looked up by the
     manifest's sha256, never by taking whatever set happens to be first."""
-    url = Settings().database_url
-    if url is None:
-        pytest.skip("TAXVERITY_DATABASE_URL not set; run `docker compose up -d`")
+    url = local_database_url()
     corpus_version, _ = stored_chunks
     _, _, manifest = load_vector_store(VECTOR_STORE, corpus_version=corpus_version)
-    with psycopg.connect(url.get_secret_value()) as conn:
+    with psycopg.connect(url) as conn:
         row = conn.execute(
             "SELECT embedding_set_id FROM embedding_sets "
             "WHERE corpus_version = %s AND vectors_sha256 = %s",

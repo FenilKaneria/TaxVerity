@@ -4,7 +4,8 @@ import psycopg
 import pytest
 from psycopg.conninfo import conninfo_to_dict
 
-from taxverity.config import REPO_ROOT, Settings
+from conftest import local_database_url
+from taxverity.config import REPO_ROOT
 
 PGVECTOR_VERSION = "0.8.6"
 POSTGRES_MAJOR = 17
@@ -77,12 +78,8 @@ def test_env_example_url_points_at_the_compose_database():
 # cannot be reached fails: it is a broken dev environment, not an absent one.
 @pytest.fixture(scope="module")
 def conn():
-    url = Settings().database_url
-    if url is None:
-        pytest.skip("TAXVERITY_DATABASE_URL not set; run `docker compose up -d`")
-    with psycopg.connect(
-        url.get_secret_value(), autocommit=True, connect_timeout=5
-    ) as connection:
+    url = local_database_url()
+    with psycopg.connect(url, autocommit=True, connect_timeout=5) as connection:
         yield connection
 
 
