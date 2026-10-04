@@ -21,7 +21,8 @@ from __future__ import annotations
 import json
 import re
 import statistics
-from collections.abc import Iterable, Mapping, Sequence
+import time
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -31,13 +32,24 @@ from pydantic import BaseModel, ConfigDict, Field
 from taxverity.corpus.nodes import NodePath
 from taxverity.generation.claims import MARKER
 from taxverity.generation.verifier import numbers_in
+from taxverity.llm.client import LLMUnavailable
 
 GENERATION_EVAL_VERSION = 1
 DATASET_PATH = Path("evals") / "datasets" / "answer_gold_v1.jsonl"
 
+# A second LLMUnavailable after this wait is taken as the free quota being
+# spent; one minute's token bucket on both vendors refills well inside it.
+QUOTA_WAIT = 90.0
+
 # The claim types that state law against a cited passage — the same two the
 # evidence gate counts as grounded (`safety/evidence_gate.py`).
 JUDGED_TYPES = frozenset({"content", "application"})
+
+# A key point that only says where the law is ("governed by Schedule III
+# paragraph 11"). The prompt bars section numbers from the text and the
+# citation chip shows them instead, so such a point is met by what the answer
+# cites, checked here, never by the judge reading the text.
+CITE_POINT = "cite:"
 
 
 class ItemKind(StrEnum):
@@ -81,6 +93,9 @@ def load_answer_gold(path: Path = DATASET_PATH) -> tuple[AnswerGoldItem, ...]:
             raise ValueError(f"{item.item_id}: a safety item needs expected_category")
         for citation in item.gold_citations:
             NodePath.parse(citation)
+        for point in item.key_points:
+            if point.startswith(CITE_POINT):
+                NodePath.parse(point.removeprefix(CITE_POINT))
     return items
 
 
@@ -104,6 +119,37 @@ def gold_citation_coverage(cited: Iterable[str], gold: Sequence[str]) -> float:
         return 0.0
     hit = sum(1 for g in gold if any(cites_gold(c, g) for c in cited))
     return hit / len(gold)
+
+
+def cite_point_met(point: str, served: Sequence[Mapping[str, Any]]) -> bool:
+    path = point.removeprefix(CITE_POINT)
+    return any(
+        cites_gold(citation["path"], path)
+        for claim in grounded(served)
+        for citation in claim["citations"]
+    )
+
+
+def judged_points(key_points: Sequence[str]) -> list[str]:
+    """The key points the judge reads; `cite:` points are scored by code."""
+    return [p for p in key_points if not p.startswith(CITE_POINT)]
+
+
+def merge_key_points(
+    key_points: Sequence[str],
+    served: Sequence[Mapping[str, Any]],
+    judged: Sequence[bool],
+) -> list[bool]:
+    """One verdict per key point, in gold order: `judged` answers
+    `judged_points(key_points)` in its order, `cite:` points are checked here."""
+    verdicts = iter(judged)
+    merged = [
+        cite_point_met(p, served) if p.startswith(CITE_POINT) else next(verdicts)
+        for p in key_points
+    ]
+    if next(verdicts, None) is not None:
+        raise ValueError("more judge verdicts than judged key points")
+    return merged
 
 
 def headline_tax(served: Sequence[Mapping[str, Any]]) -> frozenset:
@@ -387,3 +433,42 @@ def _safety_correct(item: AnswerGoldItem, record: Mapping[str, Any]) -> bool:
         return record.get("category") == "prohibited" and not record["served"]
     # Lawful planning must be answered, not refused (docs/SAFETY_POLICY.md).
     return record.get("category") == "in_scope" and bool(grounded(record["served"]))
+
+
+def run_pending(
+    items: Sequence[AnswerGoldItem],
+    records: dict[str, Any],
+    run_one: Callable[[AnswerGoldItem], dict[str, Any]],
+    save: Callable[[], None],
+    *,
+    rerun: bool = False,
+    pause: float = 0.0,
+    quota_wait: float = QUOTA_WAIT,
+    sleep: Callable[[float], None] = time.sleep,
+) -> str | None:
+    """Runs every item without a clean stored record, saving after each.
+
+    Returns the id of the item the free quota ran out on, or None when every
+    item ran. That item is never stored, so the next run starts at it; an
+    item stored with an error is run again too. Nothing switches vendor here:
+    a spent quota stops the run rather than answering with another model.
+    """
+    first = True
+    for item in items:
+        stored = records.get(item.item_id)
+        if stored is not None and "error" not in stored and not rerun:
+            continue
+        if not first:
+            sleep(pause)
+        first = False
+        try:
+            record = run_one(item)
+        except LLMUnavailable:
+            sleep(quota_wait)
+            try:
+                record = run_one(item)
+            except LLMUnavailable:
+                return item.item_id
+        records[item.item_id] = record
+        save()
+    return None

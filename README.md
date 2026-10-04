@@ -62,20 +62,21 @@ flowchart LR
 
 ## Results
 
-All numbers come from the hand-labelled sets in `evals/datasets/`, written
-to `reports/` by the `scripts/measure_*.py` runs. Adoption rules were fixed
-before each run.
+All numbers come from hand-labelled gold sets, measured by the
+`scripts/measure_*.py` runs. Adoption rules and floors were fixed before each
+run. The gold sets, measurement reports and Python test suite are kept out of
+this repository.
 
 **Retrieval** — 80 gold queries (citation / paraphrase / crossref /
 negative slices), k = 10, lenient = an ancestor chunk also counts
-(`reports/hybrid_measurement.md`):
+(no rewrite, no classifier):
 
 | Retriever | Recall@10 | MRR | nDCG@10 |
 |---|---|---|---|
 | BM25 | 0.602 | 0.496 | 0.502 |
 | Dense (Jina v5) | 0.727 | 0.570 | 0.576 |
 | Hybrid (RRF) + citation shortcut | 0.797 | 0.717 | 0.700 |
-| + reranker (`reports/rerank_measurement.md`) | 0.812 | 0.750 | 0.727 |
+| + reranker | 0.812 | 0.750 | 0.727 |
 
 Reranking lifts strict nDCG@5 from 0.417 to 0.565 and the crossref slice's
 nDCG@5 from 0.348 to 0.536, at 606 / 1,126 ms p50 / p95. Hybrid + shortcut
@@ -83,7 +84,36 @@ search itself runs at 16 / 20 ms p50 / p95 excluding query embedding.
 
 **Experiments measured and rejected:** one-hop cross-reference expansion
 (paraphrase slice fell 0.821 → 0.804), HNSW indexing (changed 18 of 80 gold
-rankings; exact scan p95 ~51 ms is inside budget).
+rankings; exact scan p95 ~51 ms is inside budget). Expansion was later
+re-admitted in a narrower form: after every hit is packed, leftover evidence
+budget is filled with the provisions those hits refer to, so it never costs a
+hit its place (evidence-pack coverage of gold citations 0.867 → 0.898 at a
+3,000-token budget).
+
+**Generation** — 81 items through the full graph (49 answerable, 16 negative,
+8 calculation, 8 safety). Every served line was judged against only the
+passages it cites (supported / partial / unsupported):
+
+| Measure | Result |
+|---|---|
+| Answer rate (answerable items with a grounded claim) | 1.000 |
+| False abstention (answerable) / abstention recall (negatives) | 0.000 / 0.938 |
+| Safety cases correct | 8 / 8 |
+| First-pass verifier pass rate / withheld after repair | 0.906 / 0.039 |
+| Served claims: supported / partial / unsupported | 0.746 / 0.227 / 0.027 |
+| Unsupported claims before the verifier gate | 0.065 |
+| Gold citation coverage / citation hit rate | 0.837 / 0.898 |
+| Key-point recall | 0.779 (0.830 after a figure-precision prompt fix) |
+| Calculator exact match | 7 / 8 |
+| Latency p50 / p95 | 5.1 s / 12.8 s |
+
+Two floors fixed in advance were missed and are reported as missed:
+unsupported served claims 0.027 against ≤ 0.02, and calculator exact match
+7 / 8 against 8 / 8. The verifier gate cuts unsupported claims from 0.065 to
+0.027; what remains are mostly figures applied to the wrong case, which number
+grounding cannot see. The judge (Claude) agreed with 30 blind human labels at
+Cohen's kappa 0.634. The judge saw the human labels on disputed rows before
+re-judging, so that figure is optimistic.
 
 **Other components:**
 
@@ -92,14 +122,17 @@ rankings; exact scan p95 ~51 ms is inside budget).
 | Fact extraction (gpt-oss-120b) | 42 turns, 49 facts | strict 0.959, field F1 0.990, fabricated spans 0 / 45 |
 | Safety classifier (gpt-oss-20b) | 34 cases | accuracy 0.971, refusal precision 1.000, recall 1.000 |
 | Routing | 15 cases | 15 / 15 |
-| Answer gate | 10 answerable + 5 negative | no negative question served a statute claim; 41 claims served, 8 withheld |
+| Answer gate (advisor smoke) | 15 turns incl. guard scripts | guards pass: no negative or injection turn served a claim |
 
 ## Status and docs
 
 Phases 0–18 are built: corpus, retrieval, calculator, generation with
 grounding verification, accounts and threads, safety and scope, the LangGraph
 query graph, API, frontend, AWS deployment and CI hardening (dependency audit,
-Dependabot). Operations are in [`docs/RUNBOOK.md`](docs/RUNBOOK.md); the
+Dependabot), followed by an answer-level generation evaluation (above).
+Generation and repair run on OpenAI `gpt-5-mini`; classification, fact
+extraction and reasoning run on Groq `gpt-oss` models, with Gemini as the
+cross-vendor fallback. Operations are in [`docs/RUNBOOK.md`](docs/RUNBOOK.md); the
 scope and refusal policy is [`docs/SAFETY_POLICY.md`](docs/SAFETY_POLICY.md).
 
 The step-level roadmap and architecture decision records (`PLAN.md`,
@@ -122,7 +155,6 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.13.
 
 ```bash
 uv sync                  # create .venv, install deps and the package
-uv run pytest            # tests
 uv run ruff check        # lint
 uv run ruff format       # format
 ```
@@ -133,8 +165,7 @@ Postgres + pgvector for local development runs in Docker:
 docker compose up -d --wait   # pgvector 0.8.6 on Postgres 17, 127.0.0.1:5432
 ```
 
-Set `TAXVERITY_DATABASE_URL` in `.env` as shown in `.env.example`. Without it,
-the database tests skip. Then create the schema and load the corpus:
+Set `TAXVERITY_DATABASE_URL` in `.env` as shown in `.env.example`. Then create the schema and load the corpus:
 
 ```bash
 uv run python scripts/migrate.py         # apply pending SQL migrations

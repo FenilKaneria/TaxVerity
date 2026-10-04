@@ -54,22 +54,33 @@ from taxverity.evals.generation import (
     GENERATION_EVAL_VERSION,
     JUDGED_TYPES,
     KEY_POINT_JUDGE_PROMPT,
+    QUOTA_WAIT,
     ClaimLabel,
     ItemKind,
     JudgeParseError,
     claim_judge_input,
     cohen_kappa,
+    judged_points,
     key_point_judge_input,
     load_answer_gold,
+    merge_key_points,
     parse_claim_label,
     parse_coverage,
     passages_for,
+    run_pending,
     summarise,
 )
 from taxverity.generation.generate import DraftOutcome
 from taxverity.graph.build import build_deps, build_graph
 from taxverity.llm.cache import CachedLLMClient
-from taxverity.llm.client import GEMINI, GROQ, OPENAI_MINI, LLMClient, Message
+from taxverity.llm.client import (
+    GEMINI,
+    GROQ,
+    OPENAI_MINI,
+    LLMClient,
+    LLMUnavailable,
+    Message,
+)
 from taxverity.observability import configure_logging, get_logger
 from taxverity.threads.store import create_thread
 
@@ -86,6 +97,7 @@ DEFAULT_JUDGE = "gemini"  # generation runs on OpenAI gpt-5-mini (ADR-129)
 JUDGE_MAX_TOKENS = 600
 LABEL_SAMPLE = 30
 LABEL_SEED = 20261004
+QUOTA_EXIT = 2
 
 FLOORS = {
     "unsupported_rate_served": ("<=", 0.02),
@@ -242,28 +254,23 @@ def cmd_run(args: argparse.Namespace) -> int:
             graph = build_graph(deps)
             run["corpus_version"] = served.corpus_version
             run["run_at"] = time.strftime("%Y-%m-%d %H:%M")
-            recorder.take()
-            first = True
-            for item in items:
-                if item.item_id in run["records"] and not args.rerun:
-                    continue  # resumable: a stopped run picks up where it left off
-                if not first:
-                    time.sleep(args.pause)
-                first = False
+
+            def run_one(item: Any) -> dict[str, Any]:
+                recorder.take()
                 user_id = _create_user(conn)
                 thread = create_thread(conn, user_id, f"generation eval {item.item_id}")
                 try:
                     record = run_item(
                         graph, deps.generator, user_id, thread.thread_id, item.question
                     )
+                except LLMUnavailable:
+                    raise  # run_pending waits once, then stops the run
                 except Exception as error:  # noqa: BLE001 — record, keep going
                     logger.exception("item failed: %s", item.item_id)
                     record = {"question": item.question, "error": repr(error)}
                 finally:
                     conn.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
                 record["llm_calls"], record["tokens"] = recorder.take()
-                run["records"][item.item_id] = record
-                _store(args.label, run)  # after every item, so nothing is lost
                 logger.info(
                     "%s: %s served, %s withheld, %ss",
                     item.item_id,
@@ -271,10 +278,31 @@ def cmd_run(args: argparse.Namespace) -> int:
                     len(record.get("withheld", [])),
                     record.get("seconds"),
                 )
+                return record
+
+            stopped_at = run_pending(
+                items,
+                run["records"],
+                run_one,
+                lambda: _store(args.label, run),  # after every item
+                rerun=args.rerun,
+                pause=args.pause,
+            )
     finally:
         llm_logger.removeHandler(recorder)
+    _store(args.label, run)
     print(f"wrote {_result_path(args.label)}")
+    if stopped_at is not None:
+        print(_quota_message(stopped_at, "run"), file=sys.stderr)
+        return QUOTA_EXIT
     return 0
+
+
+def _quota_message(item_id: str, command: str) -> str:
+    return (
+        f"free quota exhausted at {item_id}; progress saved. Re-run the same "
+        f"`{command}` command after the quota resets to continue from there."
+    )
 
 
 # --- 2. judge --------------------------------------------------------------
@@ -322,48 +350,67 @@ def cmd_judge(args: argparse.Namespace) -> int:
     run = _load(args.label)
     run["judge_model"] = JUDGES[args.judge].model
     for item_id, record in run["records"].items():
-        if "error" in record:
+        if "error" in record or ("judge" in record and not args.rejudge):
             continue
-        evidence = {e["marker"]: (e["citation"], e["text"]) for e in record["evidence"]}
-        served = {
-            str(claim["id"]): _label_claim(
-                client, claim["text"], passages_for(claim["text"], evidence)
-            )
-            for claim in record["served"]
-            if claim["type"] in JUDGED_TYPES and claim.get("citations")
-        }
-        first_pass = {
-            str(line["claim_id"]): _label_claim(
-                client, line["line"], passages_for(line["line"], evidence)
-            )
-            for line in record["first_pass"]
-            if line["type"] in JUDGED_TYPES
-        }
-        judge: dict[str, Any] = {
-            "served": {k: v for k, v in served.items() if v != "unjudged"},
-            "first_pass": {k: v for k, v in first_pass.items() if v != "unjudged"},
-        }
-        item = items[item_id]
-        if item.kind is ItemKind.ANSWERABLE:
-            answer = "\n".join(c["text"] for c in record["served"]) or (
-                record.get("fixed_text") or ""
-            )
-            reply = _ask(
-                client,
-                KEY_POINT_JUDGE_PROMPT,
-                key_point_judge_input(answer, item.key_points),
-            )
+        try:
+            _judge_record(client, items[item_id], record)
+        except LLMUnavailable:
+            # Same rule as `run`: one wait for a per-minute limit, then a
+            # second failure is a spent quota. Calls already answered are in
+            # the disk cache, so the retry repeats none of them.
+            time.sleep(QUOTA_WAIT)
             try:
-                judge["key_points"] = list(parse_coverage(reply, len(item.key_points)))
-            except JudgeParseError:
-                logger.warning("%s: key-point reply unusable", item_id)
-        record["judge"] = judge
+                _judge_record(client, items[item_id], record)
+            except LLMUnavailable:
+                _store(args.label, run)
+                print(_quota_message(item_id, "judge"), file=sys.stderr)
+                return QUOTA_EXIT
+        _store(args.label, run)  # after every item, so nothing is lost
         logger.info("%s judged", item_id)
-    _store(args.label, run)
     print(
         f"judged with {run['judge_model']}; cache {client.hits} hits, {client.misses} misses"
     )
     return 0
+
+
+def _judge_record(client: CachedLLMClient, item: Any, record: dict[str, Any]) -> None:
+    evidence = {e["marker"]: (e["citation"], e["text"]) for e in record["evidence"]}
+    served = {
+        str(claim["id"]): _label_claim(
+            client, claim["text"], passages_for(claim["text"], evidence)
+        )
+        for claim in record["served"]
+        if claim["type"] in JUDGED_TYPES and claim.get("citations")
+    }
+    first_pass = {
+        str(line["claim_id"]): _label_claim(
+            client, line["line"], passages_for(line["line"], evidence)
+        )
+        for line in record["first_pass"]
+        if line["type"] in JUDGED_TYPES
+    }
+    judge: dict[str, Any] = {
+        "served": {k: v for k, v in served.items() if v != "unjudged"},
+        "first_pass": {k: v for k, v in first_pass.items() if v != "unjudged"},
+    }
+    if item.kind is ItemKind.ANSWERABLE:
+        answer = "\n".join(c["text"] for c in record["served"]) or (
+            record.get("fixed_text") or ""
+        )
+        points = judged_points(item.key_points)
+        try:
+            judged: tuple[bool, ...] = ()
+            if points:
+                reply = _ask(
+                    client, KEY_POINT_JUDGE_PROMPT, key_point_judge_input(answer, points)
+                )
+                judged = parse_coverage(reply, len(points))
+            judge["key_points"] = merge_key_points(
+                item.key_points, record["served"], judged
+            )
+        except JudgeParseError:
+            logger.warning("%s: key-point reply unusable", item.item_id)
+    record["judge"] = judge
 
 
 # --- 3. human agreement ----------------------------------------------------
@@ -374,21 +421,30 @@ def _labels_path(label: str) -> Path:
 
 
 def cmd_export_labels(args: argparse.Namespace) -> int:
+    # Sampled from every claim the judge would label, not only those already
+    # judged: the human can start before the judge finishes, and the sample
+    # does not depend on how far a quota-limited judge got.
     run = _load(args.label)
     rows = []
     for item_id, record in sorted(run["records"].items()):
-        judge = record.get("judge")
-        if not judge:
+        if "error" in record:
             continue
         evidence = {e["marker"]: (e["citation"], e["text"]) for e in record["evidence"]}
-        lines = {str(c["id"]): c["text"] for c in record["served"]}
-        raw = {str(o["claim_id"]): o["line"] for o in record["first_pass"]}
-        for stage, texts in (("served", lines), ("first_pass", raw)):
-            for claim_id, label in judge.get(stage, {}).items():
-                if label == ClaimLabel.UNCITED.value:
-                    continue  # assigned by rule, nothing for a human to check
-                text = texts[claim_id]
+        served = [
+            (str(c["id"]), c["text"])
+            for c in record["served"]
+            if c["type"] in JUDGED_TYPES and c.get("citations")
+        ]
+        first_pass = [
+            (str(o["claim_id"]), o["line"])
+            for o in record["first_pass"]
+            if o["type"] in JUDGED_TYPES
+        ]
+        for stage, claims in (("served", served), ("first_pass", first_pass)):
+            for claim_id, text in claims:
                 passages = passages_for(text, evidence)
+                if not passages:
+                    continue  # labelled uncited by rule, nothing for a human to check
                 rows.append(
                     {
                         "item_id": item_id,
@@ -419,11 +475,24 @@ def cmd_agreement(args: argparse.Namespace) -> int:
     run = _load(args.label)
     with _labels_path(args.label).open(encoding="utf-8") as handle:
         rows = [r for r in csv.DictReader(handle) if r["human_label"].strip()]
-    human, judge = [], []
+    human, judge, unjudged = [], [], []
     for row in rows:
-        judged = run["records"][row["item_id"]]["judge"][row["stage"]][row["claim_id"]]
+        judged = (
+            run["records"][row["item_id"]]
+            .get("judge", {})
+            .get(row["stage"], {})
+            .get(row["claim_id"])
+        )
+        if judged is None:
+            unjudged.append(f"{row['item_id']}/{row['stage']}/{row['claim_id']}")
+            continue
         human.append(ClaimLabel(row["human_label"].strip()) is ClaimLabel.SUPPORTED)
         judge.append(ClaimLabel(judged) is ClaimLabel.SUPPORTED)
+    if unjudged:
+        raise ValueError(
+            f"{len(unjudged)} labelled claims have no judge label yet "
+            f"(e.g. {unjudged[0]}): finish `judge` first"
+        )
     kappa = cohen_kappa(human, judge)
     agreement = sum(h == j for h, j in zip(human, judge, strict=True)) / len(human)
     run["agreement"] = {"n": len(human), "agreement": agreement, "kappa": kappa}
@@ -546,6 +615,9 @@ def main() -> int:
     judge = sub.add_parser("judge", help="label a stored run with the LLM judge")
     judge.add_argument("--label", required=True)
     judge.add_argument("--judge", choices=sorted(JUDGES), default=DEFAULT_JUDGE)
+    judge.add_argument(
+        "--rejudge", action="store_true", help="judge items already judged again"
+    )
     judge.set_defaults(func=cmd_judge)
 
     export = sub.add_parser("export-labels", help="sample claims for a human")

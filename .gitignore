@@ -12,8 +12,14 @@ DECISIONS.md
 
 # Derived corpus artifacts — regenerable from the PDF via scripts/ and keyed
 # by corpus_version (ADR-005). Step 1.2 onward writes large span-level JSONL
-# here. reports/ is deliberately NOT ignored: it is the evidence.
+# here.
 data/
+
+# Test suite, eval datasets and measurement reports: kept locally, not in the
+# public repo (user decision 2026-10-04). Older commits still carry them.
+/tests/
+/evals/
+/reports/
 
 # Python
 __pycache__/

@@ -83,7 +83,10 @@ GRAPH_BUILD_STAGE_VERSION = 11
 # module default: fewer, shorter passages read faster and cite more
 # reliably (marker numbers, not verbatim quotes, per University Assistant's
 # top-5-small-passages approach — see PLAN's R19 note).
-PRODUCTION_EVIDENCE_BUDGET = 2_500
+# ADR-131: 3,000 with reference fill. Measured on gold v2 + answer gold:
+# coverage 0.867 -> 0.898, mean pack 2,112 -> 2,680 tokens; 3,500 added
+# ~0.01 more for ~400 tokens on `reason`'s Groq 120b bucket.
+PRODUCTION_EVIDENCE_BUDGET = 3_000
 
 # R21 Part B: measured query-embed p95 is ~416 ms (reports/dense_measurement.md);
 # 5 s leaves room for the one-off probe-fingerprint batch on a cold process.

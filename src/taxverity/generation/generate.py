@@ -50,8 +50,8 @@ from taxverity.retrieval.tables import with_table_rows
 
 logger = get_logger(__name__)
 
-GENERATION_STAGE_VERSION = 11
-GENERATION_PROMPT_VERSION = 11
+GENERATION_STAGE_VERSION = 12
+GENERATION_PROMPT_VERSION = 12
 
 # Reasoning is billed against the cap and cannot be disabled (Step 7.1).
 GENERATION_MAX_COMPLETION_TOKENS = 2_048
@@ -86,7 +86,7 @@ Layout. Write plain lines of text, one statement per line, shaped to the questio
 
 Tone:
 - Speak to the person as "you", the way a knowledgeable friend would. Keep sentences under 20 words.
-- Never write a section, sub-section or clause number, or the word "section", in a line: the bracket number already shows where a line comes from. Name the rule by what it does instead ("the rebate", "the rule on tax your employer pays"). Only when the person named a section themselves may you name that one section, once.
+- Never write a section, sub-section or clause number, or the word "section", in a line: the bracket number already shows where a line comes from. Name the rule by what it does instead of by its number ("the rebate", "the rule on tax your employer pays"); this replaces only the section number, never a figure. Only when the person named a section themselves may you name that one section, once.
 - Use everyday words. Never use legal phrasing such as "assessee", "notwithstanding", "in respect of", "computed under the head", "aforesaid", "thereof", "the said", "subject to the provisions of", "deemed", "chargeable", "tax liability", "prescribed", "credited against", "in accordance with", "pursuant to", "as the case may be". Say "your tax", "set by the rules", "counts towards". If you must use a technical term, explain it in brackets on the same line.
 - Give advice, not a summary of the law. Where the passages set a condition, tell the person how to meet it lawfully: the payment mode, the proof to keep, the date to act by. Each such step cites its passage. Never describe how to use a website, portal, app or form in a cited line: the passages do not contain that. Such steps go in general guidance (below).
 - If a <previous_answer> is given, the person is following up on it: do not repeat it, go further in whatever way <latest_message> asks.
@@ -116,7 +116,7 @@ Yes, you can usually claim this, as long as you meet its conditions [1].
 - Keep the receipt with your tax papers [2].
 
 Rules:
-1. Never state a figure, a percentage, or a limit that is not written, in digits or in words, in a passage you cite on that same line, in the person's own stated facts, or in the computation block (example lines: see above). Never state that something is allowed if a cited passage says it is not, or the reverse.
+1. Never state a figure, a percentage, or a limit that is not written, in digits or in words, in a passage you cite on that same line, in the person's own stated facts, or in the computation block (example lines: see above). Never state that something is allowed if a cited passage says it is not, or the reverse. When a passage you cite states the amount, rate, limit, period or count a line talks about, write that figure in the line ("₹50,000", "30%", "two years"); never write "the higher amount", "the rate set", "the stated limit", "the cap" or "the threshold" in its place. Where the passage gives different figures for different cases, give each case with its figure.
 2. A line restating a figure from the computation block below (never from a passage) ends with the literal marker [calc] instead of a citation number, e.g. "Your tax payable is ₹0 [calc]." Only write one of these when a computation block is given.
 3. If an <analysis> block below sets out a condition and the person's facts decide it, write one line applying that rule to the person, ending with the passage number(s) it comes from and the literal marker [fact], e.g. "You can deduct the interest you paid [4][fact]." Only say the person qualifies when the analysis shows every condition you rely on as satisfied.
 4. Only when the person asked about their own situation and the analysis marks a condition they depend on as unknown, write at most one line starting exactly with "This can't yet be determined because", naming what is missing, ending with the number of the passage that condition comes from, with no other number and no [fact] marker on that line. For a general question, state the condition as part of the rule instead.
@@ -275,6 +275,7 @@ REPAIR_SYSTEM_PROMPT = """You wrote a plain-language answer about the Income-tax
 - An example line starts with "For example," or "Suppose", states its made-up amounts in that opening sentence, shows any worked-out amount as a correct equation, takes every rate, limit or section number from a cited passage, and ends with [eg].
 - A line ending with [guide] is general guidance: it keeps [guide], cites nothing, and describes process only, with no figure, date, section, tax word (deduction, exemption, rate, limit, penalty) or web address.
 - Use everyday words, and never write a section or clause number, or the word "section", unless the person named that section themselves.
+- When the cited passage does state the figure a line talks about, write the figure rather than a vague reference such as "the higher amount" or "the rate set".
 - If a line cannot be fixed that way, drop the figure rather than invent a source.
 
 Reply with exactly one corrected line per failure below, in the same order, each on its own line, and nothing else: no commentary.

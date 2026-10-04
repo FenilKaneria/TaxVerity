@@ -249,6 +249,7 @@ class EvidencePacker:
         results: Sequence[ScoredChunk],
         *,
         expand: bool = False,
+        fill_refs: bool = False,
         definitions: Sequence[Chunk] = (),
     ) -> EvidencePack:
         """Walk the ranking best first.
@@ -260,6 +261,10 @@ class EvidencePacker:
         2. What those units' text refers to, one hop, taken in the order of the
            unit citing it. A referenced unit's own references are not followed.
         3. The rest of the ranking.
+
+        `fill_refs` (ADR-131) is the production alternative: after the whole
+        ranking, what each retrieved unit refers to, one hop, in rank order,
+        only where budget is left. It never costs a hit its place.
 
         `definitions` are placed last of all, so they never displace a hit
         (ADR-086, off by default). A hit that does not fit is passed over and
@@ -285,6 +290,20 @@ class EvidencePacker:
                     )
         for rank, result in enumerate(results[head:], start=head + 1):
             units = self._place(units, result.chunk, rank, EvidenceRole.RETRIEVED)
+        if fill_refs and not expand:
+            # ADR-131: unlike `expand`, this runs after every hit is placed,
+            # so a reference only takes budget no hit could use.
+            for citer in list(units):
+                if citer.role is not EvidenceRole.RETRIEVED:
+                    continue
+                for target in self._targets(citer.chunk):
+                    units = self._place(
+                        units,
+                        target,
+                        citer.rank,
+                        EvidenceRole.REFERENCED,
+                        citer.citation,
+                    )
         for chunk in definitions:
             units = self._place(units, chunk, len(results) + 1, EvidenceRole.DEFINITION)
 

@@ -251,16 +251,17 @@ class FactExtractor:
         extraction = self._parse(first.text, seen)
 
         repairable = tuple(r for r in extraction.rejections if r.issue in REPAIRABLE)
+        unrepaired = ExtractionResult(
+            facts=_complete_missing(extraction.facts),
+            rejections=extraction.rejections,
+            repairable=repairable,
+            repaired=False,
+            completions=tuple(completions),
+            situation_facts=extraction.situation_facts,
+            situation_rejections=extraction.situation_rejections,
+        )
         if not (repairable and self._repair):
-            return ExtractionResult(
-                facts=_complete_missing(extraction.facts),
-                rejections=extraction.rejections,
-                repairable=repairable,
-                repaired=False,
-                completions=tuple(completions),
-                situation_facts=extraction.situation_facts,
-                situation_rejections=extraction.situation_rejections,
-            )
+            return unrepaired
 
         # A retry, which rule 01 logs without exception.
         logger.warning(
@@ -268,15 +269,23 @@ class FactExtractor:
             len(repairable),
             len(extraction.rejections),
         )
-        second = self._ask(
-            [
-                Message(role="system", content=self._system_prompt),
-                Message(role="user", content=turn),
-                Message(role="assistant", content=first.text),
-                Message(role="user", content=_repair_prompt(repairable)),
-            ],
-            completions,
-        )
+        try:
+            second = self._ask(
+                [
+                    Message(role="system", content=self._system_prompt),
+                    Message(role="user", content=turn),
+                    Message(role="assistant", content=first.text),
+                    Message(role="user", content=_repair_prompt(repairable)),
+                ],
+                completions,
+            )
+        except LLMRequestError as error:
+            # Groq refuses a reply that breaks json_object mode with a 400
+            # ("json_validate_failed"). The repair is optional: its rejected
+            # entries stay rejected, so those fields are missing and the
+            # calculator asks for them — a refused repair must not kill the turn.
+            logger.warning("fact repair refused (%s); keeping the first pass", error)
+            return unrepaired
         merged = _merge(extraction, self._parse(second.text, seen), repairable)
         return ExtractionResult(
             facts=_complete_missing(merged.facts),

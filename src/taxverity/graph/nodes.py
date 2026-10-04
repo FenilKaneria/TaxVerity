@@ -399,7 +399,9 @@ def _retrieve(
         results = list(deps.retriever.search(base_query, k))
     if state.get("intent") is Intent.CALCULATION:
         results = pinned_first(deps.calc_pins, results)
-    pack = deps.packer.pack(results, expand=expand)
+    # ADR-131: a first pass fills leftover budget with what its hits refer
+    # to; the retry's `expand` already brings references, ahead of the tail.
+    pack = deps.packer.pack(results, expand=expand, fill_refs=not expand)
     emit(
         StageEvent(
             stage="evidence", chunks=tuple(unit.citation for unit in pack.units)
