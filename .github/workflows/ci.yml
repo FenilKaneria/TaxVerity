@@ -1,6 +1,7 @@
-# Step 15.4 (ESSENTIAL, rule 01 product-first mode). Three independent jobs:
-# lint, the test suite against a real pgvector service container, and a
-# Docker build check. No live-vendor calls: tests needing Jina, Groq, Gemini,
+# Step 15.4 (ESSENTIAL, rule 01 product-first mode), extended by Step 18.2.
+# Independent jobs: lint, the test suite against a real pgvector service
+# container, the frontend's lint/tests, a dependency audit of both lockfiles,
+# and a Docker build check. No live-vendor calls: tests needing Jina, Groq, Gemini,
 # Langfuse or Gmail skip without keys (the pattern established from Step 4.6
 # onward), and no secret is configured here on purpose.
 name: CI
@@ -63,3 +64,38 @@ jobs:
         with:
           context: .
           push: false
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  # Step 18.2: known-vulnerability scan of exactly what ships — the locked
+  # Python dependencies (no dev group, as in the image) and the frontend's
+  # production npm tree. Fails on high/critical npm advisories and on any
+  # pip-audit finding.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: uv export --locked --no-dev --no-emit-project --format requirements-txt > requirements.txt
+      - run: uvx pip-audit --strict --disable-pip -r requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend

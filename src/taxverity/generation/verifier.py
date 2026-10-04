@@ -222,6 +222,14 @@ _URL = re.compile(
 )
 
 
+# A bracketed identifier ("[previous_answer]", "[source]"). The four named
+# markers of the line grammar are the only ones a served line may carry.
+_WORD_MARKER = re.compile(r"\[([A-Za-z_]\w*)\]")
+_KNOWN_WORD_MARKERS = frozenset(
+    m.strip("[]") for m in (CALC_MARKER, FACT_MARKER, EXAMPLE_MARKER, GUIDE_MARKER)
+)
+
+
 class Violation(StrEnum):
     MALFORMED_CLAIM = "malformed_claim"
     MALFORMED_HEADING = "malformed_heading"
@@ -229,6 +237,10 @@ class Violation(StrEnum):
     MALFORMED_UNKNOWN = "malformed_unknown"
     NO_CITATION = "no_citation"
     MARKER_NOT_IN_EVIDENCE = "marker_not_in_evidence"
+    # A bracketed word that is none of the line grammar's markers — e.g. the
+    # model echoing a context tag as "[previous_answer]". Never served: the
+    # reader would see a raw token and the line's real citation is unclear.
+    UNKNOWN_MARKER = "unknown_marker"
     NO_COMPUTATION = "no_computation"
     UNSUPPORTED_NUMBER = "unsupported_number"
     MODAL_MISMATCH = "modal_mismatch"
@@ -325,6 +337,20 @@ class Verifier:
         )
 
     def _verify(self, claim: Claim) -> Verdict:
+        unknown = [
+            word
+            for word in _WORD_MARKER.findall(claim.text)
+            if word not in _KNOWN_WORD_MARKERS
+        ]
+        if unknown:
+            verdict = self._verify_by_type(claim)
+            finding = Finding(
+                Violation.UNKNOWN_MARKER, f"[{unknown[0]}] is not a marker"
+            )
+            return dataclasses.replace(verdict, findings=(finding, *verdict.findings))
+        return self._verify_by_type(claim)
+
+    def _verify_by_type(self, claim: Claim) -> Verdict:
         if claim.type is ClaimType.HEADING:
             return self._verify_heading(claim)
         if claim.type is ClaimType.NO_BASIS:

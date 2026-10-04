@@ -515,7 +515,7 @@ def test_an_error_in_a_worker_thread_surfaces_rather_than_being_swallowed():
         )
 
 
-# --- reason (R20 Step 20.5, no DB, not yet wired into the compiled graph) ----
+# --- reason (R20 Step 20.5, no DB) --------------------------------------------
 
 
 class StubReasoner:
@@ -630,7 +630,7 @@ def test_reason_returns_the_validated_analysis_when_a_rule_survives():
     assert result["answer_plan"].conclusion_kind is ConclusionKind.CONDITIONAL
 
 
-# --- decide (R20 Step 20.6, no DB, not yet wired into the compiled graph) ----
+# --- decide (R20 Step 20.6, no DB) --------------------------------------------
 
 
 def test_decide_does_nothing_when_no_missing_facts_and_no_prior_clarify():

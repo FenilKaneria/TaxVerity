@@ -494,9 +494,9 @@ _NO_ANALYSIS: dict[str, Any] = {
 
 
 def reason(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
-    """Not yet wired into the compiled graph (that is Step 20.8's "graph
-    rewire") — directly callable and directly testable, the same way
-    `retrieve_retry` existed for two steps before its edge was added.
+    """R20 Step 20.5: structured legal analysis of the pack, joined after
+    `retrieve` and the facts/calculator branch (`build.py`, `defer=True`)
+    and feeding `decide`.
 
     Skipped for an intent that needs no condition-checking, and skipped or
     falling back whenever the model's own output does not survive
@@ -531,9 +531,8 @@ def reason(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> 
 
 def decide(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
     """R20 Step 20.6: deterministic clarify | answer gate, downstream of
-    `reason` (20.5). Not yet wired into the compiled graph (Step 20.8's
-    "graph rewire") — directly callable and directly testable, the same way
-    `reason` existed for one step before its edge was added.
+    `reason` (20.5), wired between `reason` and `generate_verify`
+    (`build.py`).
 
     Calculator-sourced clarify questions (`route_calc`, Step 13.2, fixed
     `CLARIFY_TEMPLATES`) are untouched and already emitted their own event.

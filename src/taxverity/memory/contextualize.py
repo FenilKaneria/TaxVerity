@@ -109,6 +109,11 @@ class ContextualizationResult:
 
 
 class QueryContextualizer:
+    """Offline/eval only since R23 (ADR-129): production folds the follow-up
+    rewrite into `classify`'s single call, gated by the deterministic checks
+    above. Kept so the follow-up evals (`evals/followups.py`,
+    `scripts/answer_smoke.py`) stay reproducible against their stored runs."""
+
     def __init__(
         self,
         client: Any,

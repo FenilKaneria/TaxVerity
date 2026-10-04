@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from taxverity.calculator.materiality import OTHER_INCOME_FIELDS
@@ -280,7 +281,29 @@ Reply with exactly one corrected line per failure below, in the same order, each
 """
 
 
+@dataclass(frozen=True)
+class DraftOutcome:
+    """One line as the verifier judged it, for an offline observer
+    (`scripts/measure_generation.py`). `type` is None for a line that never
+    parsed as a claim; `violations` is empty exactly when the line passed."""
+
+    claim_id: int
+    line: str
+    type: str | None
+    passed: bool
+    violations: tuple[str, ...]
+
+
+# (stage, outcomes): stage is "first_pass" (before any repair) or "final".
+DraftObserver = Callable[[str, list[DraftOutcome]], None]
+
+
 class AnswerGenerator:
+    # Offline measurement only: set to see every line before and after the
+    # repair, which the released events alone cannot show. Never set in
+    # production; it changes nothing about what is generated or served.
+    observer: DraftObserver | None = None
+
     def __init__(
         self,
         llm: Any,
@@ -395,11 +418,13 @@ class AnswerGenerator:
             _draft(claim_id, _renumbered(line, verifier), verifier)
             for claim_id, line in enumerate(lines, start=1)
         ]
+        self._observe("first_pass", drafts)
         failing = [draft for draft in drafts if not draft.passed]
         if failing:
             if on_repair is not None:
                 on_repair()
             drafts = self._repair(context, drafts, failing, verifier)
+        self._observe("final", drafts)
 
         events = _drop_empty_sections([_event(draft) for draft in drafts])
         served = sum(isinstance(event, ClaimEvent) for event in events)
@@ -409,6 +434,10 @@ class AnswerGenerator:
             len(events) - served,
         )
         return events
+
+    def _observe(self, stage: str, drafts: list[_Draft]) -> None:
+        if self.observer is not None:
+            self.observer(stage, [_outcome(draft) for draft in drafts])
 
     def _repair(
         self,
@@ -454,6 +483,7 @@ class AnswerGenerator:
 
 def _renumbered(line: str, verifier: Verifier) -> str:
     line = renumber_section_markers(line, verifier.section_markers, verifier.pack_size)
+    line = collapse_repeated_markers(line)
     # R21 Part B: with no computation block there is nothing for [calc] to
     # restate; a "Suppose …" line marked [calc] is a worked example, so it is
     # verified as one — under the stricter legal-figure rule, never looser.
@@ -466,6 +496,16 @@ def _renumbered(line: str, verifier: Verifier) -> str:
             CALC_MARKER, "" if EXAMPLE_MARKER in line else EXAMPLE_MARKER
         )
     return line
+
+
+_REPEATED_MARKER = re.compile(r"(\[\d+\])(?:\s*\1)+")
+
+
+def collapse_repeated_markers(line: str) -> str:
+    """A line ending "[4][4]" cites one passage twice: shown as one marker.
+    Only an immediate repeat of the same number is collapsed, so what the
+    line cites — and so what it is verified against — never changes."""
+    return _REPEATED_MARKER.sub(r"\1", line)
 
 
 def renumber_section_markers(
@@ -559,6 +599,20 @@ def _draft(claim_id: int, line: str, verifier: Verifier) -> _Draft:
     except MalformedClaim as error:
         return _Draft(claim_id, line, None, str(error))
     return _Draft(claim_id, line, verifier.verify(claim), None)
+
+
+def _outcome(draft: _Draft) -> DraftOutcome:
+    if draft.verdict is None:
+        return DraftOutcome(
+            draft.claim_id, draft.line, None, False, (Violation.MALFORMED_CLAIM.value,)
+        )
+    return DraftOutcome(
+        draft.claim_id,
+        draft.line,
+        draft.verdict.claim.type.value,
+        draft.verdict.passed,
+        tuple(finding.violation.value for finding in draft.verdict.findings),
+    )
 
 
 def _finding_detail(draft: _Draft) -> str:

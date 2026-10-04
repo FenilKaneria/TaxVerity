@@ -40,6 +40,9 @@ MAX_RETRY_AFTER = 60.0
 # already tried, fails over to the other vendor at once rather than sleeping —
 # a free-tier 429 routinely asks for 15-60 s, the whole of a turn's budget.
 SPILLOVER_AFTER = 5.0
+# A call that would sleep longer than this in total fails at once instead: the
+# Lambda has a hard time limit and a person is waiting on the stream.
+MAX_TOTAL_WAIT = 30.0
 
 # Reasoning tokens are billed against this and cannot be switched off (Step
 # 7.1), so a cap sized for the visible answer alone truncates it.
@@ -390,6 +393,10 @@ class LLMClient:
         max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
         temperature: float | None = None,
     ) -> CompletionStream:
+        """Token streaming. Not on the answer path since R20: generation is
+        one `complete()` call verified line by line before release (rule 04),
+        so a token stream would only be shown after verification anyway.
+        Kept for the provider probes (`scripts/probe_*.py`)."""
         if not messages:
             raise ValueError("messages must be non-empty")
         # Rule 03, egress path 5, exactly as complete() applies it.
@@ -511,6 +518,7 @@ class LLMClient:
         keys = self._ordered_keys(provider)
         url = f"{provider.base_url}/chat/completions"
         last: Exception | None = None
+        waited = 0.0
         for attempt in range(1, self._max_attempts + 1):
             delay = self._backoff_base * 2 ** (attempt - 1)
             headers = {"Authorization": f"Bearer {keys[(attempt - 1) % len(keys)]}"}
@@ -551,6 +559,11 @@ class LLMClient:
                     retry_after=delay,
                 ) from last
             if attempt < self._max_attempts:
+                if waited + delay > MAX_TOTAL_WAIT:
+                    raise LLMUnavailable(
+                        f"{provider.name} still failing ({last}); not waiting "
+                        f"{delay:.0f}s more"
+                    ) from last
                 logger.warning(
                     "%s call failed (attempt %d/%d): %s; retrying in %.2fs",
                     provider.name,
@@ -560,6 +573,7 @@ class LLMClient:
                     delay,
                 )
                 time.sleep(delay)
+                waited += delay
         raise LLMUnavailable(
             f"{provider.name} failed after {self._max_attempts} attempts: {last}"
         ) from last

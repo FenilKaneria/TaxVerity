@@ -212,6 +212,26 @@ def test_multiple_markers_on_one_line_both_ground():
     assert violations(claim) == set()
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Thirty per cent is deducted [previous_answer][1].",
+        "Thirty per cent is deducted [source][1].",
+        "Thirty per cent is deducted [1][latest_message].",
+    ],
+)
+def test_a_bracketed_word_that_is_not_a_marker_is_caught(text):
+    assert Violation.UNKNOWN_MARKER in violations(content(text))
+
+
+@pytest.mark.parametrize("marker", ["[calc]", "[fact]", "[eg]", "[guide]"])
+def test_the_named_markers_are_never_unknown(marker):
+    verdict = Verifier(PACK).verify(
+        content(f"Thirty per cent is deducted [1] {marker}.")
+    )
+    assert Violation.UNKNOWN_MARKER not in {f.violation for f in verdict.findings}
+
+
 # --- adversarial fixtures: every one must be caught ---------------------------
 
 
@@ -453,7 +473,9 @@ def test_an_application_claim_may_name_the_section_it_cites():
 def test_an_application_claim_may_still_use_the_persons_own_amount():
     question = "My rent is 10 lakh. Section 999 says what?"
     verifier = Verifier(PACK, question=question, facts=FACTS, analysis=ANALYSIS)
-    claim = application("On your rent of 10 lakh, you can deduct thirty per cent [1][fact].")
+    claim = application(
+        "On your rent of 10 lakh, you can deduct thirty per cent [1][fact]."
+    )
     assert verifier.verify(claim).passed
 
 

@@ -259,6 +259,14 @@ def test_exhausted_retries_raise_unavailable(no_sleep):
     assert len(handler.requests) == 3
 
 
+def test_a_wait_past_the_budget_fails_at_once_instead_of_sleeping(no_sleep):
+    handler = Recorder(*[httpx2.Response(429, headers={"retry-after": "60"})] * 3)
+    with pytest.raises(LLMUnavailable, match="not waiting"):
+        make(handler).complete(ASK)
+    assert no_sleep == []
+    assert len(handler.requests) == 1
+
+
 def test_a_bad_request_is_never_retried(no_sleep):
     handler = Recorder(httpx2.Response(400, text="tool_use_failed"))
     with pytest.raises(LLMRequestError, match="400"):

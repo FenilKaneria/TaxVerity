@@ -397,6 +397,38 @@ def test_a_marker_within_the_pack_is_never_renumbered():
     )
 
 
+def test_a_repeated_marker_is_shown_once():
+    events = generate(FakeLLM(answer("- Thirty per cent is deducted [1][1].")))
+    assert isinstance(events[0], ClaimEvent)
+    assert events[0].text == "- Thirty per cent is deducted [1]."
+    assert [c.marker for c in events[0].citations] == [1]
+
+
+def test_only_an_immediate_repeat_of_one_marker_is_collapsed():
+    from taxverity.generation.generate import collapse_repeated_markers
+
+    assert collapse_repeated_markers("x [1][1].") == "x [1]."
+    assert collapse_repeated_markers("x [1] [1][2].") == "x [1][2]."
+    assert collapse_repeated_markers("x [1][2][1].") == "x [1][2][1]."
+
+
+def test_an_echoed_context_tag_is_never_served():
+    # Advisor smoke R24: "[previous_answer][3]" was served with the raw tag.
+    line = "- Thirty per cent is deducted [previous_answer][1]."
+    events = generate(FakeLLM(answer(line), answer(line)))
+    assert events == [WithheldEvent(id=1, reason="unknown_marker")]
+
+
+def test_a_repaired_echoed_tag_is_served_once_fixed():
+    llm = FakeLLM(
+        answer("- Thirty per cent is deducted [previous_answer][1]."),
+        answer("- Thirty per cent is deducted [1]."),
+    )
+    events = generate(llm)
+    assert isinstance(events[0], ClaimEvent)
+    assert events[0].text == "- Thirty per cent is deducted [1]."
+
+
 def test_a_worked_example_mislabelled_calc_is_verified_as_an_example():
     # No computation block, so [calc] has nothing to restate: a "Suppose"
     # line carrying it is checked as an example (legal figures must ground).
