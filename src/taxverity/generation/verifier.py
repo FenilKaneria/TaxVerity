@@ -186,6 +186,16 @@ _VAGUE_FIGURE = re.compile(
     r"|\b(?:a|up to a) (?:set|fixed|certain|specified) (?:amount|limit|rate|percentage)\b",
     re.IGNORECASE,
 )
+# A line that waves at conditions or at the Act's own structure instead of
+# saying what they are. Checked even when the line carries a figure.
+_VAGUE_REFERENCE = re.compile(
+    r"\b(?:the|these|those) (?:stated|following|listed|specified|prescribed|"
+    r"relevant|said|above|required) conditions\b"
+    r"|\bas stated\b"
+    r"|\bproviso\b"
+    r"|\bsub-section \(\w+\)|\bclause \(\w+\)",
+    re.IGNORECASE,
+)
 # A passage that itself states an amount or rate a vague line could quote.
 _STATED_AMOUNT = re.compile(
     r"\bRs\.?\s*\d|₹\s*\d|\d\s*(?:%|per cent)|\b(?:lakh|crore) rupees\b",
@@ -348,6 +358,8 @@ class Verifier:
         Not a violation: the line is grounded. It is sent to the one repair
         call for its figure, and served as it was if the repair fails."""
         body = MARKER.sub("", line_body(line))
+        if _VAGUE_REFERENCE.search(body):
+            return bool(MARKER.findall(line))
         if numbers_in(body) or not _VAGUE_FIGURE.search(body):
             return False
         units = [

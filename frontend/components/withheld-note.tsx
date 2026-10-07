@@ -11,7 +11,7 @@ export function WithheldNote({ reasons }: { reasons: string[] }) {
       : `${reasons.length} statements couldn't be verified against the Act and were left out.`;
   return (
     <p
-      className="flex items-center gap-1.5 text-xs text-withheld italic"
+      className="flex items-center gap-1.5 text-xs text-withheld italic dark:rounded-lg dark:bg-muted dark:px-3 dark:py-2 dark:text-[13px]"
       title={reasons.map(describeWithheldReason).join("; ")}
     >
       <ShieldAlert className="size-3 shrink-0 not-italic" />

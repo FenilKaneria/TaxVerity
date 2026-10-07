@@ -53,7 +53,7 @@ from taxverity.retrieval.tables import with_table_rows
 logger = get_logger(__name__)
 
 GENERATION_STAGE_VERSION = 12
-GENERATION_PROMPT_VERSION = 13
+GENERATION_PROMPT_VERSION = 14
 
 # Reasoning is billed against the cap and cannot be disabled (Step 7.1).
 GENERATION_MAX_COMPLETION_TOKENS = 2_048
@@ -123,7 +123,7 @@ You must be the one who pays it [2].
 It must be paid within the same tax year [2].
 
 Rules:
-1. Never state a figure, a percentage, or a limit that is not written, in digits or in words, in a passage you cite on that same line, in the person's own stated facts, or in the computation block (example lines: see above). Never state that something is allowed if a cited passage says it is not, or the reverse. When a passage you cite states the amount, rate, limit, period or count a line talks about, write that figure in the line ("₹50,000", "30%", "two years"); never write "the higher amount", "the rate set", "the stated limit", "the cap" or "the threshold" in its place. Where the passage gives different figures for different cases, say which case the person is in and give that figure, or give each case with its own figure; never give one case's figure to another case. A line stating a limit, rate or allowance names the main condition it depends on, from the same passage.
+1. Never state a figure, a percentage, or a limit that is not written, in digits or in words, in a passage you cite on that same line, in the person's own stated facts, or in the computation block (example lines: see above). Never state that something is allowed if a cited passage says it is not, or the reverse. When a passage you cite states the amount, rate, limit, period or count a line talks about, write that figure in the line ("₹50,000", "30%", "two years"); never write "the higher amount", "the rate set", "the stated limit", "the cap" or "the threshold" in its place. Where the passage gives different figures for different cases, say which case the person is in and give that figure, or give each case with its own figure; never give one case's figure to another case. A line stating a limit, rate or allowance names the main condition it depends on, from the same passage. Never write "the stated conditions", "as stated" or "the proviso": say what the conditions are. Where a passage applies to property, income or a person "referred to in" another provision, say in plain words what that is, using the passage that defines it (for example, "a house you live in yourself").
 2. A line restating a figure from the computation block below (never from a passage) ends with the literal marker [calc] instead of a citation number, e.g. "Your tax payable is ₹0 [calc]." Only write one of these when a computation block is given.
 3. If an <analysis> block below sets out a condition and the person's facts decide it, write one line applying that rule to the person, ending with the passage number(s) it comes from and the literal marker [fact], e.g. "You can deduct the interest you paid [4][fact]." Only say the person qualifies when the analysis shows every condition you rely on as satisfied.
 4. Only when the person asked about their own situation and the analysis marks a condition they depend on as unknown, write at most one line starting exactly with "This can't yet be determined because", naming what is missing, ending with the number of the passage that condition comes from, with no other number and no [fact] marker on that line. For a general question, state the condition as part of the rule instead.
@@ -281,9 +281,10 @@ STYLE_REQUEST_NOTE = (
 # this is a fresh call, not a continued conversation.
 # R26: the repair note for a grounded line that names a figure only vaguely.
 VAGUE_FIGURE_DETAIL = (
-    "refers to an amount, rate or limit without stating it; write the figure "
-    "the cited passage states for the person's case, and keep the line "
-    "otherwise as it is"
+    "refers to an amount, rate, limit or condition without stating it, or "
+    "names a sub-section, clause or proviso; write the figure and the "
+    "conditions the cited passage states for the person's case in plain "
+    "words, and keep the line otherwise as it is"
 )
 
 REPAIR_SYSTEM_PROMPT = """You wrote a plain-language answer about the Income-tax Act, 2025 (India) and some of its lines failed a mechanical check, listed below with the reason each failed. Rewrite only those lines so each one passes, keeping them short, in everyday words and addressed to the person as "you", and following the same rules as before:

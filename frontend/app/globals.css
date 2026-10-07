@@ -50,6 +50,8 @@
   /* Not part of shadcn's default schema — TaxVerity's own semantic marks. */
   --color-seal: var(--seal);
   --color-seal-foreground: var(--seal-foreground);
+  --color-bubble: var(--bubble);
+  --color-bubble-foreground: var(--bubble-foreground);
   --color-withheld: var(--withheld);
   --color-withheld-foreground: var(--withheld-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
@@ -85,6 +87,8 @@
   --seal-foreground: #faf6ef;
   --withheld: #b06a3c;
   --withheld-foreground: #fffdf9;
+  --bubble: #7a2533;
+  --bubble-foreground: #faf6ef;
   --radius: 0.5rem;
   --shadow-subtle: 0 1px 2px 0 rgb(24 22 18 / 0.06);
   --shadow-lifted: 0 8px 24px -8px rgb(24 22 18 / 0.16);
@@ -92,31 +96,34 @@
 
 .dark {
   color-scheme: dark;
-
-  --background: #14100e;
-  --canvas: #1a1512;
-  --foreground: #f6f1e8;
-  --card: #1d1815;
-  --card-foreground: #f6f1e8;
-  --popover: #1d1815;
-  --popover-foreground: #f6f1e8;
-  --primary: #d98b95;
-  --primary-foreground: #14100e;
-  --secondary: #272019;
-  --secondary-foreground: #f6f1e8;
-  --muted: #272019;
-  --muted-foreground: #c3b6a4;
-  --accent: #2e251e;
-  --accent-foreground: #f6f1e8;
+  /* Warm charcoal ground with lifted answer cards and filled rose user
+     bubbles: higher figure/ground contrast than the old near-black. */
+  --background: #1c1716;
+  --canvas: #1f1918;
+  --foreground: #f4eee8;
+  --card: #29211f;
+  --card-foreground: #f4eee8;
+  --popover: #29211f;
+  --popover-foreground: #f4eee8;
+  --primary: #b0626c;
+  --primary-foreground: #fbf3f1;
+  --secondary: #2e2624;
+  --secondary-foreground: #f4eee8;
+  --muted: #322927;
+  --muted-foreground: #c9bdb4;
+  --accent: #352b29;
+  --accent-foreground: #f4eee8;
   --destructive: #f0847a;
   --destructive-foreground: #14100e;
-  --border: #352b23;
-  --input: #352b23;
+  --border: #3d3230;
+  --input: #3d3230;
   --ring: #d98b95;
-  --seal: #d98b95;
+  --seal: #e0939c;
   --seal-foreground: #2a0f14;
-  --withheld: #d9a06b;
+  --withheld: #e0b48a;
   --withheld-foreground: #2b1a08;
+  --bubble: #a35a63;
+  --bubble-foreground: #fcf1f0;
   --shadow-subtle: 0 1px 2px 0 rgb(0 0 0 / 0.3);
   --shadow-lifted: 0 8px 28px -8px rgb(0 0 0 / 0.55);
 }

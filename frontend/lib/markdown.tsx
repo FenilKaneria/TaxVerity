@@ -235,13 +235,13 @@ function BlockView({
       );
     case "note":
       return (
-        <p className="text-[15px] leading-relaxed text-muted-foreground italic">
+        <p className="text-[16.5px] leading-relaxed text-muted-foreground italic">
           <Inline line={block.line} onCiteClick={onCiteClick} />
         </p>
       );
     case "paragraph":
       return (
-        <p className="text-[15px] leading-relaxed text-foreground">
+        <p className="text-[16.5px] leading-relaxed text-foreground">
           {block.lines.map((line, i) => (
             <span key={i}>
               {i > 0 && " "}
@@ -252,7 +252,7 @@ function BlockView({
       );
     case "bullets":
       return (
-        <ul className="ml-5 list-disc space-y-1 text-[15px] leading-relaxed text-foreground marker:text-muted-foreground">
+        <ul className="ml-5 list-disc space-y-1 text-[16.5px] leading-relaxed text-foreground marker:text-muted-foreground">
           {block.lines.map((line, i) => (
             <li key={i}>
               <Inline line={line} onCiteClick={onCiteClick} />
@@ -262,7 +262,7 @@ function BlockView({
       );
     case "steps":
       return (
-        <ol className="ml-5 list-decimal space-y-1 text-[15px] leading-relaxed text-foreground marker:text-muted-foreground">
+        <ol className="ml-5 list-decimal space-y-1 text-[16.5px] leading-relaxed text-foreground marker:text-muted-foreground">
           {block.lines.map((line, i) => (
             <li key={i}>
               <Inline line={line} onCiteClick={onCiteClick} />
@@ -272,7 +272,7 @@ function BlockView({
       );
     case "example":
       return (
-        <div className="my-1 flex gap-2 rounded-md border-l-2 border-seal/40 bg-muted/40 px-3 py-2 text-[15px] leading-relaxed text-foreground">
+        <div className="my-1 flex gap-2 rounded-md border-l-2 border-seal/40 bg-muted/40 px-3 py-2 dark:rounded-lg dark:border dark:border-seal/30 dark:border-l-2 dark:border-l-seal dark:bg-seal/12 text-[16.5px] leading-relaxed text-foreground">
           <Lightbulb className="mt-1 size-3.5 shrink-0 text-seal" aria-label="Example" />
           <div className="flex flex-col gap-1.5">
             {block.lines.map((line, i) => (
@@ -288,7 +288,7 @@ function BlockView({
       return (
         <section
           aria-label={GUIDANCE_LABEL}
-          className="my-1 rounded-md border border-dashed border-border px-3 py-2 text-[15px] leading-relaxed text-foreground"
+          className="my-1 rounded-md border border-dashed border-border px-3 py-2 text-[16.5px] leading-relaxed text-foreground"
         >
           <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Info className="size-3.5 shrink-0" />

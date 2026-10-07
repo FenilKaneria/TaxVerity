@@ -71,13 +71,13 @@ export function TurnStream({
     <div className="flex flex-col gap-4">
       {pending && (
         <div className="flex justify-end">
-          <p className="max-w-[85%] rounded-2xl bg-seal/8 px-4 py-2.5 text-sm text-foreground">
+          <p className="max-w-[85%] rounded-2xl bg-seal/8 px-4 py-2.5 text-[16px] dark:bg-bubble dark:text-bubble-foreground text-foreground">
             {pending}
           </p>
         </div>
       )}
 
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-2.5 dark:rounded-2xl dark:border dark:border-border dark:bg-card dark:px-5 dark:py-4 dark:shadow-subtle">
         {streaming && stage && (
           // "refining search" is the one stage that means something happened
           // (the corrective retry fired, rule 04/ADR-033) rather than
@@ -102,7 +102,7 @@ export function TurnStream({
           // A fixed/gated template, not a claim — no Typewriter, no chips.
           // Above the claims: on a guidance-only turn (R22 Part C) it is the
           // notice that the guidance below is not from the Act.
-          <p className="whitespace-pre-line text-[15px] leading-relaxed text-foreground">
+          <p className="whitespace-pre-line text-[16.5px] leading-relaxed text-foreground">
             {finalText}
           </p>
         )}

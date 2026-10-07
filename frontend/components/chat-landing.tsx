@@ -1,3 +1,5 @@
+"use client";
+
 // The New Chat / guest landing hero — richer, textured, branded, shown only
 // when there is no conversation yet. `composer` is injected rather than
 // built here: the app variant's composer creates a thread on submit
@@ -10,6 +12,7 @@
 // evals/datasets/retrieval_gold_v2.jsonl for the same discipline.
 
 import { CheckCircle2, FileSearch2, ScanSearch, ShieldCheck } from "lucide-react";
+import { useSyncExternalStore } from "react";
 import { LogoMark } from "@/components/brand/logo";
 
 const FEATURES = [
@@ -35,11 +38,51 @@ const FEATURES = [
   },
 ] as const;
 
-const SUGGESTIONS = [
+// A fresh three are drawn on every visit. Each was asked of the live graph
+// and answered from the Act (the answer-gold set's answerable items).
+export const SUGGESTION_POOL = [
   "What is the standard deduction available against salary income?",
   "What are the new-regime tax slabs for this financial year?",
   "Can I set off a loss from house property against my salary income?",
+  "Can I claim the health insurance premium I pay for my parents?",
+  "How is a profit on selling cryptocurrency taxed?",
+  "At what turnover does a business have to get its accounts audited?",
+  "How much home loan interest can I deduct on the house I live in?",
+  "What rebate do I get if my income is under ₹12 lakh?",
+  "I earn ₹9,00,000 a year in salary. How much tax do I pay?",
+  "Is the gratuity I received on retirement taxable?",
+  "Can I pay rent to my mother and claim a deduction for it?",
+  "How is rental income from a flat I let out taxed?",
+  "By when must I file my income-tax return?",
+  "Can a small shop declare a flat percentage of turnover as profit?",
+  "How long can I carry forward a business loss?",
+  "What counts as agricultural income, and is it taxed?",
 ] as const;
+
+export const SUGGESTION_COUNT = 3;
+
+export function drawSuggestions(
+  pool: readonly string[],
+  count: number,
+  random: () => number = Math.random,
+): string[] {
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, count);
+}
+
+// One draw per page load: the server render and hydration show the pool's
+// head, then the client swaps in its own draw. getSnapshot must return the
+// same array each call, hence the cache.
+let drawn: string[] | null = null;
+const fixedHead = SUGGESTION_POOL.slice(0, SUGGESTION_COUNT);
+const noSubscription = () => () => {};
+const clientSuggestions = () =>
+  (drawn ??= drawSuggestions(SUGGESTION_POOL, SUGGESTION_COUNT));
+const serverSuggestions = () => fixedHead;
 
 export function ChatLanding({
   composer,
@@ -48,6 +91,12 @@ export function ChatLanding({
   composer: React.ReactNode;
   onSuggestion: (text: string) => void;
 }) {
+  const suggestions = useSyncExternalStore(
+    noSubscription,
+    clientSuggestions,
+    serverSuggestions,
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 py-10 sm:py-16">
       <div className="flex w-full max-w-2xl flex-col items-center text-center">
@@ -86,7 +135,7 @@ export function ChatLanding({
         <div className="mt-8 w-full">{composer}</div>
 
         <div className="mt-6 flex w-full flex-col gap-2">
-          {SUGGESTIONS.map((question) => (
+          {suggestions.map((question) => (
             <button
               key={question}
               type="button"
