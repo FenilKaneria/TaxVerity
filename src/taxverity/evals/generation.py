@@ -472,3 +472,58 @@ def run_pending(
         records[item.item_id] = record
         save()
     return None
+
+
+# --- DeepEval cross-check (ADR-053: offline, report-only) -------------------
+
+_ANY_MARKER = re.compile(r"\s*\[(?:\d+|calc|fact|eg|guide)\]")
+
+
+class DeepEvalInputs(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    item_id: str
+    question: str
+    # Faithfulness sees only the grounded lines and the passages they cite:
+    # what our own claim judge saw, so the two scores are comparable.
+    grounded_output: str
+    cited_context: tuple[str, ...]
+    # Relevancy metrics see the whole answer a person was shown and the
+    # whole evidence pack.
+    answer_output: str
+    full_context: tuple[str, ...]
+    our_supported_rate: float | None
+    our_all_supported: bool | None
+
+
+def deepeval_inputs(item_id: str, record: Mapping[str, Any]) -> DeepEvalInputs | None:
+    """A stored generation-eval record as DeepEval inputs, or None when it
+    served no grounded claim (a negative's honest silence has nothing to score)."""
+    served = record.get("served") or []
+    lines = grounded(served)
+    if not lines:
+        return None
+    evidence = {e["marker"]: (e["citation"], e["text"]) for e in record["evidence"]}
+    cited: list[tuple[str, str]] = []
+    for claim in lines:
+        for passage in passages_for(claim["text"], evidence):
+            if passage not in cited:
+                cited.append(passage)
+    labels = [
+        label
+        for claim_id, label in (record.get("judge") or {}).get("served", {}).items()
+        if any(str(c["id"]) == str(claim_id) for c in lines)
+    ]
+    supported = sum(label == ClaimLabel.SUPPORTED for label in labels)
+    return DeepEvalInputs(
+        item_id=item_id,
+        question=record["question"],
+        grounded_output="\n".join(_ANY_MARKER.sub("", c["text"]) for c in lines),
+        cited_context=tuple(f"{c}:\n{t}" for c, t in cited),
+        answer_output="\n".join(
+            _ANY_MARKER.sub("", c["text"]) for c in served if c["type"] != "heading"
+        ),
+        full_context=tuple(f"{c}:\n{t}" for c, t in evidence.values()),
+        our_supported_rate=supported / len(labels) if labels else None,
+        our_all_supported=supported == len(labels) if labels else None,
+    )

@@ -37,6 +37,7 @@
     {"statutory": "fair market value", "source": "2(44)", "lay": ["market price", "market rate"]},
     {"statutory": "maximum marginal rate", "source": "2(70)", "lay": ["highest slab", "top slab", "highest rate"]},
     {"statutory": "rates in force", "source": "2(90)", "lay": ["slab"]},
+    {"statutory": "exercises the option", "source": "202", "lay": ["new regime", "new tax regime", "default regime", "default tax regime", "old regime", "old tax regime"]},
     {"statutory": "person of Indian origin", "source": "2(78)", "lay": ["pio", "oci"]},
     {"statutory": "Appellate Tribunal", "source": "2(8)", "lay": ["itat"]},
     {"statutory": "Central Board of Direct Taxes", "source": "2(18)", "lay": ["cbdt"]},

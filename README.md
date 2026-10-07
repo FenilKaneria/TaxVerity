@@ -115,6 +115,22 @@ grounding cannot see. The judge (Claude) agreed with 30 blind human labels at
 Cohen's kappa 0.634. The judge saw the human labels on disputed rows before
 re-judging, so that figure is optimistic.
 
+**Standard RAG metric names** — how the usual metrics map onto ours. The
+first two are DeepEval scores over the 62 answers that served a grounded
+claim (gpt-5-mini judge, report-only, never a gate):
+
+| Standard metric | Our metric | Result | Source |
+|---|---|---|---|
+| Faithfulness | served claims supported by their cited passages | 0.822 | DeepEval `FaithfulnessMetric` |
+| Answer relevancy | answer addresses the question asked | 0.825 | DeepEval `AnswerRelevancyMetric` |
+| Context relevancy | evidence-pack coverage of gold citations | 0.898 | deterministic, answer-gold set |
+| Citation accuracy | gold citation coverage / citation hit rate | 0.837 / 0.898 | deterministic `cites_gold` checks |
+
+DeepEval's faithfulness agrees only weakly with the calibrated claim judge
+above (Spearman 0.218, kappa 0.155): its judge sometimes reasons from the
+1961 Act and counts paraphrase as contradiction. The hot-path control is the
+deterministic verifier gate, not either judge.
+
 **Other components:**
 
 | Component | Set | Result |

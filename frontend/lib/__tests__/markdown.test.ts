@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type AnswerLine, classifyLine, groupBlocks, lineForm } from "@/lib/markdown";
+import {
+  type AnswerLine,
+  classifyLine,
+  collapseRepeatedChips,
+  groupBlocks,
+  lineForm,
+} from "@/lib/markdown";
 
 // R19 Phase B (ADR-120): this must keep agreeing with generation/claims.py's
 // classify_line — a persisted message is reclassified line by line on the
@@ -112,6 +118,48 @@ describe("groupBlocks", () => {
   it("keeps an old '- ' bulleted answer as one bullet list", () => {
     const blocks = groupBlocks(["## Topic", "- One [1].", "- Two [2]."].map(line));
     expect(blocks.map((b) => b.kind)).toEqual(["label", "bullets"]);
+  });
+});
+
+// R26: one chip per run of lines citing the same passages.
+describe("collapseRepeatedChips", () => {
+  const line = (text: string): AnswerLine => ({ type: classifyLine(text), text, citations: [] });
+  const texts = (lines: string[]) => collapseRepeatedChips(lines.map(line)).map((l) => l.text);
+
+  it("keeps the chip only on the last line of a run", () => {
+    expect(texts(["Yes, you can [1].", "It saves tax [1].", "Keep proof [2]."])).toEqual([
+      "Yes, you can.",
+      "It saves tax [1].",
+      "Keep proof [2].",
+    ]);
+  });
+
+  it("treats a line citing several passages as its own set", () => {
+    expect(texts(["A [1][2].", "B [2][1].", "C [1]."])).toEqual(["A.", "B [2][1].", "C [1]."]);
+  });
+
+  it("leaves calc and example markers alone", () => {
+    expect(texts(["Tax is ₹0 [calc].", "Rebate covers it [calc]."])).toEqual([
+      "Tax is ₹0 [calc].",
+      "Rebate covers it [calc].",
+    ]);
+  });
+
+  it("keeps the citation data while hiding a repeated chip", () => {
+    const cited = { marker: 1, path: "22", quote: null };
+    const lines = [
+      { ...line("One [1]."), citations: [cited] },
+      { ...line("Two [1]."), citations: [cited] },
+    ];
+    expect(collapseRepeatedChips(lines)[0].citations).toEqual([cited]);
+  });
+
+  it("is applied inside a paragraph block", () => {
+    const [block] = groupBlocks(["One [1].", "Two [1]."].map(line));
+    expect(block.kind === "paragraph" && block.lines.map((l) => l.text)).toEqual([
+      "One.",
+      "Two [1].",
+    ]);
   });
 });
 

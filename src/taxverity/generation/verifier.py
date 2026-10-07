@@ -174,6 +174,23 @@ _TOKEN = re.compile(
 )
 _EXAMPLE_BULLET = re.compile(r"^[-*•\s]+")
 _NIL = re.compile(r"\bnil\b", re.IGNORECASE)
+# R26: a fixed list of ways to refer to a figure without stating it (g026,
+# g046 in the generation eval). Only what generation was told never to write.
+_VAGUE_FIGURE = re.compile(
+    r"\b(?:the|a|that) (?:higher|lower|larger|smaller|maximum|minimum) "
+    r"(?:amount|limit|deduction|rate|sum)\b"
+    r"|\bthe (?:limit|cap|ceiling|threshold)\b(?! of\s*(?:₹|rs|\d))"
+    r"|\bthe (?:rate|amount|limit) (?:set|stated|specified|given|fixed|prescribed)\b"
+    r"|\bthe (?:stated|specified|set|prescribed|applicable) "
+    r"(?:amount|limit|rate|cap|threshold|percentage)\b"
+    r"|\b(?:a|up to a) (?:set|fixed|certain|specified) (?:amount|limit|rate|percentage)\b",
+    re.IGNORECASE,
+)
+# A passage that itself states an amount or rate a vague line could quote.
+_STATED_AMOUNT = re.compile(
+    r"\bRs\.?\s*\d|₹\s*\d|\d\s*(?:%|per cent)|\b(?:lakh|crore) rupees\b",
+    re.IGNORECASE,
+)
 # R22 Part B: words naming an online system. The Act sets who files and by
 # when, not how a website works, so a cited line using one of these words is
 # withheld unless a passage it cites uses the same word. A no_basis line
@@ -324,6 +341,23 @@ class Verifier:
                         )
             for check in analysis.applicability:
                 self._condition_status[check.condition_id] = check.status
+
+    def vague_figure(self, line: str) -> bool:
+        """R26: a line that talks about an amount, rate or limit only as "the
+        limit" or "the higher amount" while a passage it cites states one.
+        Not a violation: the line is grounded. It is sent to the one repair
+        call for its figure, and served as it was if the repair fails."""
+        body = MARKER.sub("", line_body(line))
+        if numbers_in(body) or not _VAGUE_FIGURE.search(body):
+            return False
+        units = [
+            self._units[int(m)] for m in MARKER.findall(line) if int(m) in self._units
+        ]
+        return any(
+            _STATED_AMOUNT.search(text)
+            for unit in units
+            for text in (unit.chunk.text, *(c.text for c in unit.context))
+        )
 
     def verify(self, claim: Claim) -> Verdict:
         """R22 Part B: every check reads the line without its step number;

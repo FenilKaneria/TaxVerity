@@ -31,6 +31,8 @@ from taxverity.generation.claims import (
     CALC_MARKER,
     EXAMPLE_MARKER,
     EXAMPLE_OPENERS,
+    FACT_MARKER,
+    GUIDE_MARKER,
     MARKER,
     ClaimEvent,
     ClaimType,
@@ -51,7 +53,7 @@ from taxverity.retrieval.tables import with_table_rows
 logger = get_logger(__name__)
 
 GENERATION_STAGE_VERSION = 12
-GENERATION_PROMPT_VERSION = 12
+GENERATION_PROMPT_VERSION = 13
 
 # Reasoning is billed against the cap and cannot be disabled (Step 7.1).
 GENERATION_MAX_COMPLETION_TOKENS = 2_048
@@ -79,28 +81,34 @@ STYLE_PREVIOUS_ANSWER_CHARS = 3_000
 SYSTEM_PROMPT = f"""You are a tax adviser explaining the Income-tax Act, 2025 (India) to an ordinary person, the way a knowledgeable friend would. You use only the numbered passages, and the analysis of them, given below. You never use outside knowledge of the law.
 
 Layout. Write plain lines of text, one statement per line, shaped to the question as the <layout> note below says. Never add a section just to fill a layout.
+- The first line answers exactly what was asked, in plain words: the amount, the yes or no, the date, the rule. Open with "Yes" or "No" only when the question can be answered that way.
+- Answer only what was asked. Never add a rule, a procedure or a duty the question did not ask about, even if a passage below mentions it.
+- Never mention "passages", "excerpts", "the text provided" or "the section" to the person: they see only your answer. Say "the Act" or name the rule by what it does.
+- Prefer plain sentences. Use "- " bullets only for 4 or more parallel items; 3 or fewer points are sentences.
 - A section label is a line "### " followed by a short plain label of 2 to 5 words, with no figure and no citation. Use only the labels the <layout> note names.
 - A "- " bullet or a "1. " numbered step is one line. No other markdown, no code fences, no tables.
-- Keep the answer as short as the question allows: usually 4 to 12 lines, at most 4 bullets or steps under any label. Say each point once; never repeat it under another label.
+- Keep the answer as short as the question allows: usually 3 to 10 lines, at most 4 bullets or steps under any label. Say each point once; never repeat it under another label, and never turn a condition already stated into a "check that" step.
 - Every answer has at least one line that cites a passage.
 
 Tone:
 - Speak to the person as "you", the way a knowledgeable friend would. Keep sentences under 20 words.
 - Never write a section, sub-section or clause number, or the word "section", in a line: the bracket number already shows where a line comes from. Name the rule by what it does instead of by its number ("the rebate", "the rule on tax your employer pays"); this replaces only the section number, never a figure. Only when the person named a section themselves may you name that one section, once.
 - Use everyday words. Never use legal phrasing such as "assessee", "notwithstanding", "in respect of", "computed under the head", "aforesaid", "thereof", "the said", "subject to the provisions of", "deemed", "chargeable", "tax liability", "prescribed", "credited against", "in accordance with", "pursuant to", "as the case may be". Say "your tax", "set by the rules", "counts towards". If you must use a technical term, explain it in brackets on the same line.
-- Give advice, not a summary of the law. Where the passages set a condition, tell the person how to meet it lawfully: the payment mode, the proof to keep, the date to act by. Each such step cites its passage. Never describe how to use a website, portal, app or form in a cited line: the passages do not contain that. Such steps go in general guidance (below).
+- Speak about the person's situation, not as a summary of the law. Only when the person asks what to do, or asks about their own situation, add how to meet a condition lawfully (the payment mode, the proof to keep, the date to act by), each citing its passage. Never describe how to use a website, portal, app or form in a cited line: the passages do not contain that. Such steps go in general guidance (below).
 - If a <previous_answer> is given, the person is following up on it: do not repeat it, go further in whatever way <latest_message> asks.
 
 Citations:
 - Every line except a section label, including every bullet, every step and every comparison from daily life, must end with the number of the passage it comes from, in square brackets, exactly as shown before that passage below, e.g. "[2]". Use that bracket number, never a section number. Cite several passages as "[1][3]", but only passages that line actually comes from. A line with no citation is never shown.
 - A square-bracket number "[N]" is a passage number TaxVerity gave a passage below. Cite only a number shown before a passage below; if there is only one passage, every citation is "[1]". A number in round brackets inside the law, such as "(2)" or "(2)(b)", is a clause of a section, never a passage number: never turn it into "[2]".
 - Every line must stand on its own: never write a line that only introduces a list (ending with ":"), and never split one step or one example across several lines.
+- People say "new regime" or "default regime" for tax at the rates that apply "unless the person exercises the option" to leave them, and "old regime" for having exercised that option. Read their words that way, and where a passage gives one figure under those default rates (for example "where income-tax is computed under" that section) and another "in any other case", give the default-regime figure to someone on the new or default regime.
 - A passage written as "TABLE" rows ("column: value | ...") gives each figure for its own row only. Use a row's figure only for the person or case that row names, under that row's conditions. If you do not know which row fits the person, give each possible row's case with its figure; never pick one for them. When you restate a row, keep everything it says about who it covers and when; never shorten it.
 
 Examples:
-- When an example would help (always when the person asks for an example or a simpler explanation), add 1 to 3 example lines under "### Example". An example line starts with "For example," or "Suppose", uses round, clearly made-up amounts for the person's situation, cites the passage whose rule it illustrates, and ends with the literal marker [eg].
-- When the person gave their own figures, use those instead of made-up ones. When a computation block is given, its lines already are the worked example: write no "Example" section. Never write an example line with no amount in it.
-- Each example is a single line. State all made-up amounts in its opening "Suppose ..." sentence. Any amount you work out must be shown as an equation (a − b = c, a × b% = c) and must be correct. Any rate, percentage, limit, threshold or section number must be one written in a passage you cite on that line, never made up, even for an example.
+- Add one worked example whenever the rule you state has an amount, rate, limit, threshold or period, so the person sees it applied: put it under "### Example", right after the direct answer and before any conditions. Write 2 example lines only when the person asks for examples or a simpler explanation, or the rule has two cases with different figures.
+- Write no example when a computation block is given (its lines already are the worked example), for a procedure question, when the passages do not answer the question, or for a follow-up that did not ask for one.
+- An example line starts with "For example," or "Suppose", uses round, clearly made-up amounts for the person's situation, cites the passage whose rule it illustrates, and ends with the literal marker [eg]. When the person gave their own figures, use those instead of made-up ones. Never write an example line with no amount in it, and never use an example to bring in a rule the question did not ask about.
+- Each example is a single line. State all made-up amounts in its opening "Suppose ..." sentence. Any amount you work out must be shown as an equation (a − b = c, a × b% = c), written in the sentence and never inside brackets, and must be correct. Any rate, percentage, limit, threshold or section number must be one written in a passage you cite on that line, never made up, even for an example.
 
 General guidance (not from the Act):
 - Only when the person asks how to do something practical that the passages do not cover (filing a return, e-verifying it, finding a form or statement), end the answer with up to {MAX_GUIDANCE_LINES} general guidance lines, after everything else and with no section label. Each is one "- " bullet ending with the literal marker [guide] and no citation number.
@@ -109,14 +117,13 @@ General guidance (not from the Act):
 - Guidance never replaces a cited line: anything about what the Act says still needs its passage number.
 
 Style sample (tone only; its content is not law and must never be copied):
-### In short
-Yes, you can usually claim this, as long as you meet its conditions [1].
+Yes, you can claim this, as long as you pay it in a way other than cash [1].
 ### Conditions to check
-- You must pay it in a way other than cash [2].
-- Keep the receipt with your tax papers [2].
+You must be the one who pays it [2].
+It must be paid within the same tax year [2].
 
 Rules:
-1. Never state a figure, a percentage, or a limit that is not written, in digits or in words, in a passage you cite on that same line, in the person's own stated facts, or in the computation block (example lines: see above). Never state that something is allowed if a cited passage says it is not, or the reverse. When a passage you cite states the amount, rate, limit, period or count a line talks about, write that figure in the line ("₹50,000", "30%", "two years"); never write "the higher amount", "the rate set", "the stated limit", "the cap" or "the threshold" in its place. Where the passage gives different figures for different cases, give each case with its figure.
+1. Never state a figure, a percentage, or a limit that is not written, in digits or in words, in a passage you cite on that same line, in the person's own stated facts, or in the computation block (example lines: see above). Never state that something is allowed if a cited passage says it is not, or the reverse. When a passage you cite states the amount, rate, limit, period or count a line talks about, write that figure in the line ("₹50,000", "30%", "two years"); never write "the higher amount", "the rate set", "the stated limit", "the cap" or "the threshold" in its place. Where the passage gives different figures for different cases, say which case the person is in and give that figure, or give each case with its own figure; never give one case's figure to another case. A line stating a limit, rate or allowance names the main condition it depends on, from the same passage.
 2. A line restating a figure from the computation block below (never from a passage) ends with the literal marker [calc] instead of a citation number, e.g. "Your tax payable is ₹0 [calc]." Only write one of these when a computation block is given.
 3. If an <analysis> block below sets out a condition and the person's facts decide it, write one line applying that rule to the person, ending with the passage number(s) it comes from and the literal marker [fact], e.g. "You can deduct the interest you paid [4][fact]." Only say the person qualifies when the analysis shows every condition you rely on as satisfied.
 4. Only when the person asked about their own situation and the analysis marks a condition they depend on as unknown, write at most one line starting exactly with "This can't yet be determined because", naming what is missing, ending with the number of the passage that condition comes from, with no other number and no [fact] marker on that line. For a general question, state the condition as part of the rule instead.
@@ -142,10 +149,11 @@ CALCULATION_PENDING_NOTE = (
 # question the classifier saw. One layout for every question read as a form
 # being filled in, whatever was asked.
 _ELIGIBILITY_LAYOUT = (
-    'Labels, in this order, each only when it has something to say: "### In '
-    'short" (yes, no, or it depends, in 1 or 2 sentences), "### Conditions to '
-    'check" (one bullet per condition), "### Example" (only if it helps or was '
-    'asked for), "### What to do next" (only steps a passage requires).'
+    "Start with 1 or 2 sentences answering the question directly, with no "
+    'label. Then, each only when it has something to say: "### Example", '
+    '"### Conditions to check" (one line per condition), "### What to do '
+    'next" (only an action the person must take that no line above already '
+    "states)."
 )
 LAYOUTS: dict[str, str] = {
     "calculation": (
@@ -167,9 +175,10 @@ LAYOUTS: dict[str, str] = {
     "deduction_exemption": _ELIGIBILITY_LAYOUT,
     "applicability": _ELIGIBILITY_LAYOUT,
     "comparison": (
-        'Labels: "### In short" (which way it points, in 1 or 2 sentences), '
-        '"### How they compare" (one bullet per option), "### What decides it" '
-        "(bullets), each only when it has something to say."
+        "Start with 1 or 2 sentences saying which way it points, with no "
+        'label. Then "### How they compare" (one line per option), "### '
+        'Example" and "### What decides it", each only when it has something '
+        "to say."
     ),
     "procedure": (
         'Labels: "### In short" (1 sentence), then "### Steps" with numbered '
@@ -183,8 +192,10 @@ LAYOUTS: dict[str, str] = {
     ),
 }
 DEFAULT_LAYOUT = (
-    "Answer in 2 to 5 plain sentences with no section label. Use one or two "
-    "short labels only if the answer truly needs more than 6 lines."
+    "Answer in 2 to 5 plain sentences with no section label, the first one "
+    'answering the question. An "### Example" label is allowed for the '
+    "example. Use another short label only if the answer truly needs more "
+    "than 6 lines."
 )
 FOLLOW_UP_LAYOUT = (
     "This is a follow-up: answer only what <latest_message> asks, in 1 to 6 "
@@ -268,6 +279,13 @@ STYLE_REQUEST_NOTE = (
 # only when at least one line above failed verification. Same citation and
 # marker rules as SYSTEM_PROMPT, restated rather than assumed remembered —
 # this is a fresh call, not a continued conversation.
+# R26: the repair note for a grounded line that names a figure only vaguely.
+VAGUE_FIGURE_DETAIL = (
+    "refers to an amount, rate or limit without stating it; write the figure "
+    "the cited passage states for the person's case, and keep the line "
+    "otherwise as it is"
+)
+
 REPAIR_SYSTEM_PROMPT = """You wrote a plain-language answer about the Income-tax Act, 2025 (India) and some of its lines failed a mechanical check, listed below with the reason each failed. Rewrite only those lines so each one passes, keeping them short, in everyday words and addressed to the person as "you", and following the same rules as before:
 - Keep each line's form: a "- " bullet stays a bullet, a "1. " step keeps its number, a plain sentence stays plain. A "### " section label carries no figure and no citation.
 - Cite the right passage number(s) in square brackets, using only numbers shown before a passage; a clause number in round brackets, such as "(2)(b)", is never a passage number. Use [calc] only to restate the computation block, and [fact] only when applying a cited rule to the person's own facts.
@@ -414,6 +432,8 @@ class AnswerGenerator:
         )
         if computation is not None and assumed_nil:
             lines = with_assumption_line(lines, assumed_nil)
+        if not asks_yes_or_no(request or question):
+            lines = without_unasked_yes_no(lines)
 
         drafts = [
             _draft(claim_id, _renumbered(line, verifier), verifier)
@@ -421,13 +441,25 @@ class AnswerGenerator:
         ]
         self._observe("first_pass", drafts)
         failing = [draft for draft in drafts if not draft.passed]
-        if failing:
+        # R26: a grounded line that says "the limit" where its passage states
+        # the figure rides along in the same one repair call; it is never
+        # withheld for that alone (see `_repair`).
+        vague = [
+            draft
+            for draft in drafts
+            if draft.passed
+            and draft.verdict.claim.type in _REPEAT_TYPES  # type: ignore[union-attr]
+            and verifier.vague_figure(draft.line)
+        ]
+        if failing or vague:
             if on_repair is not None:
                 on_repair()
-            drafts = self._repair(context, drafts, failing, verifier)
+            drafts = self._repair(context, drafts, failing, verifier, vague=vague)
         self._observe("final", drafts)
 
-        events = _drop_empty_sections([_event(draft) for draft in drafts])
+        events = _drop_empty_sections(
+            _drop_repeats([_event(draft) for draft in drafts])
+        )
         served = sum(isinstance(event, ClaimEvent) for event in events)
         logger.info(
             "answer generated: %d claims served, %d withheld",
@@ -446,10 +478,19 @@ class AnswerGenerator:
         drafts: list[_Draft],
         failing: list[_Draft],
         verifier: Verifier,
+        *,
+        vague: Sequence[_Draft] = (),
     ) -> list[_Draft]:
+        targets = [*failing, *vague]
+        soft = {draft.claim_id for draft in vague}
         listing = "\n".join(
-            f'{i}. "{draft.line}" — {_finding_detail(draft)}'
-            for i, draft in enumerate(failing, start=1)
+            f'{i}. "{draft.line}" — '
+            + (
+                VAGUE_FIGURE_DETAIL
+                if draft.claim_id in soft
+                else _finding_detail(draft)
+            )
+            for i, draft in enumerate(targets, start=1)
         )
         completion = self._llm.complete(
             [
@@ -467,16 +508,26 @@ class AnswerGenerator:
         )
         corrections = split_lines(completion.text)
         logger.info(
-            "repair attempted on %d line(s), %d correction(s) returned",
-            len(failing),
+            "repair attempted on %d line(s) (%d vague), %d correction(s) returned",
+            len(targets),
+            len(soft),
             len(corrections),
         )
         repaired_by_id = {
             draft.claim_id: _draft(
                 draft.claim_id, _renumbered(correction, verifier), verifier
             )
-            for draft, correction in zip(failing, corrections, strict=False)
+            for draft, correction in zip(targets, corrections, strict=False)
         }
+        # A vague line already passed: its correction replaces it only when
+        # the correction passes too and now states the figure. Otherwise the
+        # original line is served, so this can never withhold a line.
+        for claim_id in soft:
+            repaired = repaired_by_id.get(claim_id)
+            if repaired is not None and (
+                not repaired.passed or verifier.vague_figure(repaired.line)
+            ):
+                del repaired_by_id[claim_id]
         # Untouched drafts (a line that already passed, or a failing one with
         # no corresponding correction) pass through byte-identical.
         return [repaired_by_id.get(draft.claim_id, draft) for draft in drafts]
@@ -496,6 +547,17 @@ def _renumbered(line: str, verifier: Verifier) -> str:
         line = line.replace(
             CALC_MARKER, "" if EXAMPLE_MARKER in line else EXAMPLE_MARKER
         )
+    # R26: a cited "Suppose …" line written without [eg] is a worked example
+    # whose marker was forgotten (g029); verified as one, its legal figures
+    # still must ground, and it no longer counts towards the evidence gate.
+    if (
+        line_body(line).startswith(EXAMPLE_OPENERS)
+        and MARKER.search(line)
+        and not any(
+            m in line for m in (EXAMPLE_MARKER, CALC_MARKER, FACT_MARKER, GUIDE_MARKER)
+        )
+    ):
+        line = f"{line.rstrip()} {EXAMPLE_MARKER}"
     return line
 
 
@@ -527,6 +589,86 @@ def renumber_section_markers(
         return "".join(f"[{p}]" for p in positions) if positions else match.group(0)
 
     return MARKER.sub(swap, line)
+
+
+# R26: a question that can be answered "yes" or "no" has a clause opening
+# with one of these ("Can I deduct…", "I pay rent. Is it allowed?").
+_YES_NO_OPENERS = frozenset(
+    "am are is was were do does did can could may might must shall should will "
+    "would have has had".split()
+)
+_CLAUSE = re.compile(r"[^.?!\n]+")
+_LEADING_YES_NO = re.compile(
+    r"^(?P<bullet>[-*•]\s+)?(?:yes|no)\b\s*[—–\-,:;]*\s*", re.IGNORECASE
+)
+
+
+def asks_yes_or_no(question: str) -> bool:
+    return any(
+        (words := clause.split()) and words[0].lower().strip("\"'(") in _YES_NO_OPENERS
+        for clause in _CLAUSE.findall(question)
+    )
+
+
+def without_unasked_yes_no(lines: list[str]) -> list[str]:
+    """g026 answered "How is crypto taxed?" with "Yes — …". The leading
+    "Yes"/"No" of the first statement is left out when nothing in the
+    question can be answered that way; the statement itself is unchanged and
+    still verified."""
+    for i, line in enumerate(lines):
+        if classify_line(line) is ClaimType.HEADING:
+            continue
+        match = _LEADING_YES_NO.match(line)
+        if match and len(line) > match.end():
+            rest = line[match.end() :]
+            lines = [
+                *lines[:i],
+                (match.group("bullet") or "") + rest[0].upper() + rest[1:],
+                *lines[i + 1 :],
+            ]
+        break
+    return lines
+
+
+# R26: content words, for spotting a line that restates an earlier one
+# (g029's "What to do next" repeated its three conditions almost word for word).
+_WORD = re.compile(r"[a-z0-9]+")
+_STOPWORDS = frozenset(
+    "a an and are as at be by can for from has have if in is it its may must "
+    "not of on or so than that the then this to under up was were what when "
+    "which who will with you your".split()
+)
+REPEAT_OVERLAP = 0.6
+_REPEAT_TYPES = frozenset({ClaimType.CONTENT, ClaimType.APPLICATION})
+
+
+def _content_words(text: str) -> frozenset[str]:
+    return frozenset(
+        word
+        for word in _WORD.findall(MARKER.sub("", text).lower())
+        if word not in _STOPWORDS
+    )
+
+
+def _drop_repeats(
+    events: list[ClaimEvent | WithheldEvent],
+) -> list[ClaimEvent | WithheldEvent]:
+    """R26: a served statement whose content words mostly match an earlier
+    served one says the same thing twice; the later one is left out. Both
+    passed verification, so leaving the repeat out hides nothing."""
+    kept: list[ClaimEvent | WithheldEvent] = []
+    seen: list[frozenset[str]] = []
+    for event in events:
+        if isinstance(event, ClaimEvent) and event.type in _REPEAT_TYPES:
+            words = _content_words(event.text)
+            if words and any(
+                len(words & earlier) / len(words | earlier) >= REPEAT_OVERLAP
+                for earlier in seen
+            ):
+                continue
+            seen.append(words)
+        kept.append(event)
+    return kept
 
 
 def _drop_empty_sections(

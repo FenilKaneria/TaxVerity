@@ -107,6 +107,26 @@ function blockKind(line: AnswerLine): Block["kind"] {
   return "paragraph";
 }
 
+const NUMBER_MARKER_RE = /\[(\d+)\]/g;
+
+function markerSet(text: string): string {
+  return [...new Set([...text.matchAll(NUMBER_MARKER_RE)].map((m) => m[1]))]
+    .sort()
+    .join(",");
+}
+
+// R26: a run of lines citing exactly the same passages shows that passage's
+// chip once, on the run's last line, instead of on every line. Display only:
+// every line was verified with its own markers, and `citations` is untouched.
+export function collapseRepeatedChips(lines: AnswerLine[]): AnswerLine[] {
+  return lines.map((line, i) => {
+    const next = lines[i + 1];
+    const own = markerSet(line.text);
+    if (!next || own === "" || own !== markerSet(next.text)) return line;
+    return { ...line, text: line.text.replace(/\s*\[\d+\]/g, "") };
+  });
+}
+
 // Consecutive lines of the same kind form one block; a label or a note always
 // stands alone.
 export function groupBlocks(lines: AnswerLine[]): Block[] {
@@ -122,6 +142,11 @@ export function groupBlocks(lines: AnswerLine[]): Block[] {
       last.lines.push(line);
     } else {
       blocks.push({ kind, lines: [line] });
+    }
+  }
+  for (const block of blocks) {
+    if (block.kind === "paragraph" || block.kind === "bullets" || block.kind === "steps") {
+      block.lines = collapseRepeatedChips(block.lines);
     }
   }
   return blocks;

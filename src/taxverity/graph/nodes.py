@@ -370,7 +370,14 @@ def _retrieve(
     # rewrite when one exists, falling back to the raw query for callers
     # (tests, an older classifier stub) that don't set it.
     base_query = state.get("search_query") or state["query"]
-    sub_queries = state.get("sub_queries") or ()
+    sub_queries = tuple(state.get("sub_queries") or ())
+    # R26: the person's own wording is searched alongside the rewrite. The
+    # classifier's rewrite varies run to run, and on g028/g031 it dropped the
+    # words that found the answer. `query` is the resolved request on a
+    # follow-up, so it never searches a bare "what about 65?".
+    own = state["query"]
+    if own.strip() and own.strip() != base_query.strip() and own not in sub_queries:
+        sub_queries = (*(sub_queries or (base_query,)), own)
     sub_trace: list[dict[str, str | float]] = []
     if sub_queries:
         # R20 Step 20.2: one retrieval pass per legal sub-question for a
