@@ -1,15 +1,4 @@
-"""Step 11.3 — access tokens, refresh rotation and reuse detection (ADR-029).
-
-The access token is a short-lived HS256 JWT signed with `PyJWT`; nothing about
-it is stored, so it cannot be revoked and is kept short instead. The refresh
-token is 256 random bits, stored only as a sha256, and exchanged for a new one
-on every use. Each exchange marks the old token used; presenting a used or
-revoked token again means it was copied, so the whole family descended from
-that login is revoked and both the thief and the user must log in again.
-
-Expiry of refresh tokens is judged by the database clock, so every Lambda
-instance agrees on it.
-"""
+"""Access tokens, refresh rotation and reuse detection."""
 
 from __future__ import annotations
 
@@ -36,14 +25,14 @@ MIN_SECRET_BYTES = 32
 
 
 class InvalidToken(Exception):
-    """Any token that does not authenticate. Deliberately says nothing more."""
+    """Any token that does not authenticate."""
 
     def __init__(self) -> None:
         super().__init__("invalid token")
 
 
 class TokenReuse(InvalidToken):
-    """A refresh token presented after it was used or revoked. Its family is revoked."""
+    """A refresh token presented after it was used or revoked."""
 
 
 class AccessTokens:
@@ -159,8 +148,7 @@ def rotate_refresh_token(
 
 
 def revoke_refresh_family(conn: psycopg.Connection, token: str) -> None:
-    """Logout. Revokes every token of the presented token's family; an unknown
-    token is a no-op, so logout never tells a caller whether a token existed."""
+    """Logout."""
     conn.execute(
         "UPDATE refresh_tokens SET revoked_at = now() "
         "WHERE revoked_at IS NULL AND family_id = "
@@ -170,8 +158,8 @@ def revoke_refresh_family(conn: psycopg.Connection, token: str) -> None:
 
 
 def revoke_all_refresh_tokens(conn: psycopg.Connection, user_id: UUID) -> None:
-    """A password reset ends every existing session for the account — every
-    refresh token family, not just the one that presented the reset link."""
+    """A password reset ends every existing session for the account — every refresh
+    token family, not just the one that presented the reset link."""
     conn.execute(
         "UPDATE refresh_tokens SET revoked_at = now() "
         "WHERE revoked_at IS NULL AND user_id = %s",

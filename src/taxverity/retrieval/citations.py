@@ -1,10 +1,3 @@
-"""Step 3.5 -- a citation typed into a query is an address, not a bag of words.
-
-BM25 splits ``22(2)`` into ``22`` and ``2`` (Step 3.4, note 7), so an exact
-reference is the one query form lexical scoring is structurally bad at. This
-routes it to a direct lookup instead.
-"""
-
 from __future__ import annotations
 
 import re
@@ -68,9 +61,6 @@ def extract_query_citations(query: str) -> list[str]:
 
 
 class CitationRetriever:
-    """Satisfies the Step 3.3 `Retriever` Protocol. Returns nothing at all for
-    a query that names no provision -- it is a shortcut, not a search."""
-
     def __init__(self, chunks: Iterable[Chunk]) -> None:
         self._by_path = {chunk.node_path: chunk for chunk in chunks}
 
@@ -78,12 +68,7 @@ class CitationRetriever:
         return len(self._by_path)
 
     def _lookup(self, citation: str) -> tuple[Chunk, float] | None:
-        """Exact chunk, else the nearest ancestor that is one.
-
-        ADR-056 prunes an untrusted subtree to its root, so a real citation
-        inside section 206 names no chunk. Walking up returns the text that
-        does contain it rather than nothing at all.
-        """
+        """Exact chunk, else the nearest ancestor that is one."""
         chunk = self._by_path.get(citation)
         if chunk is not None:
             return chunk, EXACT_SCORE
@@ -121,12 +106,7 @@ class CitationRetriever:
 
 
 class ShortcutRetriever:
-    """A citation hit ahead of the lexical ranking, then the ranking itself.
-
-    Its scores are ordinal only. A shortcut score and a BM25 score are not
-    comparable (Step 3.3), so position -- not arithmetic on two scales -- is
-    what decides the order here, and the emitted scores merely record it.
-    """
+    """A citation hit ahead of the lexical ranking, then the ranking itself."""
 
     def __init__(self, shortcut: CitationRetriever, primary: object) -> None:
         self._shortcut = shortcut

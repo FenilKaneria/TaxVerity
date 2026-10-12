@@ -1,16 +1,13 @@
 // Presentational live-turn transcript: the question just submitted (as a
 // user bubble, matching MessageList's), the stage indicator, the verified
 // claims as they arrive (grouped into the advisor layout's blocks, the same
-// renderer history uses), one footer counting withheld lines (R22 Part B:
-// never shown inline), clarify chips, and the non-dismissible disclaimer. Consumes a `useTurnStream()` result — see
+// renderer history uses), clarify chips, and the non-dismissible disclaimer. Consumes a `useTurnStream()` result — see
 // components/use-turn-stream.ts for the state this renders.
 
 import { Loader2, RotateCw } from "lucide-react";
 import type { ClickedCitation } from "@/components/citation-dialog";
-import { TracePanel } from "@/components/trace-panel";
-import { WithheldNote } from "@/components/withheld-note";
 import { AnswerBlocks } from "@/lib/markdown";
-import type { ClaimEvent, Stage, TraceEntry, WithheldEvent } from "@/lib/sse";
+import type { ClaimEvent, Stage, WithheldEvent } from "@/lib/sse";
 
 const STAGE_LABELS: Record<Stage, string> = {
   thinking: "Thinking…",
@@ -37,7 +34,6 @@ interface Props {
   // Provision paths actually searched, shown under `finalText` only when it
   // names an insufficient-evidence refusal.
   searched?: string[];
-  trace?: TraceEntry[];
   error: string | null;
   showClarify?: boolean;
   onCiteClick?: (citation: ClickedCitation) => void;
@@ -52,7 +48,6 @@ export function TurnStream({
   disclaimer,
   finalText,
   searched = [],
-  trace = [],
   error,
   showClarify = true,
   onCiteClick,
@@ -63,9 +58,6 @@ export function TurnStream({
   const claims = events.filter(
     (event): event is ClaimEvent => event.kind === "claim",
   );
-  const withheld = events
-    .filter((event): event is WithheldEvent => event.kind === "withheld")
-    .map((event) => event.reason);
 
   return (
     <div className="flex flex-col gap-4">
@@ -80,7 +72,7 @@ export function TurnStream({
       <div className="flex flex-col gap-2.5 dark:rounded-2xl dark:border dark:border-border dark:bg-card dark:px-5 dark:py-4 dark:shadow-subtle">
         {streaming && stage && (
           // "refining search" is the one stage that means something happened
-          // (the corrective retry fired, rule 04/ADR-033) rather than
+          // rather than
           // ordinary progress, so it gets its own indicator.
           <p
             className={
@@ -100,7 +92,7 @@ export function TurnStream({
 
         {finalText && (
           // A fixed/gated template, not a claim — no Typewriter, no chips.
-          // Above the claims: on a guidance-only turn (R22 Part C) it is the
+          // Above the claims: on a guidance-only turn it is the
           // notice that the guidance below is not from the Act.
           <p className="whitespace-pre-line text-[16.5px] leading-relaxed text-foreground">
             {finalText}
@@ -110,12 +102,8 @@ export function TurnStream({
         {claims.length > 0 && (
           <AnswerBlocks lines={claims} onCiteClick={onCiteClick} />
         )}
-        <WithheldNote reasons={withheld} />
 
         {showClarify && !streaming && clarify.length > 0 && (
-          // Questions for the person (rule 04: calculator templates, or
-          // reasoning's validated ones), shown once the answer is complete:
-          // during the turn they read as the system's own internal checklist.
           <div className="flex flex-col gap-2">
             <p className="text-sm text-muted-foreground">
               To make this answer exact, tell me:
@@ -160,8 +148,6 @@ export function TurnStream({
             {disclaimer}
           </p>
         )}
-
-        <TracePanel trace={trace} />
       </div>
     </div>
   );

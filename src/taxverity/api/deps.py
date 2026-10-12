@@ -1,5 +1,5 @@
-"""Shared FastAPI dependencies: a request-scoped connection from the pool,
-and the authenticated user id read from the access-token bearer header."""
+"""Shared FastAPI dependencies: a request-scoped connection from the pool, and the
+authenticated user id read from the access-token bearer header."""
 
 from __future__ import annotations
 

@@ -158,7 +158,7 @@ Phases 0–18 are built: corpus, retrieval, calculator, generation with
 grounding verification, accounts and threads, safety and scope, the LangGraph
 query graph, API, frontend, AWS deployment and CI hardening (dependency audit,
 Dependabot), followed by an answer-level generation evaluation (above).
-Generation and repair run on OpenAI `gpt-5-mini`; classification, fact
+Generation and repair run on OpenAI `gpt-5`; classification, fact
 extraction and reasoning run on Groq `gpt-oss` models, with Gemini as the
 cross-vendor fallback. Operations are in [`docs/RUNBOOK.md`](docs/RUNBOOK.md); the
 scope and refusal policy is [`docs/SAFETY_POLICY.md`](docs/SAFETY_POLICY.md).

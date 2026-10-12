@@ -103,7 +103,7 @@ class Rewritten(BaseModel):
     before: tuple[str, ...]
     after: tuple[str, ...]
     # Units inside a label's subtree that the pack carried before and no longer
-    # does. Lenient credit never counts a descendant (ADR-060), so a question
+    # does. Lenient credit never counts a descendant, so a question
     # labelled too coarsely loses its real answer invisibly to the rule.
     dropped: tuple[str, ...]
 
@@ -142,15 +142,24 @@ class BridgeReport(BaseModel):
     definitions_verdict: Verdict
 
 
-def rerank_live(settings: Settings, fusion: Retriever, questions: Sequence[str], corpus_version: str) -> RerankScores:
-    live = JinaReranker.from_settings(settings, timeout=MEASUREMENT_TIMEOUT, max_attempts=MEASUREMENT_ATTEMPTS)
+def rerank_live(
+    settings: Settings, fusion: Retriever, questions: Sequence[str], corpus_version: str
+) -> RerankScores:
+    live = JinaReranker.from_settings(
+        settings, timeout=MEASUREMENT_TIMEOUT, max_attempts=MEASUREMENT_ATTEMPTS
+    )
     paced = Paced(live)
     scores: dict[str, dict[str, float]] = {}
     with live:
         for position, question in enumerate(questions, start=1):
             pool = [result.chunk for result in fusion.search(question, RERANK_DEPTH)]
             scores[question] = paced.score(question, pool)
-            logger.info("reranked %d/%d, %d tokens billed so far", position, len(questions), live.tokens_used)
+            logger.info(
+                "reranked %d/%d, %d tokens billed so far",
+                position,
+                len(questions),
+                live.tokens_used,
+            )
     return RerankScores(
         model_id=MODEL_ID,
         corpus_version=corpus_version,
@@ -244,7 +253,7 @@ def render(report: BridgeReport, elapsed: float) -> str:
         "",
         "## Evidence the rule cannot see (reported, not gated)",
         "",
-        "\"Label evidence dropped\" lists units inside a label's subtree that the",
+        '"Label evidence dropped" lists units inside a label\'s subtree that the',
         "pack carried before the bridge and no longer does. Lenient credit never",
         "counts a descendant (ADR-060), so for a question labelled coarser than its",
         "answer, losing the answering descendant is not a lost label.",
@@ -317,9 +326,13 @@ def main() -> int:
     tokens_embedded = 0
     with embedder:
         try:
-            dense = DenseRetriever.from_store(store, chunks, embedder, corpus_version=corpus_version)
+            dense = DenseRetriever.from_store(
+                store, chunks, embedder, corpus_version=corpus_version
+            )
             gold_vectors = load_query_vectors(
-                store / QUERY_VECTORS_FILENAME, model=embedder.info(), questions=questions
+                store / QUERY_VECTORS_FILENAME,
+                model=embedder.info(),
+                questions=questions,
             )
             gold_scores = load_rerank_scores(
                 settings.data_dir / "rerank" / RERANK_SCORES_FILENAME,
@@ -335,23 +348,38 @@ def main() -> int:
             StaleRerankScoresError,
             FileNotFoundError,
         ) as error:
-            print(f"error: {error} (run scripts/measure_hybrid.py, then scripts/measure_rerank.py)", file=sys.stderr)
+            print(
+                f"error: {error} (run scripts/measure_hybrid.py, then scripts/measure_rerank.py)",
+                file=sys.stderr,
+            )
             return 1
         vectors_path = store / BRIDGE_VECTORS_FILENAME
         try:
-            bridged_vectors = load_query_vectors(vectors_path, model=embedder.info(), questions=changed)
-            logger.info("read stored bridged-question vectors from %s; billing nothing", vectors_path)
+            bridged_vectors = load_query_vectors(
+                vectors_path, model=embedder.info(), questions=changed
+            )
+            logger.info(
+                "read stored bridged-question vectors from %s; billing nothing",
+                vectors_path,
+            )
         except (FileNotFoundError, StaleVectorStoreError) as reason:
             logger.info("embedding %d rewritten questions (%s)", len(changed), reason)
             embedded = {text: tuple(dense.embed_query(text)) for text in changed}
             bridged_vectors = QueryVectors(
-                model=embedder.info(), fingerprint_cosine=dense.fingerprint_cosine, vectors=embedded
+                model=embedder.info(),
+                fingerprint_cosine=dense.fingerprint_cosine,
+                vectors=embedded,
             )
             write_query_vectors(vectors_path, bridged_vectors)
             tokens_embedded = embedder.tokens_used
 
     fusion = FusionRetriever(
-        [CachedQueryRetriever(dense, {**gold_vectors.vectors, **bridged_vectors.vectors}), BM25Retriever(chunks)]
+        [
+            CachedQueryRetriever(
+                dense, {**gold_vectors.vectors, **bridged_vectors.vectors}
+            ),
+            BM25Retriever(chunks),
+        ]
     )
     scores_path = settings.data_dir / "rerank" / BRIDGE_SCORES_FILENAME
     try:
@@ -362,16 +390,25 @@ def main() -> int:
             depth=RERANK_DEPTH,
             questions=changed,
         )
-        logger.info("read stored bridged-question rerank scores from %s; billing nothing", scores_path)
+        logger.info(
+            "read stored bridged-question rerank scores from %s; billing nothing",
+            scores_path,
+        )
     except (FileNotFoundError, StaleRerankScoresError) as reason:
-        logger.info("reranking %d rewritten questions through the API (%s)", len(changed), reason)
+        logger.info(
+            "reranking %d rewritten questions through the API (%s)",
+            len(changed),
+            reason,
+        )
         bridged_scores = rerank_live(settings, fusion, changed, corpus_version)
         write_rerank_scores(scores_path, bridged_scores)
 
     reranker = StoredReranker({**gold_scores.scores, **bridged_scores.scores})
     shortcut = CitationRetriever(chunks)
     base = ShortcutRetriever(shortcut, RerankRetriever(fusion, reranker))
-    bridged = ShortcutRetriever(shortcut, BridgedRetriever(bridge, RerankRetriever(fusion, reranker)))
+    bridged = ShortcutRetriever(
+        shortcut, BridgedRetriever(bridge, RerankRetriever(fusion, reranker))
+    )
     packer = EvidencePacker(chunks)
     classifier = FailureClassifier(chunks)
 
@@ -383,12 +420,19 @@ def main() -> int:
     for query in gold:
         pool = bridged.search(query.question, EVIDENCE_POOL)
         packs_before[query.query_id] = [
-            unit.citation for unit in packer.pack(base.search(query.question, EVIDENCE_POOL)).units
+            unit.citation
+            for unit in packer.pack(base.search(query.question, EVIDENCE_POOL)).units
         ]
-        packs_after[query.query_id] = [unit.citation for unit in packer.pack(pool).units]
-        defined = packer.pack(pool, definitions=bridge.definitions(rewritten[query.query_id]))
+        packs_after[query.query_id] = [
+            unit.citation for unit in packer.pack(pool).units
+        ]
+        defined = packer.pack(
+            pool, definitions=bridge.definitions(rewritten[query.query_id])
+        )
         packs_defined[query.query_id] = [unit.citation for unit in defined.units]
-        pulled = [unit for unit in defined.units if unit.role is EvidenceRole.DEFINITION]
+        pulled = [
+            unit for unit in defined.units if unit.role is EvidenceRole.DEFINITION
+        ]
         definitions.append(
             DefinitionUse(
                 query_id=query.query_id,
@@ -409,7 +453,9 @@ def main() -> int:
     frozen = load_cohorts(settings.evals_dir / "datasets" / COHORTS_FILENAME)
     cohort = frozen.cohorts[FailureCategory.VOCABULARY]
     expanded_citation = [
-        q.query_id for q in gold if q.slice is QuerySlice.CITATION and rewritten[q.query_id] != q.question
+        q.query_id
+        for q in gold
+        if q.slice is QuerySlice.CITATION and rewritten[q.query_id] != q.question
     ]
     report = BridgeReport(
         corpus_version=corpus_version,
@@ -433,9 +479,12 @@ def main() -> int:
                 dropped=tuple(
                     unit
                     for unit in packs_before[q.query_id]
-                    if any(credits(label, unit, CreditMode.LENIENT) for label in q.required)
+                    if any(
+                        credits(label, unit, CreditMode.LENIENT) for label in q.required
+                    )
                     and not any(
-                        credits(kept, unit, CreditMode.LENIENT) for kept in packs_after[q.query_id]
+                        credits(kept, unit, CreditMode.LENIENT)
+                        for kept in packs_after[q.query_id]
                     )
                 ),
             )
@@ -460,7 +509,12 @@ def main() -> int:
     artifact = artifact_dir / ARTIFACT
     with artifact.open("w", encoding="utf-8", newline="") as handle:
         handle.write(
-            json.dumps(report.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            json.dumps(
+                report.model_dump(mode="json"),
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
         )
         handle.write("\n")
     elapsed = time.perf_counter() - started
@@ -470,12 +524,16 @@ def main() -> int:
     print(f"rewritten: {len(report.rewritten)} questions")
     print(f"vocabulary cohort recovered: {len(report.recovered)} of {len(cohort)}")
     print(f"gained {pairs(report.gained)}; lost {pairs(report.lost)}")
-    print(f"bridge: {'ADOPTED' if report.verdict.adopted else 'REJECTED'} {list(report.verdict.reasons)}")
+    print(
+        f"bridge: {'ADOPTED' if report.verdict.adopted else 'REJECTED'} {list(report.verdict.reasons)}"
+    )
     print(
         f"definitions: {'ADOPTED' if report.definitions_verdict.adopted else 'REJECTED'} "
         f"{list(report.definitions_verdict.reasons)}"
     )
-    print(f"tokens billed: embed {tokens_embedded}, rerank {bridged_scores.tokens_billed}")
+    print(
+        f"tokens billed: embed {tokens_embedded}, rerank {bridged_scores.tokens_billed}"
+    )
     print(f"wrote {artifact}")
     print(f"wrote {REPORT}")
     return 0

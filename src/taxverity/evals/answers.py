@@ -1,9 +1,5 @@
-"""Step 10.7 — the answer smoke set: a stored run of the generator over a
-handful of gold-v2 questions (ADR-110).
-
-The only gate is that no negative question gets a served, cited claim. The
-rest is reported so a regression is visible, not judged against a threshold.
-"""
+"""The answer smoke set: a stored run of the generator over a handful of gold-v2
+questions."""
 
 from __future__ import annotations
 
@@ -20,9 +16,6 @@ from taxverity.safety.evidence_gate import GROUNDED_CLAIM_TYPES
 ANSWER_EVAL_VERSION = 4
 ANSWER_RUN_FILENAME = "answer_smoke_v4.json"
 
-# Chosen by rule, not by reading outputs: the first three citation, four
-# paraphrase and three crossref questions of gold v2, and its first five
-# negatives. Phase 11 appends its follow-up cases.
 SMOKE_QUERY_IDS: tuple[str, ...] = (
     "q001", "q002", "q003",
     "q009", "q010", "q011", "q012",
@@ -52,28 +45,18 @@ class AnswerRecord(BaseModel):
     # A provider failure ends the answer; what was already released stands.
     error: str | None = None
     seconds: float
-    # R19 Phase D (ADR-120's own follow-on, no new ADR): the classifier's
-    # `ScopeCategory`, always populated by a live run. Not `"in_scope"` means
-    # retrieval and generation never ran for this query — this script now
-    # mirrors `graph/build.py`'s `_scope_branch`, which is what actually
-    # keeps an adjacent/out-of-scope/prohibited question from reaching the
-    # generator in production. `None` only for records built before this
-    # field existed (there are none on disk once `ANSWER_EVAL_VERSION` is
-    # bumped, but a hand-built test record may still omit it).
     category: str | None = None
 
     @property
     def grounded_claims(self) -> tuple[ClaimEvent, ...]:
-        """R19 Phase B (ADR-120): a `content` claim actually carrying a
-        resolved citation — the merged statute/advice voice, and the same
-        definition `evidence_gate.served_grounded_claims` uses."""
+        """A `content` claim actually carrying a resolved citation — the merged
+        statute/advice voice, and the same definition
+        `evidence_gate.served_grounded_claims` uses."""
         return tuple(
             c for c in self.claims if c.type in GROUNDED_CLAIM_TYPES and c.citations
         )
 
     def answer_text(self) -> str:
-        # R19 Phase B (ADR-120): a newline, matching graph/nodes.py's
-        # `_served_text` — each claim is a whole markdown line.
         return "\n".join(claim.text for claim in self.claims)
 
 

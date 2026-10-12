@@ -1,19 +1,4 @@
-"""Step 11.5 — thread-scoped fact-state merge and persistence.
-
-Memory is the accumulated `UserFacts`, not a transcript (rule 04): each turn's
-extraction is merged into what the thread already knows, with an explicit,
-recorded conflict resolution rather than a silent overwrite. A newer *stated*
-fact overrides an older one; an *inferred* fact never overrides a stated one,
-because the person's own words outrank a guess made from them. A user editing
-the facts panel is the most authoritative signal there is, so it always wins
-and is recorded the same way any other override is — never applied silently.
-
-`FactStatus.PROFILE_DEFAULT` cannot enter here at all: the cross-thread
-profile is deferred (ADR-110), and rule 04 makes reusing a stale profile fact
-as `stated` a correctness bug, not a convenience. Refusing it here, at the one
-place facts are merged, is what keeps that unforgeable rather than a
-convention later code has to remember.
-"""
+"""Thread-scoped fact-state merge and persistence."""
 
 from __future__ import annotations
 
@@ -40,7 +25,7 @@ USER_EDIT_PROVENANCE = "edited by user"
 
 @dataclass(frozen=True)
 class Override:
-    """One conflict resolution: `new` replaced `previous` for `field`."""
+    """One conflict resolution."""
 
     field: FactField
     previous: Fact
@@ -51,10 +36,6 @@ class Override:
 
 @dataclass(frozen=True)
 class SituationOverride:
-    """The same conflict resolution as `Override`, keyed by name rather than
-    a closed `FactField` — R20 Step 20.4's open-vocabulary facts have no enum
-    to key on, so the normalised (stripped, casefolded) name stands in."""
-
     key: str
     previous: SituationFact
     previous_provenance: str
@@ -67,9 +48,6 @@ class ThreadFactState:
     facts: dict[FactField, Fact] = field(default_factory=dict)
     provenance: dict[FactField, str] = field(default_factory=dict)
     overrides: tuple[Override, ...] = ()
-    # R20 Step 20.4. Never read by `as_user_facts()` or Phase 9's calculator —
-    # these are the open facts a future `reason` node (20.5) will read
-    # alongside the closed ones, not a calculator input.
     situation: dict[str, SituationFact] = field(default_factory=dict)
     situation_provenance: dict[str, str] = field(default_factory=dict)
     situation_overrides: tuple[SituationOverride, ...] = ()
@@ -81,8 +59,8 @@ class ThreadFactState:
         return self.provenance.get(field_)
 
     def as_user_facts(self) -> UserFacts:
-        """What Phase 9's calculator computes from — the thread's current
-        belief, independent of which turn or edit produced each field."""
+        """The thread's current belief, independent of which turn or edit produced each
+        field."""
         return UserFacts(facts=tuple(self.facts.values()))
 
     def situation_facts(self) -> tuple[SituationFact, ...]:
@@ -101,15 +79,7 @@ def merge_turn(
     turn: int,
     situation_facts: Sequence[SituationFact] = (),
 ) -> ThreadFactState:
-    """Merges one turn's extraction into `state`. `MISSING` facts are dropped —
-    silence about a field says nothing about what was known before.
-
-    `situation_facts` (R20 Step 20.4) merges by the same override rule as the
-    closed fields — a newer stated fact wins, an inferred one never outranks
-    an existing stated one, and every replacement is recorded rather than
-    applied silently (rule 04) — keyed by name instead of a `FactField`, since
-    the vocabulary here is open.
-    """
+    """Merges one turn's extraction into `state`."""
     facts = dict(state.facts)
     provenance = dict(state.provenance)
     overrides = list(state.overrides)
@@ -184,8 +154,8 @@ def merge_turn(
 def apply_user_edit(
     state: ThreadFactState, field_: FactField, raw_value: str
 ) -> ThreadFactState:
-    """A user edit is always a `stated` fact and always wins, recorded with
-    provenance `"edited by user"` like any other override."""
+    """A user edit is always a `stated` fact and always wins, recorded with provenance
+    `"edited by user"` like any other override."""
     value = fact_value(field_, raw_value, USER_EDIT_PROVENANCE)
     if value is None:
         raise ValueError(f"{raw_value!r} is not a valid value for {field_}")
@@ -218,10 +188,6 @@ def apply_user_edit(
 
 
 def _fact_to_json(fact: Fact) -> dict[str, Any]:
-    # `value` is never stored: a Decimal round-tripped through JSON comes back
-    # as a string, and the model's `Decimal | int | str` union then keeps it a
-    # string instead of a Decimal (Step 7.3's same hazard). Re-derived instead,
-    # by the same `fact_value()` normalisation that produced it the first time.
     return {
         "field": fact.field.value,
         "status": fact.status.value,
@@ -318,8 +284,6 @@ def from_json(data: dict[str, Any]) -> ThreadFactState:
         )
         for entry in data.get("overrides", [])
     )
-    # `.get(..., {})`/`.get(..., [])`: a row saved before R20 Step 20.4 has
-    # none of these keys, and must load as "no situation facts yet", not raise.
     situation = {
         key: _situation_from_json(payload)
         for key, payload in data.get("situation", {}).items()
@@ -348,8 +312,8 @@ def from_json(data: dict[str, Any]) -> ThreadFactState:
 def load_fact_state(
     conn: psycopg.Connection, user_id: UUID, thread_id: UUID
 ) -> ThreadFactState:
-    """Raises `ThreadNotFound` for a thread that does not exist or is not the
-    caller's — the same isolation `threads.store` enforces everywhere else."""
+    """Raises `ThreadNotFound` for a thread that does not exist or is not the caller's —
+    the same isolation `threads.store` enforces everywhere else."""
     get_thread(conn, user_id, thread_id)
     row = conn.execute(
         "SELECT facts FROM thread_facts WHERE thread_id = %s AND user_id = %s",

@@ -1,36 +1,3 @@
-"""R20 Step 20.5 — deterministic validation of the `reason` call's raw
-output against the evidence pack and the thread's facts (rule 02's
-recurring test: a deterministic check wherever one is possible, and this is
-one).
-
-The model's analysis is data, not truth (PLAN R20's "Reasoning validation"
-section, and standing amendment 2 — `reason` "may not invent a condition,
-draw on model memory, add a legal number the pack doesn't ground... or have
-its own output served without going through the same claim verifier as
-everything else"):
-
-- Every marker must fall inside the pack; a marker outside it is dropped,
-  and a rule or condition left with none is dropped outright (uncited).
-- Every number a rule, limit, exception or definition states must be
-  grounded in the units its own markers actually name
-  (`generation.verifier.ground_numbers` — the exact check a claim's own
-  numbers already pass at 20.7). A rule whose own statement carries a
-  number its cited passages do not is dropped whole, not trimmed: a rule
-  is one legal statement, and a fabricated figure inside it means the
-  statement itself cannot be trusted.
-- A `satisfied`/`not_satisfied` check must reference a fact this thread
-  has actually stated or inferred; missing that, it is downgraded to
-  `unknown` rather than dropped — the check (which condition, which rule)
-  is still meaningful even once its verdict cannot be trusted.
-- A `MissingFact` must point at a condition that survived the step above
-  and is `unknown` after it; any legal number in its question must be
-  grounded in that condition's own cited passages (amendment 3 — the
-  person may be asked for their own figure, never handed a rate or
-  threshold the model invented). Its length is capped, not refused.
-- This module only ever drops or trims. It never rewrites a status, a
-  number or a citation to make something pass.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -53,9 +20,6 @@ from taxverity.retrieval.evidence import EvidencePack
 
 VALIDATE_STAGE_VERSION = 1
 
-# A clarify question this long is a paragraph, not a short targeted
-# follow-up — capped the same way `CLARIFY_TEMPLATES` stays a fixed, short
-# sentence, per PLAN R20's "its length is capped."
 MAX_QUESTION_LENGTH = 240
 
 
@@ -68,10 +32,6 @@ class ValidatedAnalysis:
 
     @property
     def has_governing_rule(self) -> bool:
-        """False means nothing survived validation at all — the caller
-        falls back to plain generation over the pack (PLAN R20: "Uncited
-        rules are dropped. If nothing survives, fall back to today's
-        path")."""
         return bool(self.legal_rules)
 
 

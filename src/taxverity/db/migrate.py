@@ -1,10 +1,4 @@
-"""Step 6.2 — plain-SQL schema migrations (ADR-088).
-
-A migration is a file `NNNN_name.sql` in `migrations/`. Each is applied once,
-in order, inside its own transaction, and recorded with its sha256. An applied
-migration whose file has since changed is refused rather than skipped: the
-database would otherwise claim a schema the code no longer describes.
-"""
+"""Plain-SQL schema migrations."""
 
 from __future__ import annotations
 
@@ -69,9 +63,7 @@ def discover_migrations(directory: Path = MIGRATIONS_DIR) -> tuple[Migration, ..
 
 
 def applied_migrations(conn: psycopg.Connection) -> dict[int, str]:
-    """Version -> sha256 as recorded in the database. An absent table is an
-    unmigrated database, not an error: `migrate()` creates it, and the Step 6.6
-    guard reports it as the refusal it is."""
+    """Version -> sha256 as recorded in the database."""
     present = conn.execute("SELECT to_regclass('schema_migrations')").fetchone()
     if present is None or present[0] is None:
         return {}
@@ -86,10 +78,8 @@ def applied_migrations(conn: psycopg.Connection) -> dict[int, str]:
 def schema_conflicts(
     migrations: Sequence[Migration], applied: Mapping[int, str]
 ) -> tuple[str, ...]:
-    """Ways the recorded schema disagrees with these files — a migration this
-    code does not carry, or one edited after it was applied. Pending migrations
-    are not a conflict: `migrate()` applies them, the guard refuses on them.
-    """
+    """Ways the recorded schema disagrees with these files — a migration this code does
+    not carry, or one edited after it was applied."""
     known = {m.version: m for m in migrations}
     reasons = []
     for version, sha256 in sorted(applied.items()):

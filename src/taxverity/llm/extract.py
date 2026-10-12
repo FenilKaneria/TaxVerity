@@ -1,21 +1,4 @@
-"""Step 7.6 — the extraction node: one turn in, a `UserFacts` out.
-
-The first code that composes the Phase 7 stack. Step 7.2 built the client, 7.3
-the offline cache and 7.4 the tracer with no caller between them; this is the
-caller. Step 7.5 built the schema and the parser with no producer; this is the
-producer.
-
-Two things shape it. The parser refuses rather than raises, so a bad entry
-arrives as a `Rejection` carrying the entry itself — which is exactly what a
-repair prompt needs to quote back. And the repair is bounded at one attempt:
-rule 02 rejects unbounded agentic loops, and an entry the model could not fix
-when told precisely what was wrong is better reported than re-asked.
-
-Which fields are `missing` is decided here, in code, not by the model. Absence
-is a set difference, and a deterministic check beats a model call wherever one
-exists (rule 01). It also keeps every turn's output to the fields actually
-found, which matters on a free tier where tokens bind before requests do.
-"""
+"""The extraction node: one turn in, a `UserFacts` out."""
 
 from __future__ import annotations
 
@@ -54,7 +37,7 @@ logger = get_logger(__name__)
 
 EXTRACTION_STAGE_VERSION = 5
 
-# Step 7.1: reasoning cannot be disabled and is billed against this cap, so a
+# Reasoning cannot be disabled and is billed against this cap, so a
 # cap sized for the visible JSON alone truncates it mid-object.
 EXTRACTION_MAX_COMPLETION_TOKENS = 2_048
 
@@ -70,8 +53,6 @@ STRICT_FORMAT: dict[str, Any] = {
     },
 }
 
-# Step 7.1 measured this as the fallback mode. Nothing is enforced at the wire
-# under it, which is why parse_facts() polices the shape either way.
 OBJECT_FORMAT: dict[str, Any] = {"type": "json_object"}
 
 _SHAPE = FACTS_JSON_SCHEMA["properties"]["fields"]["description"]
@@ -108,11 +89,6 @@ SYSTEM_PROMPT = (
     "over. If the message contains no such fact, return an empty array."
 )
 
-# An unknown field is a measurement of what the closed vocabulary misses (7.5),
-# and asking the model to rename it into the enum would force a wrong field in
-# and destroy the thing 7.7 counts. A duplicate is not repaired either: the
-# first occurrence is already kept, and a second value is a conflict, which
-# Phase 11 owns.
 REPAIRABLE = frozenset(
     {
         FactIssue.BAD_STATUS,
@@ -166,9 +142,6 @@ class ExtractionResult:
     repairable: tuple[Rejection, ...]
     repaired: bool
     completions: tuple[Completion, ...]
-    # R20 Step 20.4: the open-vocabulary facts from the first pass only — the
-    # repair call, when it fires, is asked to fix the closed fields' rejected
-    # entries alone (see `extract()`), so a situation fact is never repaired.
     situation_facts: tuple[SituationFact, ...] = ()
     situation_rejections: tuple[Rejection, ...] = ()
 
@@ -209,16 +182,6 @@ class FactExtractor:
         fallback: Provider | None = None,
         **kwargs: Any,
     ) -> FactExtractor:
-        """Builds the Phase 7 stack: tracing outside the cache, per ADR-095.
-
-        A cache hit is traced as an ordinary generation, because a hit returns
-        the stored completion and the tracer cannot tell the difference. An eval
-        report reads tokens from the client, never from a count of traces.
-
-        `primary`/`fallback` (R18) default to `LLMClient`'s own class
-        defaults (Groq 120b / Gemini) — pass them to run this node against a
-        different pair, e.g. Groq's 20b model.
-        """
         client: Any = LLMClient.from_settings(
             settings, primary=primary, fallback=fallback
         )
@@ -232,12 +195,6 @@ class FactExtractor:
         if not turn.strip():
             raise ValueError("turn must be non-empty")
 
-        # The span check runs against the turn as the model saw it, not as the
-        # user typed it. redact() masks the PAN inside LLMClient, so a quotation
-        # spanning one can only ever match the masked text — and a span that did
-        # carry the real PAN would put it straight into the fact state Phase 11
-        # persists. Rule 03's egress obligation reaches what we store, not only
-        # what we send.
         seen = redact(turn)
 
         completions: list[Completion] = []
@@ -263,7 +220,6 @@ class FactExtractor:
         if not (repairable and self._repair):
             return unrepaired
 
-        # A retry, which rule 01 logs without exception.
         logger.warning(
             "repairing %d of %d rejected fact entries",
             len(repairable),
@@ -310,9 +266,6 @@ class FactExtractor:
         try:
             return self._call(messages, STRICT_FORMAT)
         except LLMRequestError as error:
-            # ADR-093 does not fail over on a request error, so without this the
-            # whole node dies against a provider that cannot do strict schemas.
-            # The shape is then policed by parse_facts() alone.
             logger.warning(
                 "provider refused the strict fact schema (%s); using json_object",
                 error,
@@ -365,12 +318,7 @@ def _repair_prompt(rejections: Sequence[Rejection]) -> str:
 def _merge(
     first: Extraction, second: Extraction, repairable: Sequence[Rejection]
 ) -> Extraction:
-    """Pass one owns every field it accepted; pass two may only fill the gaps.
-
-    Repair was asked for the rejected entries alone, so a field pass one already
-    accepted is not pass two's to change — and a changed one is recorded as a
-    duplicate rather than dropped quietly.
-    """
+    """Pass one owns every field it accepted; pass two may only fill the gaps."""
     kept = {fact.field: fact for fact in first.facts.facts}
     rejections = [r for r in first.rejections if r.issue not in REPAIRABLE]
     unmapped: list[UnmappedFact] = list(first.facts.unmapped)
@@ -414,8 +362,8 @@ def _entry_field(rejection: Rejection) -> FactField | None:
 
 
 def no_facts() -> ExtractionResult:
-    """What an extraction reporting nothing returns, built without a call — for
-    a turn the graph already knows states no fact (R22 Part A)."""
+    """What an extraction reporting nothing returns, built without a call — for a turn
+    the graph already knows states no fact."""
     return ExtractionResult(
         facts=_complete_missing(UserFacts()),
         rejections=(),

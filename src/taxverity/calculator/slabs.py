@@ -1,11 +1,4 @@
-"""Step 9.2 — tax on total income under the section 202(1) slabs, with a trace.
-
-Input is a total income already computed; deductions and the rebate are Step 9.3.
-Every figure the result carries is a `LineItem` that names the provision it came
-from and quotes it, so Phase 10's numeric-provenance check and the audit table
-read one structure. The result re-derives its own arithmetic on construction, so
-a trace that does not add up cannot exist (ADR-101).
-"""
+"""Tax on total income under the section 202(1) slabs, with a trace."""
 
 from __future__ import annotations
 
@@ -73,7 +66,7 @@ def round_to_multiple(amount: Decimal, multiple: Decimal) -> Decimal:
 
 def require_amount(value: Decimal, what: str) -> Decimal:
     # A Decimal only: an int would pass, but a float would too once converted,
-    # and the calculator admits no binary intermediate (ADR-017).
+    # and the calculator admits no binary intermediate.
     if not isinstance(value, Decimal):
         raise SlabInputError(f"{what} must be a Decimal, not {type(value).__name__}")
     if not value.is_finite() or value < 0:

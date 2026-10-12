@@ -1,16 +1,5 @@
-"""Step 13.1 — graph state, the SSE event vocabulary this graph assembles, and
-the injected dependencies every node runs against.
-
-Rule 04 defines the streaming contract's `stage`, `clarify` and `final` event
-shapes; `claim`/`withheld` already exist in `generation/claims.py` and are
-reused unchanged. `GraphDeps` is the seam node functions are tested against —
-production wires a real one in `build.py`, tests hand nodes a fake with
-scripted retrievers, classifiers and LLM clients, the same discipline
-`test_generation.py` and `test_injection.py` already use.
-
-`GraphDeps` lives here rather than in `nodes.py` so `build.py` can import both
-from one place without `nodes.py` importing `build.py` back.
-"""
+"""Graph state, the SSE event vocabulary this graph assembles, and the injected
+dependencies every node runs against."""
 
 from __future__ import annotations
 
@@ -44,14 +33,14 @@ from taxverity.safety.classifier import Intent, IntentClassifier, ScopeCategory
 
 GRAPH_STAGE_VERSION = 12
 
-# rule 04: "a short recent-turns window (2-3 turns of text)".
+# "a short recent-turns window (2-3 turns of text)".
 RECENT_TURNS_WINDOW = 3
 
 
 class StageEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    # R22 Part A: "analysing" (the reason call), "writing" (generation) and
+    # "analysing" (the reason call), "writing" (generation) and
     # "checking" (the repair pass) name the long LLM waits a turn spends
     # after "evidence", so the screen says what is happening rather than
     # sitting on "Checking the Act…" for the whole of generation.
@@ -75,11 +64,8 @@ class ClarifyEvent(BaseModel):
 
 
 class TraceEntry(BaseModel):
-    """R19 — one node's wall-clock cost, collected by `build.py`'s node
-    wrapper and carried through to the trace panel (always visible, per user
-    decision). Timings only: per-call token counts would need instrumenting
-    every LLM-calling class individually, which is deferred as quality-additive,
-    not correctness-critical (rule 01)."""
+    """One node's wall-clock cost, collected by `build.py`'s node wrapper and carried
+    through to the trace panel (always visible, per user decision)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -94,7 +80,7 @@ class FinalEvent(BaseModel):
     computation: dict[str, str] | None
     citations: tuple[str, ...]
     disclaimer: str = DISCLAIMER
-    # R19: per-node timings for the always-visible trace panel.
+    # Per-node timings for the always-visible trace panel.
     trace: tuple[TraceEntry, ...] = ()
     # The fixed/gated answer text — a refusal template, the conversational
     # reply, or the insufficient-evidence message. None means the turn served
@@ -107,11 +93,6 @@ class FinalEvent(BaseModel):
     searched: tuple[str, ...] = ()
 
 
-# Deterministic clarifying-question templates (rule 04: "never from the LLM"),
-# covering exactly the fields `materiality.probe` can return with outcome ASK.
-# Not every FactField appears here: the rest are either not calculator inputs
-# (regime, age) or the probe never asks about them (tax_year is assumed,
-# deduction claims are assumed nil under 202(1)).
 CLARIFY_TEMPLATES: dict[FactField, str] = {
     FactField.SALARY_INCOME: "What is your salary income for the tax year?",
     FactField.OTHER_SOURCES_INCOME: (
@@ -145,7 +126,7 @@ CLARIFY_TEMPLATES: dict[FactField, str] = {
 
 
 # Asked when the person wants their tax calculated but has stated no amount
-# yet. Fixed text (rule 04), and salary first because it is the calculator's
+# yet. Fixed text, and salary first because it is the calculator's
 # main input; the extractor picks up any other income named in the reply.
 CALCULATION_CLARIFY = (
     "What is your salary income for the tax year, and do you have any other "
@@ -173,37 +154,22 @@ class GraphState(TypedDict, total=False):
     thread_id: UUID
     question: str
     prior_turns: list[str]
-    # R21: the last served answer's plain text (markers stripped), so a
+    # The last served answer's plain text (markers stripped), so a
     # follow-up ("explain simply", "give examples") builds on it rather than
     # re-answering blind. Context only — never evidence, never fact truth.
     previous_answer: str
-    # R22 Part B: provision paths the last served answer cited, in the order
+    # Provision paths the last served answer cited, in the order
     # it first cited them (its persisted `payload["citations"]`).
     previous_citations: tuple[str, ...]
-    # R22 Part B: `memory.contextualize.is_style_followup` on this turn. When
+    # `memory.contextualize.is_style_followup` on this turn. When
     # set, `retrieve` packs `previous_citations` instead of searching, and
     # generation gets the fixed rewrite note.
     style_followup: bool
     turn: int
     query: str
-    # R19 Phase B (ADR-120): the classifier's Act-vocabulary rewrite of
-    # `query`, used for retrieval only — `query` itself still goes to
-    # generation, so the model answers what the person actually asked.
     search_query: str
-    # R20 Step 20.2: separate retrieval questions for a multi-issue question
-    # (calculation, eligibility, comparison, ...). Empty for a plain
-    # single-issue question, which retrieves on `search_query` alone.
     sub_queries: tuple[str, ...]
-    # R20 Step 20.3: what kind of in_scope question this is, so the
-    # forthcoming `reason`/`decide` nodes (20.5-20.6) know whether to run the
-    # reasoning call at all.
     intent: Intent
-    # R20 Step 20.5: the `reason` node's deterministically validated
-    # output (`reasoning/validate.py`). Not yet consumed by any other node —
-    # `decide` (20.6) and `generate` (20.7) are the first real readers.
-    # Empty/`None` means either `reason` was skipped (intent=explanation) or
-    # nothing survived validation, and both cases mean the same thing
-    # downstream: fall back to plain generation over the pack.
     legal_rules: tuple[LegalRule, ...]
     applicability: tuple[ConditionCheck, ...]
     missing_facts: tuple[MissingFact, ...]
@@ -224,23 +190,14 @@ class GraphState(TypedDict, total=False):
     pack: EvidencePack
     events: list[ClaimEvent | WithheldEvent]
     answer_text: str | None
-    retried: bool  # Step 13.5: set by `retrieve_retry`, bounds the corrective loop to one cycle.
-    # R19 Phase C: `operator.add` (list concatenation), not a plain LastValue
-    # channel — `extract_facts` and `retrieve` now run in the same superstep
-    # (parallel branches off `classify`), and each node's `_timed` wrapper in
-    # build.py writes only its own one-entry delta. A plain channel would
-    # raise `InvalidUpdateError` on two concurrent writes in one superstep;
-    # the reducer is what lets both survive.
+    retried: bool  # Set by `retrieve_retry`, bounds the corrective loop to one cycle.
     trace: Annotated[list[dict[str, str | float]], operator.add]
     final: FinalEvent
 
 
 @dataclass
 class GraphDeps:
-    """Everything a node needs beyond the state itself. One instance per
-    process (Phase 14 builds it once at API startup); `conn` is the one field
-    a future connection-pooled deployment must swap per request, not per
-    process — Phase 14's problem, not this one's."""
+    """Everything a node needs beyond the state itself."""
 
     conn: psycopg.Connection
     chunks: dict[str, Chunk]
@@ -254,6 +211,6 @@ class GraphDeps:
     pool_k: int = field(default=EVIDENCE_POOL)
     # CALC_PIN_CITATIONS resolved to chunks once at startup (`build_deps`).
     calc_pins: tuple[ScoredChunk, ...] = ()
-    # R22 Part B: `CitationRetriever.lookup`, so a style follow-up can rebuild
+    # `CitationRetriever.lookup`, so a style follow-up can rebuild
     # the last answer's passages. None leaves every turn on a fresh search.
     citation_lookup: Callable[[str], ScoredChunk | None] | None = None

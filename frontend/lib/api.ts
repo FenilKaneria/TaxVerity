@@ -1,11 +1,3 @@
-// Step 16.2. Two layers: `apiFetch`/`apiJson` for the public /v1/auth/*
-// surface, `authorizedFetch`/`authorizedJson` for bearer-protected routes.
-//
-// `authorizedFetch` returns the raw Response and never reads its body, so
-// Step 16.4's postTurn() can call it directly and consume `res.body` as a
-// stream — one token-refresh path shared by both ordinary requests and the
-// SSE turn stream, instead of two.
-
 import { API_BASE } from "./config";
 import { getAccessToken, refreshAccessToken } from "./auth-store";
 import { ApiError, parseError } from "./errors";

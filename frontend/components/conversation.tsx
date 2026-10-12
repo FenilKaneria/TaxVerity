@@ -7,7 +7,7 @@
 // merges the two so the conversation reads continuously, top to bottom.
 
 import type { ClickedCitation } from "@/components/citation-dialog";
-import type { ClaimEvent, Stage, TraceEntry, WithheldEvent } from "@/lib/sse";
+import type { ClaimEvent, Stage, WithheldEvent } from "@/lib/sse";
 import type { Message } from "@/lib/threads";
 import { MessageList } from "@/components/message-list";
 import { TurnStream } from "@/components/turn-stream";
@@ -22,7 +22,6 @@ interface TurnStreamState {
   disclaimer: string | null;
   finalText?: string | null;
   searched?: string[];
-  trace?: TraceEntry[];
   error: string | null;
 }
 

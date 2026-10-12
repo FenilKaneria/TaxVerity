@@ -1,12 +1,5 @@
-"""Step 6.5 — does the Postgres index rank the same way the NumPy one does, and
-does this corpus need an ANN index at all.
-
-Two separate questions, and only the first is parity. The Postgres index is an
-exact search like NumPy's, so any disagreement is float noise or a broken
-tie-break, and the gold numbers must be identical. HNSW is approximate by
-construction, so it can only ever cost recall; the rule below is registered here
-before the measurement so the latency number cannot argue for itself.
-"""
+"""Does the Postgres index rank the same way the NumPy one does, and does this corpus
+need an ANN index at all."""
 
 from __future__ import annotations
 
@@ -18,11 +11,6 @@ from taxverity.evals.ladder import TOLERANCE, Verdict
 from taxverity.evals.metrics import CreditMode, RunReport
 from taxverity.retrieval.base import ScoredChunk
 
-# The query path this search sits inside is dominated by two vendor round trips
-# measured earlier: query embedding at p50 324 ms (Step 4.6) and reranking at
-# p95 1,126 ms (Step 5.6). An exact scan under this budget is not the binding
-# constraint, and an approximate index bought against a constraint that does not
-# bind is a recall risk taken for nothing.
 EXACT_P95_BUDGET_MS = 100.0
 
 HNSW_M = 16
@@ -54,8 +42,8 @@ def agreement(
     b: Mapping[str, Sequence[ScoredChunk]],
     k: int,
 ) -> Agreement:
-    """Compared by chunk id, not citation: two chunks can share neither, and the
-    id is what the index actually returned."""
+    """Compared by chunk id, not citation: two chunks can share neither, and the id is
+    what the index actually returned."""
     if a.keys() != b.keys():
         raise ValueError("the two runs do not cover the same queries")
     identical, reordered, different = [], [], []
@@ -94,9 +82,7 @@ def agreement(
 
 
 def judge_parity(found: Agreement, *, score_tolerance: float) -> Verdict:
-    """Two exact searches of the same vectors must return the same ranking. A
-    score difference is float noise up to the tolerance; a different chunk, or
-    the same chunks in a different order, is a broken tie-break."""
+    """Two exact searches of the same vectors must return the same ranking."""
     reasons = []
     if found.different:
         reasons.append(
@@ -123,9 +109,7 @@ def judge_hnsw(
     *,
     budget_ms: float = EXACT_P95_BUDGET_MS,
 ) -> Verdict:
-    """Necessity then safety. An approximate index is adopted only if exact
-    search is actually over budget, and only if it costs nothing measurable on
-    the gold set."""
+    """Necessity then safety."""
     if candidate.k != incumbent.k:
         raise ValueError(f"cannot compare k={candidate.k} against k={incumbent.k}")
     new = candidate.overall[CreditMode.LENIENT]

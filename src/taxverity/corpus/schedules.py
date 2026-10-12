@@ -28,9 +28,6 @@ logger = get_logger(__name__)
 
 SCHEDULE_STAGE_VERSION = 2
 
-# Confirmed by Step 1.1/1.3: the first Schedule opens at page 622 and the
-# corpus ends at page 665 (666 pages, 0-indexed) with no content after
-# Schedule XVI.
 FIRST_SCHEDULE_PAGE = 622
 
 SCHEDULE_LINE = re.compile(r"^SCHEDULE\s+([IVXLCDM]+)$")
@@ -47,21 +44,8 @@ REFERENCE_LINE = re.compile(r"^\[See section .+\]$")
 # below.
 PARAGRAPH_LINE = re.compile(r"^(\d{1,3})([A-Z]?)\.?(?=\s|$)")
 
-# Genuine paragraph/row markers sit at the Act's left text margin -- measured
-# 27.6-46.4pt across every prose and list Schedule sampled. A nested
-# sub-table's own row numbers (Schedule II paragraph 2's inner "Sl. No."
-# column, x0=239.6) and a wrapped body line that happens to open with a digit
-# (Schedule XV's "20 or 21)," continuation, x0=55.2) both sit well beyond it.
-# This one measured cutoff is what lets a single rule serve the bold "prose"
-# family and the non-bold "list" family without knowing in advance which one
-# a given Schedule is.
 MARKER_LEFT_MARGIN_MAX = 50.0
 
-# Paragraph numbering is contiguous almost everywhere, but Schedule XII Part A
-# genuinely omits 28 -- confirmed by a direct search of the text, not a
-# parsing artefact. Tolerating a gap of exactly one crosses that without
-# accepting a wild jump: a wrapped "20 or 21)," read as a candidate is +19
-# from paragraph 1 and must still be rejected.
 MAX_NUMBERING_GAP = 2
 
 _MARKER_KEY = re.compile(r"^(\d+)([A-Z]?)$")
@@ -75,15 +59,7 @@ def marker_key(marker: str) -> tuple[int, str]:
 
 
 def is_plausible_next(current: str | None, candidate: str) -> bool:
-    """Whether ``candidate`` may open the next paragraph after ``current``.
-
-    ``current is None`` means nothing has opened yet in this Schedule or Part,
-    so only "1" may open. Otherwise the candidate must land within
-    ``MAX_NUMBERING_GAP`` integers of the current one, or be a fresh
-    letter-suffix branch off the same integer (38 -> 38B is real: Schedule
-    III's 38A appears to have been omitted in the same amendment that
-    inserted 38B-38D).
-    """
+    """Whether ``candidate`` may open the next paragraph after ``current``."""
     number, suffix = marker_key(candidate)
     if current is None:
         return number == 1 and not suffix
@@ -94,13 +70,7 @@ def is_plausible_next(current: str | None, candidate: str) -> bool:
 
 
 def paragraph_marker(line: Line) -> str | None:
-    """The marker this line opens, or ``None`` if it is not a genuine one.
-
-    Deliberately agnostic to boldness -- the "prose" and "list" Schedule
-    families differ only in whether the opening line is bold, never in its
-    position or size, so the marker's own left margin and font size are what
-    generalise across both.
-    """
+    """The marker this line opens, or ``None`` if it is not a genuine one."""
     match = PARAGRAPH_LINE.match(line.content)
     if not match or not line.spans:
         return None
@@ -120,12 +90,7 @@ def is_caption(line: Line) -> bool:
 def schedule_preamble(
     lines: tuple[Line, ...], index: int
 ) -> tuple[str | None, list[str], int]:
-    """The Schedule's caption and any reference line before paragraph 1.
-
-    A "[See section ...]" cross-reference line, when present, sits between
-    the heading and the caption. It is not discarded -- verbatim text is
-    never dropped -- it is folded into the returned preamble instead.
-    """
+    """The Schedule's caption and any reference line before paragraph 1."""
     cursor = index + 1
     preamble: list[str] = []
     if cursor < len(lines) and REFERENCE_LINE.match(lines[cursor].content):
@@ -148,17 +113,7 @@ def scan_boundaries(
     numeral: str | None,
     local_marker: str | None,
 ) -> dict[int, str]:
-    """Line indices that open a Schedule, Part, or paragraph on this page.
-
-    A side-effect-free replay of the same sequential rules the real pass
-    below applies, needed only to give ``footnote_start`` an honest
-    ``starts`` dict. Without it, ``footnote_start``'s own "still inside the
-    apparatus from the previous page" shortcut fires on *any* page that
-    merely mentions amendment vocabulary somewhere -- which is nearly every
-    Schedule page -- and swallows real content wholesale. A first version of
-    this parser passed an empty dict here and lost the whole of Schedule XII
-    to exactly that.
-    """
+    """Line indices that open a Schedule, Part, or paragraph on this page."""
     starts: dict[int, str] = {}
     for index, line in enumerate(lines):
         if is_furniture(line.text):
@@ -201,8 +156,7 @@ class ParsedSchedules(BaseModel):
 
     @property
     def unreliable(self) -> tuple[str, ...]:
-        """Paragraphs carrying a structure-invalidating anomaly. Same rule as
-        sections: only a duplicate citation breaks the citation -> chunk map."""
+        """Paragraphs carrying a structure-invalidating anomaly."""
         return tuple(
             sorted(
                 {

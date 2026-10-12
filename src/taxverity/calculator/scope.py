@@ -1,13 +1,4 @@
-"""Step 9.6 — decide whether the calculator may answer, before it is asked.
-
-The calculator computes salary and other income under section 202(1), the
-section 123 and 126 claims, and the set-off of tax already paid. A fact it does
-not model is never approximated: income under any other head, an unnamed
-deduction, a tax year with no data, or a fact outside the extraction vocabulary
-routes the question to a text-only answer. A calculator input that is not yet
-known makes the decision incomplete, and Step 9.7 decides whether it is worth
-asking (ADR-107).
-"""
+"""Decide whether the calculator may answer, before it is asked."""
 
 from __future__ import annotations
 
@@ -77,7 +68,7 @@ class CalculatorInputs:
     claimed: dict[str, Decimal]
     # None when not known. The tax is still computed, but no balance is: a
     # settlement needs everything paid, and a nil guess would be wrong for most
-    # salaried people (ADR-108).
+    # salaried people.
     tax_deducted_at_source: Decimal | None
     advance_tax: Decimal | None
 
@@ -87,7 +78,7 @@ class ScopeDecision:
     route: Route
     blockers: tuple[Blocker, ...] = ()
     unknown: tuple[FactField, ...] = ()
-    # Profile facts wait for the person to confirm them (rule 04), so they are
+    # Profile facts wait for the person to confirm them, so they are
     # listed here and counted as unknown, never used.
     unconfirmed: tuple[FactField, ...] = ()
     inferred: tuple[FactField, ...] = ()

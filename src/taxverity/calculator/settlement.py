@@ -1,12 +1,4 @@
-"""Step 9.6 — the section 202(1) tax set off against tax already paid.
-
-Section 270(1)(c) determines the sum payable, or the refund due, after adjusting
-the tax by any tax deducted at source and any advance tax paid. The net amount is
-then rounded under section 516, which reaches "any amount payable or refundable".
-Interest and fee enter the same adjustment, but they turn on dates of payment and
-of filing that no fact carries, so they are named as not computed rather than
-taken as nil (ADR-107).
-"""
+"""The section 202(1) tax set off against tax already paid."""
 
 from __future__ import annotations
 

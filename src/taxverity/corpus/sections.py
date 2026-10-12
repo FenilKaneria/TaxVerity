@@ -15,10 +15,6 @@ logger = get_logger(__name__)
 
 PARSE_STAGE_VERSION = 1
 
-# Step 1.3 measured the first Schedule at page 622. Schedules restart their
-# paragraph numbering at 1 with typography identical to sections, so a bare
-# "<n>." cue cannot separate Schedule X paragraph 1 from section 1. Section
-# parsing is therefore bounded to the pages before this one.
 FIRST_SCHEDULE_PAGE = 622
 
 BODY_FONT_PREFIX = "LiberationSerif"
@@ -112,12 +108,7 @@ class ParsedAct(BaseModel):
     chapter_headings: tuple[Line, ...]
     titles: tuple[Line, ...]
     body_lines: int
-    # Page of each body line, parallel to the lines of ``section.text``. Step 1.6
-    # builds children out of those lines and needs their provenance for ADR-016.
     section_pages: dict[str, tuple[int, ...]] = {}
-    # Vertical position of each body line, parallel to ``section_pages``. Step
-    # 1.7 needs this to test a line against pdfplumber's table geometry — a
-    # line's marker is real substructure only outside any measured table bbox.
     section_line_tops: dict[str, tuple[float | None, ...]] = {}
 
     def attributed_lines(self) -> int:
@@ -160,12 +151,7 @@ def is_body_bold(span: Span) -> bool:
 
 
 def align_lines(artifact: PageArtifact) -> tuple[Line, ...]:
-    """Map each text line onto the spans that produced it, in document order.
-
-    ``get_text("text")`` inserts separators that the span texts do not carry, so
-    the two only agree once whitespace is removed. Spans are consumed greedily
-    in order, which is exact because both views come from the same layout pass.
-    """
+    """Map each text line onto the spans that produced it, in document order."""
     spans = list(artifact.spans)
     cursor = 0
     lines: list[Line] = []
@@ -190,13 +176,7 @@ def align_lines(artifact: PageArtifact) -> tuple[Line, ...]:
 
 
 def section_starts(lines: Iterable[Line]) -> dict[int, str]:
-    """Line indices that open a section, keyed to the section's marker.
-
-    Both cues must agree. The line-start regex alone matches amendment
-    footnotes, which run their own 1, 2, 3 sequence; the bold marker alone
-    matches the small footnote reference digits at the page foot. Requiring the
-    line to *begin* with a body-bold span carrying the same number rejects both.
-    """
+    """Line indices that open a section, keyed to the section's marker."""
     starts: dict[int, str] = {}
     for line in lines:
         match = SECTION_LINE.match(line.content)
@@ -230,13 +210,7 @@ def title_above(lines: tuple[Line, ...], start: int) -> tuple[str | None, int]:
 def footnote_start(
     lines: tuple[Line, ...], starts: dict[int, str], continuing: bool
 ) -> int | None:
-    """Where the amendment apparatus begins, or None if this page carries none.
-
-    The apparatus is always the trailing run of a page. A quoted repeal can spill
-    onto the next page above that page's own first footnote marker, which is why
-    a page following an apparatus block and opening no section is read as a
-    continuation.
-    """
+    """Where the amendment apparatus begins, or None if this page carries none."""
     body = [line for line in lines if not is_furniture(line.text)]
     if not body:
         return None

@@ -1,7 +1,5 @@
-"""Step 4.1 — what an embedding backend is, the identity that guards against
-skew, and a stub for testing the contract without a network or weights.
-
-The served backend is `jina_api.JinaAPIEmbedder` (ADR-075)."""
+"""What an embedding backend is, the identity that guards against skew, and a stub for
+testing the contract without a network or weights."""
 
 from __future__ import annotations
 
@@ -18,27 +16,13 @@ from taxverity.corpus.loader import normalise
 
 
 class EmbedKind(StrEnum):
-    """Which side of a retrieval pair a text is being encoded as (ADR-069).
-
-    Both Step 4.7 finalists encode the two sides differently, so a query
-    embedded as a document is silently wrong rather than merely imprecise.
-    Deliberately has no default at any layer it travels through: a default is
-    exactly how that mistake happens quietly.
-    """
+    """Which side of a retrieval pair a text is being encoded as."""
 
     QUERY = "query"
     DOCUMENT = "document"
 
 
 class ModelInfo(BaseModel):
-    """The identity ADR-026 requires to detect version skew.
-
-    The offline job (Step 4.4) stores it alongside the vectors and the query
-    path refuses to serve on a mismatch. A vector carries no evidence of which
-    weights produced it, so an index built with model A and queried with model
-    B degrades recall silently and reports nothing.
-    """
-
     model_config = ConfigDict(frozen=True)
 
     model_id: str = Field(min_length=1)
@@ -51,20 +35,11 @@ class ModelInfo(BaseModel):
     # for identical weights, which is the condition on the quantisation
     # experiment in plan §2.7.
     runtime: str = Field(min_length=1)
-    # The prompt/pooling recipe, versioned. Without it the four fields above
-    # would report a match after a query-prompt edit that moved every vector,
-    # because the weights really are unchanged — the skew hole ADR-069 opens
-    # and this field closes.
     encoding: str = Field(min_length=1)
 
 
 class ModelIdentityError(RuntimeError):
-    """The embedder is not the one the index was built with.
-
-    Never retried: the same embedder gives the same wrong answer, and its
-    vectors are silently incomparable with the index they would be searched
-    against.
-    """
+    """The embedder is not the one the index was built with."""
 
 
 def describe(info: ModelInfo) -> str:
@@ -79,10 +54,7 @@ class Embedder(Protocol):
     def info(self) -> ModelInfo: ...
 
     def embed(self, texts: Sequence[str], kind: EmbedKind) -> list[list[float]]:
-        """One unit-length vector per input text, in input order.
-
-        `kind` is required, never defaulted: see ADR-069.
-        """
+        """One unit-length vector per input text, in input order."""
         ...
 
 
@@ -96,12 +68,7 @@ STUB_ENCODING = "stub"
 
 
 class StubEmbedder:
-    """Deterministic vectors from a text hash — no torch, no weights.
-
-    Carries no semantics whatsoever, deliberately: it exists to exercise the
-    HTTP contract, not retrieval quality. Any test asserting that a similarity
-    score here means something is testing the stub, not the system.
-    """
+    """Deterministic vectors from a text hash — no torch, no weights."""
 
     def info(self) -> ModelInfo:
         return ModelInfo(
@@ -119,7 +86,7 @@ class StubEmbedder:
 def _hash_vector(text: str, kind: EmbedKind) -> list[float]:
     # normalise() so the stub agrees with the rest of the pipeline about what
     # two texts being "the same" means — the corpus carries soft hyphens and
-    # NBSPs that differ byte-wise while reading identically (Step 1.1).
+    # NBSPs that differ byte-wise while reading identically.
     # `kind` is in the seed so a test can prove it travelled the whole path;
     # a stub that ignored it would make the contract unobservable.
     seed = f"{kind.value}\x00{normalise(text)}".encode()

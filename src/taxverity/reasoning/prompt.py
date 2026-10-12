@@ -1,8 +1,6 @@
-"""R20 Step 20.5 — the `reason` call's system prompt and the user message it
-is shown, built over the same numbered evidence pack `generate.py`'s
-`render_context` already renders for generation, plus the situation facts
-20.4 added. One rendering, one numbering: a `[n]` here names the same pack
-position a citation marker will later name at generation time (20.7)."""
+"""The `reason` call's system prompt and the user message it is shown, built over the
+same numbered evidence pack `generate.py`'s `render_context` already renders for
+generation, plus the situation facts 20.4 added."""
 
 from __future__ import annotations
 

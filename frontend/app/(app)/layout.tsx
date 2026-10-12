@@ -1,23 +1,5 @@
 "use client";
 
-// Step 16.3, restyled. Route protection is client-side only, and that is
-// forced, not chosen: the access token lives in memory and the refresh
-// cookie is scoped path=/v1/auth, so no Server Component and no middleware
-// can ever see either. This guard hides UI; it guarantees nothing — which is
-// acceptable precisely because it guards no data. The cross-user isolation
-// tests at the store and HTTP layers (Step 11.4/14.3) are what actually
-// enforce it.
-//
-// An anonymous visitor here is bounced to `/`, not `/login` — since the
-// ADR-112 guest-trial fix, `/` is the guest chat landing with sign-in/sign-up
-// as an explicit choice, not a login wall.
-//
-// `data-mode` on <main> is the New-Chat-landing <-> active-conversation
-// transition: exactly `/chat` is "landing" (the hero), any `/chat/<id>` is
-// "conversation" (plain ground, no texture). It lives here rather than on
-// each page because this element is the one thing that survives the route
-// change — the background transitions instead of flashing between two
-// pages. See globals.css's `.texture-paper` / `[data-mode]` rules.
 
 import { PanelLeftOpen } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";

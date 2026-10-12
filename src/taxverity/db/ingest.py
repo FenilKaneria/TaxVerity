@@ -1,11 +1,4 @@
-"""Step 6.3 — load the chunk store and the vector store into Postgres (ADR-089).
-
-Idempotent, keyed on `corpus_version`. A chunk id is derived from
-`corpus_version`, so two different chunk sets claiming one version are
-mislabelled rather than stale: this module inserts, no-ops, or refuses, and
-never overwrites. Recovery from a refusal is an operator's explicit
-`DELETE FROM corpus_versions`, which cascades.
-"""
+"""Load the chunk store and the vector store into Postgres."""
 
 from __future__ import annotations
 
@@ -126,8 +119,6 @@ def _xref_rows(chunk: Chunk) -> Iterator[tuple[str, int, str]]:
 
 
 def vector_literal(vector: Sequence[float]) -> str:
-    # 9 significant digits is FLT_DECIMAL_DIG: every float32 round-trips exactly,
-    # which is what Step 6.5 compares against the NumPy index. Do not shorten it.
     return "[" + ",".join(f"{float(value):.9g}" for value in vector) + "]"
 
 
@@ -181,7 +172,7 @@ def _check_existing_set(stored: dict, manifest: VectorManifest) -> None:
 def ingest_chunks(
     conn: psycopg.Connection, chunks: Iterable[Chunk], manifest: ChunkManifest
 ) -> ChunkIngest:
-    """Load chunks and their cross-reference edges. A second call is a no-op."""
+    """Load chunks and their cross-reference edges."""
     _require_autocommit(conn)
     chunks = tuple(chunks)
     version = manifest.corpus_version
@@ -263,7 +254,7 @@ def ingest_vectors(
     chunk_ids: Sequence[str],
     manifest: VectorManifest,
 ) -> VectorIngest:
-    """Load one built vector store as an embedding set. A second call is a no-op."""
+    """Load one built vector store as an embedding set."""
     _require_autocommit(conn)
     version = manifest.corpus_version
 

@@ -21,9 +21,6 @@ EXTRACT_STAGE_VERSION = 1
 BOLD_FLAG = 1 << 4
 ITALIC_FLAG = 1 << 1
 
-# Identified in the Step 1.1 profile. Matched by string, never by font:
-# NotoSans carries the running footer but also renders some clause markers,
-# so a font-based filter would delete real statutory content.
 FURNITURE_EXACT = frozenset(
     {
         "Income Tax Department",
@@ -36,7 +33,7 @@ HASH_CHUNK_BYTES = 1 << 20
 
 
 def normalise(text: str) -> str:
-    """Strip the soft hyphen and NBSP that defeat otherwise-clean matches (Step 1.1)."""
+    """Strip the soft hyphen and NBSP that defeat otherwise-clean matches."""
     return text.replace("\xad", "").replace("\xa0", " ")
 
 

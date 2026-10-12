@@ -1,37 +1,4 @@
-"""R19 Phase B (ADR-120) — the grounding gate, rewritten for marker-based
-citation. Plain Python, no model.
-
-A claim is released only if every mechanical check passes:
-
-- **Citation existence.** Every `[n]` marker in a `content` claim's text must
-  name a position in the evidence pack (`pack.units[n-1]`). Because a pack
-  unit already carries its whole subtree (ADR-055), citing unit `n` grounds
-  anything inside it — there is no separate path-parsing step anymore, and
-  no way to cite a node that was never packed.
-- **Numeric provenance.** Every number in a claim's text — digits or English
-  number words, Indian scale included ("fifteen lakh rupees" is a real
-  figure the Act states that way; see `numbers_in()`) — must appear the same
-  way in one of its cited units' own text, its context lead-ins, or its
-  citation path. A user's figure must not be able to ground a statement of
-  the Act: "the cap is 3 lakh" cannot pass because the question mentioned
-  3,00,000. A `computation` claim may also use the calculator's result, the
-  user's question and their stated or inferred facts.
-- **Modal mismatch (new this phase).** If a cited passage denies something
-  ("shall not", "is not allowed") and the claim's own text affirms it
-  anyway, the claim is caught even though every number and marker it carries
-  checks out. This is deliberately one-directional — a claim being *more*
-  cautious than its source is not gated, since that is the safer failure
-  mode. It is a targeted guard against the one failure the number/marker
-  checks cannot see, not an entailment checker: quote fidelity guaranteed
-  the old scheme could never misstate a passage's plain meaning this way; the
-  new scheme allows paraphrase, per an explicit user instruction ("the LLM
-  can modify it but should not change the original meaning"), so this is the
-  one deterministic check that stands in the fidelity check's place.
-
-What it still cannot see: a paraphrase that drifts in some way this modal
-check doesn't cover. That is exactly the boundary DeepEval's offline sample
-exists to watch (ADR-053) — never the hot path's correctness mechanism.
-"""
+"""The grounding gate, rewritten for marker-based citation."""
 
 from __future__ import annotations
 
@@ -120,7 +87,7 @@ _NEGATIVE_MODAL = re.compile(
     r"not entitled|not permitted|no deduction|not deductible)\b",
     re.IGNORECASE,
 )
-# R27: a denial or a claim of silence. Deliberately wide: it is applied only
+# A denial or a claim of silence. Deliberately wide: it is applied only
 # to a line citing an excerpt, where a wrong "no TDS applies" was served
 # live because the row that imposes it was outside the excerpt.
 _DENIAL = re.compile(
@@ -137,7 +104,7 @@ _AFFIRMATIVE_MODAL = re.compile(
     re.IGNORECASE,
 )
 
-# R21 (ADR-127) — the EXAMPLE line's "can't invent law" guard. A figure in a
+# The EXAMPLE line's "can't invent law" guard. A figure in a
 # legal position (right after a limit/rate word or a provision name, or any
 # percentage) states the law, never a hypothetical, so it must ground in the
 # cited passage however the line frames it.
@@ -185,8 +152,6 @@ _TOKEN = re.compile(
 )
 _EXAMPLE_BULLET = re.compile(r"^[-*•\s]+")
 _NIL = re.compile(r"\bnil\b", re.IGNORECASE)
-# R26: a fixed list of ways to refer to a figure without stating it (g026,
-# g046 in the generation eval). Only what generation was told never to write.
 _VAGUE_FIGURE = re.compile(
     r"\b(?:the|a|that) (?:higher|lower|larger|smaller|maximum|minimum) "
     r"(?:amount|limit|deduction|rate|sum)\b"
@@ -212,7 +177,7 @@ _STATED_AMOUNT = re.compile(
     r"\bRs\.?\s*\d|₹\s*\d|\d\s*(?:%|per cent)|\b(?:lakh|crore) rupees\b",
     re.IGNORECASE,
 )
-# R22 Part B: words naming an online system. The Act sets who files and by
+# Words naming an online system. The Act sets who files and by
 # when, not how a website works, so a cited line using one of these words is
 # withheld unless a passage it cites uses the same word. A no_basis line
 # ("The Act does not describe the portal") cites nothing and is not checked.
@@ -222,7 +187,7 @@ _ONLINE_PROCEDURE = re.compile(
     re.IGNORECASE,
 )
 
-# R22 Part C (ADR-128): what a GUIDANCE line may never contain. Guidance is
+# What a GUIDANCE line may never contain. Guidance is
 # served without a citation, so it may describe process (where to file, what
 # to keep, how to e-verify) but never state law: no figure, date, provision,
 # tax treatment or obligation. A blocklist can only withhold, never serve, so
@@ -282,25 +247,21 @@ class Violation(StrEnum):
     NO_COMPUTATION = "no_computation"
     UNSUPPORTED_NUMBER = "unsupported_number"
     MODAL_MISMATCH = "modal_mismatch"
-    # R20 Step 20.7: an APPLICATION line affirms a positive conclusion
-    # ("you can claim X") while the analysis has the condition it cites as
-    # `unknown`, `not_satisfied` or `ambiguous` — not a text-vs-text
-    # mismatch like MODAL_MISMATCH, a claim-vs-analysis one.
     UNSUPPORTED_APPLICATION = "unsupported_application"
-    # R21 (ADR-127): EXAMPLE-line checks.
+    # EXAMPLE-line checks.
     MALFORMED_EXAMPLE = "malformed_example"
     # A rate, limit, threshold or provision number no cited passage states —
     # the one thing an illustration may never do.
     INVENTED_LAW = "invented_law"
     BAD_ARITHMETIC = "bad_arithmetic"
-    # R22 Part B: a step on a website, portal or app ("log in to the
+    # A step on a website, portal or app ("log in to the
     # e-filing portal [1]") attributed to a passage that never mentions one.
     OFF_ACT_PROCEDURE = "off_act_procedure"
-    # R27 (ADR-132): a line denying something, or calling the Act silent,
+    # A line denying something, or calling the Act silent,
     # while citing a passage delivered as an excerpt. The model read part
     # of the section; what it did not see is not evidence of absence.
     PARTIAL_PASSAGE_DENIAL = "partial_passage_denial"
-    # R22 Part C (ADR-128): GUIDANCE-line checks.
+    # GUIDANCE-line checks.
     MALFORMED_GUIDANCE = "malformed_guidance"
     GUIDANCE_STATES_LAW = "guidance_states_law"
     GUIDANCE_UNSAFE = "guidance_unsafe"
@@ -338,7 +299,7 @@ class Verifier:
         self._units: dict[int, EvidenceUnit] = dict(enumerate(pack.units, start=1))
         self.pack_size = len(pack.units)
         self.has_computation = computation is not None
-        # R21 Part B: section number -> pack positions, for the generator's
+        # Section number -> pack positions, for the generator's
         # deterministic "[408] means the passage of section 408" rewrite.
         sections: dict[str, list[int]] = {}
         for number, unit in self._units.items():
@@ -352,9 +313,6 @@ class Verifier:
             if computation is not None
             else frozenset()
         )
-        # R20 Step 20.7: which condition each pack marker speaks to, and that
-        # condition's checked status — an APPLICATION or UNKNOWN claim is
-        # gated against these, never against the model's own prose.
         self._condition_status: dict[str, CheckStatus] = {}
         self._condition_ids_by_marker: dict[int, set[str]] = {}
         if analysis is not None:
@@ -368,10 +326,8 @@ class Verifier:
                 self._condition_status[check.condition_id] = check.status
 
     def vague_figure(self, line: str) -> bool:
-        """R26: a line that talks about an amount, rate or limit only as "the
-        limit" or "the higher amount" while a passage it cites states one.
-        Not a violation: the line is grounded. It is sent to the one repair
-        call for its figure, and served as it was if the repair fails."""
+        """A line that talks about an amount, rate or limit only as "the limit" or "the
+        higher amount" while a passage it cites states one."""
         body = MARKER.sub("", line_body(line))
         if _VAGUE_REFERENCE.search(body):
             return bool(MARKER.findall(line))
@@ -387,8 +343,8 @@ class Verifier:
         )
 
     def verify(self, claim: Claim) -> Verdict:
-        """R22 Part B: every check reads the line without its step number;
-        the released claim keeps the line exactly as written."""
+        """Every check reads the line without its step number; the released claim keeps
+        the line exactly as written."""
         body = strip_list_number(claim.text)
         if body == claim.text.strip():
             return self._verify(claim)
@@ -429,10 +385,8 @@ class Verifier:
         return self._verify_content(claim)
 
     def _verify_guidance(self, claim: Claim) -> Verdict:
-        """R22 Part C (ADR-128): the one served line with no source, so it
-        may state nothing a source would be needed for. Every check reads the
-        whole line; none consults the pack, the facts or the computation, so
-        nothing the person wrote can make a guidance line pass."""
+        """The one served line with no source, so it may state nothing a source would be
+        needed for."""
         findings: list[Finding] = []
         text = claim.text.replace(GUIDE_MARKER, " ")
         if MARKER.search(text) or any(
@@ -475,17 +429,7 @@ class Verifier:
         return Verdict(claim=claim, findings=tuple(findings))
 
     def _verify_example(self, claim: Claim) -> Verdict:
-        """R21 (ADR-127): the model may illustrate, never invent law.
-
-        - It must open with a fixed hypothetical phrase and cite the rule it
-          illustrates.
-        - Any figure in a legal position (after a limit/rate word or a
-          provision name, or a percentage) must ground in a cited passage.
-        - Figures in the premise ("Suppose your loss is ₹3,00,000") are the
-          example's own inputs and need no source.
-        - Any other figure is either grounded in a cited passage or the
-          result of an equation the line shows and that adds up.
-        """
+        """The model may illustrate, never invent law."""
         findings: list[Finding] = []
         citations: list[Citation] = []
         allowed: set[Decimal] = set()
@@ -681,13 +625,6 @@ class Verifier:
             )
             allowed |= ground_numbers(unit)
 
-        # Every content line needs a citation, no exceptions — deliberately
-        # not "unless it looks connective": a blocklist of trigger words a
-        # statement must contain to require grounding can never be
-        # exhaustive, and the failure mode of getting it wrong (an
-        # ungrounded assertion served as fact) is exactly the one thing
-        # rule 03's core invariant exists to prevent. A genuinely connective
-        # line belongs in the heading, not as an uncited bullet.
         if not markers:
             findings.append(Finding(Violation.NO_CITATION, "cites nothing"))
 
@@ -874,15 +811,14 @@ class Verifier:
 
 def _affirms(text: str) -> bool:
     """An affirmative modal with no negative one alongside it — shared by the
-    content/application modal-mismatch check and the application-vs-analysis
-    check, so a line reading e.g. "you can claim X, but not Y" is not
-    mistaken for a bare affirmation."""
+    content/application modal-mismatch check and the application-vs-analysis check, so a
+    line reading e.g."""
     return bool(_AFFIRMATIVE_MODAL.search(text)) and not _NEGATIVE_MODAL.search(text)
 
 
 def _legal_numbers(text: str) -> frozenset[Decimal]:
-    """Figures a text states *as law*: whatever follows a limit/rate word or a
-    provision name within its own clause, and every percentage."""
+    """Figures a text states *as law*: whatever follows a limit/rate word or a provision
+    name within its own clause, and every percentage."""
     numbers: set[Decimal] = set()
     for keyword in _LEGAL_KEYWORD.finditer(text):
         tail = text[keyword.end() : keyword.end() + 40]
@@ -894,9 +830,9 @@ def _legal_numbers(text: str) -> frozenset[Decimal]:
 
 
 def _is_sum_or_difference(value: Decimal, known: set[Decimal]) -> bool:
-    """A figure the example worked out in its head ("the remaining ₹1,00,000"):
-    accepted only if it is exactly a + b or a − b of two figures the line
-    already carries — checked arithmetic, never a new legal number."""
+    """A figure the example worked out in its head ("the remaining ₹1,00,000"): accepted
+    only if it is exactly a + b or a − b of two figures the line already carries —
+    checked arithmetic, never a new legal number."""
     return any(
         a + b == value or a - b == value for a in known for b in known if a is not b
     )
@@ -929,9 +865,7 @@ def _operand_value(raw: str) -> Decimal | None:
 
 
 def _evaluate(expression: str) -> Decimal | None:
-    """One side of an equation: `+ − × ÷` with the usual precedence and
-    parentheses. Anything it can't parse is None — an unreadable equation is a
-    failed one, never a passed one."""
+    """One side of an equation."""
     tokens: list[tuple[str, str]] = []
     for token in _TOKEN.finditer(expression):
         kind = token.lastgroup or ""
@@ -1011,15 +945,12 @@ def _excerpt(unit: EvidenceUnit, limit: int = 600) -> str:
 
 
 def ground_numbers(unit: EvidenceUnit) -> frozenset[Decimal]:
-    """Every number an evidence unit itself grounds: its own text, its
-    citation path, and its ancestor lead-in lines. R20 Step 20.5's
-    deterministic reasoning validator reuses this unchanged — a legal
-    number the model reports in a rule, condition or limit must be
-    grounded exactly the way a claim's own number already is."""
+    """Every number an evidence unit itself grounds: its own text, its citation path,
+    and its ancestor lead-in lines."""
     numbers = numbers_in(unit.text) | numbers_in(unit.citation)
     for line in unit.context:
         numbers |= numbers_in(line.text)
-    # R21 Part B: the Act prints a zero rate as "Nil" (section 202(1)'s first
+    # The Act prints a zero rate as "Nil" (section 202(1)'s first
     # slab), so a passage saying "Nil" grounds 0 — and only such a passage.
     if _NIL.search(unit.text) or any(_NIL.search(line.text) for line in unit.context):
         numbers |= {Decimal(0)}
@@ -1038,18 +969,14 @@ def _names_an_unsourced_online_step(text: str, units: list[EvidenceUnit]) -> boo
 
 
 def _denies_from_a_partial_passage(text: str, units: list[EvidenceUnit]) -> bool:
-    """A denial resting on an excerpt (R27). The shown lines can ground a
-    figure; they cannot ground the absence of a rule, because the rest of
-    the section was not read."""
+    """A denial resting on an excerpt."""
     return any(unit.excerpt is not None for unit in units) and bool(
         _DENIAL.search(normalise(text))
     )
 
 
 def _asserts_the_opposite_of_its_source(text: str, units: list[EvidenceUnit]) -> bool:
-    """One-directional: a claim affirming what a cited passage denies. See
-    this module's docstring for why the reverse (an overly cautious claim)
-    is not gated."""
+    """One-directional: a claim affirming what a cited passage denies."""
     if not _affirms(text):
         return False
     for unit in units:
@@ -1060,10 +987,7 @@ def _asserts_the_opposite_of_its_source(text: str, units: list[EvidenceUnit]) ->
 
 
 def canonical_path(raw: str) -> str | None:
-    """`Section 22 (2)` and `s. 22(2)` both name `22(2)`; anything else is
-    None. Used independently by `conversational.py`'s own guard, not by
-    verification here — a marker resolves by position, never by parsing a
-    path out of a claim's text."""
+    """`Section 22 (2)` and `s. 22(2)` both name `22(2)`; anything else is None."""
     text = _SPACE_BEFORE_BRACKET.sub("(", _CITATION_PREFIX.sub("", raw.strip()))
     try:
         return NodePath.parse(text).render()
@@ -1072,10 +996,7 @@ def canonical_path(raw: str) -> str | None:
 
 
 def numbers_in(text: str) -> frozenset[Decimal]:
-    """Every figure a text states, in digits or in English words: `12,00,000`,
-    `12 lakh` and `twelve lakh` all agree. The Act states some amounts only in
-    words ("fifteen lakh rupees"), so a digit-only reading of a claim would
-    never find that grounding — this is what closes that gap."""
+    """Every figure a text states, in digits or in English words."""
     numbers = set()
     normalised = normalise(text)
     for match in _NUMBER.finditer(normalised):
@@ -1148,7 +1069,7 @@ def _fact_numbers(facts: UserFacts | None) -> frozenset[Decimal]:
         return frozenset()
     numbers: set[Decimal] = set()
     for fact in facts.facts:
-        # A profile default is unconfirmed (rule 04), so it grounds nothing.
+        # A profile default is unconfirmed, so it grounds nothing.
         if fact.status not in (FactStatus.STATED, FactStatus.INFERRED):
             continue
         if isinstance(fact.value, bool):

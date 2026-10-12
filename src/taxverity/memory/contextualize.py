@@ -1,17 +1,4 @@
-"""Step 11.7 — query contextualization, simplified (ADR-110).
-
-A follow-up turn ("what if I'm 65 instead?") is unretrievable on its own: it
-shares no vocabulary with the statute. The fix is a rewrite into a standalone
-question, using only the recent-turns window (Step 11.6's
-`threads.store.list_messages(last=...)`) to resolve what it refers to — never
-as a source of fact truth, exactly as rule 04 requires.
-
-Rule 01's recurring test applies here too: a deterministic check beats a model
-call wherever one exists. Most turns are not follow-ups at all — no prior
-turn, or no pronoun/reference marker — so `needs_contextualization` decides
-that in code, for free, before any request is built. Only a genuine follow-up
-pays for one `complete()` call.
-"""
+"""Query contextualization, simplified."""
 
 from __future__ import annotations
 
@@ -30,7 +17,7 @@ logger = get_logger(__name__)
 
 CONTEXTUALIZE_STAGE_VERSION = 4
 
-# A rewritten question is short; reasoning cannot be disabled (Step 7.1) but
+# A rewritten question is short; reasoning cannot be disabled but
 # needs far less room here than an extraction's JSON object does.
 CONTEXTUALIZE_MAX_COMPLETION_TOKENS = 300
 CONTEXTUALIZE_TEMPERATURE = 0.0
@@ -44,7 +31,7 @@ FOLLOW_UP_MARKERS = re.compile(
     r"more|detail\w*|such|above|earlier|previous|here)\b|what if|what about",
     re.IGNORECASE,
 )
-# R22 Part B: a request to have the last answer explained again, rather than
+# A request to have the last answer explained again, rather than
 # a new question. Deliberately narrow: a miss only means a fresh search, as
 # before.
 STYLE_CUES = re.compile(
@@ -59,7 +46,7 @@ STYLE_CUES = re.compile(
 # exemption works for a rented flat in Mumbai").
 STYLE_FOLLOWUP_MAX_WORDS = 12
 
-# R21: how much of the last answer the rewrite sees. Enough to name the topic
+# How much of the last answer the rewrite sees. Enough to name the topic
 # a follow-up refers to ("the loss"), not the whole answer.
 PREVIOUS_ANSWER_CHARS = 600
 
@@ -75,21 +62,16 @@ SYSTEM_PROMPT = (
 
 
 def needs_contextualization(query: str, prior_turns: Sequence[str]) -> bool:
-    """No prior turn, or a question with no follow-up marker: the query
-    already stands alone. A message that is not a question at all ("my salary
-    is 15 lakh, no other income") is almost always an answer to the last
-    turn's clarify question, and alone it reads as out of scope — so, with
-    history, it is rewritten too."""
+    """No prior turn, or a question with no follow-up marker: the query already stands
+    alone."""
     if not prior_turns:
         return False
     return bool(FOLLOW_UP_MARKERS.search(query)) or "?" not in query
 
 
 def is_style_followup(question: str, previous_answer: str) -> bool:
-    """A short message asking for the previous answer again, explained
-    differently ("explain simply", "I don't understand", "give an example").
-    Deterministic (rule 01). The graph then answers from the passages that
-    answer cited instead of searching afresh."""
+    """A short message asking for the previous answer again, explained differently
+    ("explain simply", "I don't understand", "give an example")."""
     if not previous_answer.strip():
         return False
     if len(question.split()) > STYLE_FOLLOWUP_MAX_WORDS:
@@ -109,10 +91,8 @@ class ContextualizationResult:
 
 
 class QueryContextualizer:
-    """Offline/eval only since R23 (ADR-129): production folds the follow-up
-    rewrite into `classify`'s single call, gated by the deterministic checks
-    above. Kept so the follow-up evals (`evals/followups.py`,
-    `scripts/answer_smoke.py`) stay reproducible against their stored runs."""
+    """Production folds the follow-up rewrite into `classify`'s single call, gated by
+    the deterministic checks above."""
 
     def __init__(
         self,
@@ -136,11 +116,6 @@ class QueryContextualizer:
         fallback: Provider | None = None,
         **kwargs: Any,
     ) -> QueryContextualizer:
-        """Same composition as Step 7.6's `FactExtractor`: tracing outside the
-        cache (ADR-095), so a cache hit is still traced as an ordinary
-        generation. `primary`/`fallback` (R18) default to `LLMClient`'s own
-        class defaults (Groq 120b / Gemini) — pass them to run this node
-        against a different pair, e.g. Groq's 20b model."""
         client: Any = LLMClient.from_settings(
             settings, primary=primary, fallback=fallback
         )

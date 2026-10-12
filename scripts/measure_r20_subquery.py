@@ -46,7 +46,9 @@ REPORT_PATH = REPO_ROOT / "reports" / "r20_subquery_benchmark.md"
 def main() -> None:
     configure_logging()
     settings = Settings()
-    gold = load_r20_gold_set(REPO_ROOT / "evals" / "datasets" / "retrieval_gold_r20.jsonl")
+    gold = load_r20_gold_set(
+        REPO_ROOT / "evals" / "datasets" / "retrieval_gold_r20.jsonl"
+    )
     answerable = [q for q in gold if q.slice is not R20Slice.NEGATIVE]
 
     conn = psycopg.connect(settings.require("database_url"), autocommit=True)
@@ -65,7 +67,9 @@ def main() -> None:
     fusion = FallbackRetriever(FusionRetriever([dense, bm25]), bm25)
     bridge = TermBridge(load_bridge_map(), chunks)
     reranker = CachedReranker(JinaReranker.from_settings(settings))
-    ranked_retriever = BridgedRetriever(bridge, RerankRetriever(fusion, reranker, depth=EVIDENCE_POOL))
+    ranked_retriever = BridgedRetriever(
+        bridge, RerankRetriever(fusion, reranker, depth=EVIDENCE_POOL)
+    )
     retriever = ShortcutRetriever(CitationRetriever(chunks), ranked_retriever)
     packer = EvidencePacker(chunks, budget=PRODUCTION_BUDGET)
 
@@ -106,14 +110,23 @@ def main() -> None:
     report_baseline_10 = score_coverage_run(gold, baseline_ranked, 10, index)
     report_baseline_20 = score_coverage_run(gold, baseline_ranked, EVIDENCE_POOL, index)
     report_decomposed_10 = score_coverage_run(gold, decomposed_ranked, 10, index)
-    report_decomposed_20 = score_coverage_run(gold, decomposed_ranked, EVIDENCE_POOL, index)
+    report_decomposed_20 = score_coverage_run(
+        gold, decomposed_ranked, EVIDENCE_POOL, index
+    )
 
     baseline_pack_scores = [
-        score_coverage(q, baseline_pack[q.query_id], max(len(baseline_pack[q.query_id]), 1), index)
+        score_coverage(
+            q, baseline_pack[q.query_id], max(len(baseline_pack[q.query_id]), 1), index
+        )
         for q in answerable
     ]
     decomposed_pack_scores = [
-        score_coverage(q, decomposed_pack[q.query_id], max(len(decomposed_pack[q.query_id]), 1), index)
+        score_coverage(
+            q,
+            decomposed_pack[q.query_id],
+            max(len(decomposed_pack[q.query_id]), 1),
+            index,
+        )
         for q in answerable
     ]
 
@@ -157,7 +170,9 @@ def _write_report(
     lines.append("")
     lines.append("## Recall@k / Coverage@k on the ranked list")
     lines.append("")
-    lines.append("| variant | k | mean governing recall | mean precision | mean rule coverage | coverage_complete rate |")
+    lines.append(
+        "| variant | k | mean governing recall | mean precision | mean rule coverage | coverage_complete rate |"
+    )
     lines.append("|---|---|---|---|---|---|")
     for label, r in (
         ("baseline", report_baseline_10),
@@ -172,12 +187,19 @@ def _write_report(
     lines.append("")
     lines.append("## Coverage on the delivered evidence pack")
     lines.append("")
-    for label, scores in (("baseline", baseline_pack_scores), ("decomposed", decomposed_pack_scores)):
+    for label, scores in (
+        ("baseline", baseline_pack_scores),
+        ("decomposed", decomposed_pack_scores),
+    ):
         mean_cov = sum(s.rule_coverage for s in scores) / len(scores)
         complete_rate = sum(1 for s in scores if s.coverage_complete) / len(scores)
-        lines.append(f"- {label}: mean rule coverage **{mean_cov:.3f}**, coverage-complete rate **{complete_rate:.3f}**")
+        lines.append(
+            f"- {label}: mean rule coverage **{mean_cov:.3f}**, coverage-complete rate **{complete_rate:.3f}**"
+        )
     lines.append("")
-    lines.append("| query | slice | baseline pack coverage | decomposed pack coverage | baseline missing | decomposed missing |")
+    lines.append(
+        "| query | slice | baseline pack coverage | decomposed pack coverage | baseline missing | decomposed missing |"
+    )
     lines.append("|---|---|---|---|---|---|")
     by_id = {s.query_id: s for s in decomposed_pack_scores}
     for s in baseline_pack_scores:

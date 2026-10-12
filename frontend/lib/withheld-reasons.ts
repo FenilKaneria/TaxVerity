@@ -1,8 +1,3 @@
-// R19: plain-English text for the verifier's reason codes
-// (src/taxverity/generation/verifier.py's `Violation` enum), so a withheld
-// notice reads as a sentence instead of a snake_case code. Falls back to the
-// raw code for any value this map doesn't yet cover, so an added violation
-// type degrades to something readable rather than to nothing.
 const WITHHELD_REASONS: Record<string, string> = {
   malformed_claim: "the model's answer wasn't valid",
   no_citation: "it cited no provision",

@@ -1,20 +1,4 @@
-"""Generation eval — answer-level metrics over `answer_gold_v1.jsonl`.
-
-The retrieval sets score what is found; this scores what is said. Every
-metric except two is deterministic, read off the verifier's own outcomes and
-the served events. The two that need judgement — is a served claim actually
-supported by the passage it cites, and does the answer cover the points a
-correct answer must make — use an LLM judge from a different vendor than the
-generator, and the judge itself is checked against a human-labelled sample
-(Cohen's kappa) before its numbers are quoted.
-
-The headline is the ablation: the same judge scores the model's first-pass
-lines exactly as written (what would be served with no verifier) and the
-lines actually served, so the gate's effect is measured, not asserted.
-
-`scripts/measure_generation.py` runs the turns and the judge; everything
-here is pure so it is tested offline.
-"""
+"""Generation eval — answer-level metrics over `answer_gold_v1.jsonl`."""
 
 from __future__ import annotations
 
@@ -103,10 +87,6 @@ def load_answer_gold(path: Path = DATASET_PATH) -> tuple[AnswerGoldItem, ...]:
 
 
 def cites_gold(cited: str, gold: str) -> bool:
-    """An answer citing the gold provision, an ancestor holding it (ADR-055's
-    whole-subtree chunks), or a part of it all point the reader at the right
-    law — unlike retrieval's lenient credit, a descendant counts here, since
-    an answer quoting 22(2)(a) for a 22(2) question is precise, not wrong."""
     got = NodePath.parse(cited).components
     want = NodePath.parse(gold).components
     shorter = min(len(got), len(want))
@@ -140,8 +120,7 @@ def merge_key_points(
     served: Sequence[Mapping[str, Any]],
     judged: Sequence[bool],
 ) -> list[bool]:
-    """One verdict per key point, in gold order: `judged` answers
-    `judged_points(key_points)` in its order, `cite:` points are checked here."""
+    """One verdict per key point, in gold order."""
     verdicts = iter(judged)
     merged = [
         cite_point_met(p, served) if p.startswith(CITE_POINT) else next(verdicts)
@@ -153,8 +132,8 @@ def merge_key_points(
 
 
 def headline_tax(served: Sequence[Mapping[str, Any]]) -> frozenset:
-    """Every figure on the first computation line ("Your tax payable is
-    ₹93,750 [calc]"), which the layout puts first for a computed answer."""
+    """Every figure on the first computation line ("Your tax payable is ₹93,750
+    [calc]"), which the layout puts first for a computed answer."""
     for claim in served:
         if claim["type"] == "computation":
             return numbers_in(MARKER.sub("", claim["text"]))
@@ -271,8 +250,7 @@ def parse_coverage(text: str, expected: int) -> tuple[bool, ...]:
 def passages_for(
     line: str, evidence: Mapping[int, tuple[str, str]]
 ) -> list[tuple[str, str]]:
-    """The passages a line's `[n]` markers name, in the order cited. A marker
-    naming nothing shown contributes nothing."""
+    """The passages a line's `[n]` markers name, in the order cited."""
     seen: list[int] = []
     for raw in MARKER.findall(line):
         marker = int(raw)
@@ -285,8 +263,8 @@ def passages_for(
 
 
 def cohen_kappa(a: Sequence[bool], b: Sequence[bool]) -> float:
-    """Binary kappa: agreement beyond what the two raters' own base rates
-    would produce by chance. 1.0 is perfect; 0 is chance."""
+    """Binary kappa: agreement beyond what the two raters' own base rates would produce
+    by chance. 1.0 is perfect; 0 is chance."""
     if len(a) != len(b) or not a:
         raise ValueError("kappa needs two equal, non-empty label lists")
     n = len(a)
@@ -313,9 +291,9 @@ def _lines(outcomes: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
 def summarise(
     items: Sequence[AnswerGoldItem], records: Mapping[str, Mapping[str, Any]]
 ) -> dict[str, Any]:
-    """`records` maps item_id to a stored turn (see the script's
-    `run_item`); judge fields are read when present and reported as None
-    when the judge has not been run."""
+    """`records` maps item_id to a stored turn (see the script's `run_item`); judge
+    fields are read when present and reported as None when the judge has not been run.
+    """
     done = [
         (item, records[item.item_id])
         for item in items
@@ -446,13 +424,7 @@ def run_pending(
     quota_wait: float = QUOTA_WAIT,
     sleep: Callable[[float], None] = time.sleep,
 ) -> str | None:
-    """Runs every item without a clean stored record, saving after each.
-
-    Returns the id of the item the free quota ran out on, or None when every
-    item ran. That item is never stored, so the next run starts at it; an
-    item stored with an error is run again too. Nothing switches vendor here:
-    a spent quota stops the run rather than answering with another model.
-    """
+    """Runs every item without a clean stored record, saving after each."""
     first = True
     for item in items:
         stored = records.get(item.item_id)
@@ -473,8 +445,6 @@ def run_pending(
         save()
     return None
 
-
-# --- DeepEval cross-check (ADR-053: offline, report-only) -------------------
 
 _ANY_MARKER = re.compile(r"\s*\[(?:\d+|calc|fact|eg|guide)\]")
 
@@ -497,8 +467,8 @@ class DeepEvalInputs(BaseModel):
 
 
 def deepeval_inputs(item_id: str, record: Mapping[str, Any]) -> DeepEvalInputs | None:
-    """A stored generation-eval record as DeepEval inputs, or None when it
-    served no grounded claim (a negative's honest silence has nothing to score)."""
+    """A stored generation-eval record as DeepEval inputs, or None when it served no
+    grounded claim (a negative's honest silence has nothing to score)."""
     served = record.get("served") or []
     lines = grounded(served)
     if not lines:

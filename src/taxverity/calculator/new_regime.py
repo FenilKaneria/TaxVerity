@@ -1,13 +1,5 @@
-"""Step 9.3 — income-tax under section 202(1): standard deduction, the section
-156(2) rebate with its marginal relief, and the section 516 rounding of the
-amount payable.
-
-Only what section 202(1) allows is applied. Section 202(2)(a)(xii) computes
-total income without Chapter VIII deductions other than 124(1), 124(2), 125(2)
-and 146, so a claimed section 123 or 126 deduction is recorded as not allowed
-and changes nothing. The other regime's rates are outside the Act (ADR-100), so
-no deduction is computed for it here (ADR-103).
-"""
+"""Income-tax under section 202(1): standard deduction, the section 156(2) rebate with
+its marginal relief, and the section 516 rounding of the amount payable."""
 
 from __future__ import annotations
 

@@ -33,9 +33,7 @@ def table(rows: list[tuple[str, object]]) -> str:
     return f"| Measure | Value |\n|---|---|\n{body}\n"
 
 
-def render(
-    act: ParsedAct, sub: Substructure, elapsed: float, region_count: int
-) -> str:
+def render(act: ParsedAct, sub: Substructure, elapsed: float, region_count: int) -> str:
     nodes = [node for section in sub.sections for node in section.walk()]
     depths = Counter(node.path.depth for node in nodes if node.path)
     by_section = Counter(anomaly.section for anomaly in sub.anomalies)
@@ -58,10 +56,7 @@ def render(
                 ("Sections", len(sub.sections)),
                 ("Nodes total", len(nodes)),
                 ("Nodes below section", len(nodes) - len(sub.sections)),
-                *[
-                    (f"— {type.value}", sub.count(type))
-                    for type in LEVEL_TYPES
-                ],
+                *[(f"— {type.value}", sub.count(type)) for type in LEVEL_TYPES],
                 ("Deepest citation", max(depths)),
                 ("Nodes without page provenance", sum(1 for n in nodes if not n.pages)),
                 ("**Round-trip failures**", f"**{len(failures)}**"),
@@ -225,7 +220,9 @@ def main() -> int:
 
     started = time.perf_counter()
     act = parse(read_pages_jsonl(source))
-    regions = find_table_regions(settings.resolve_corpus_pdf(), candidate_table_pages(act))
+    regions = find_table_regions(
+        settings.resolve_corpus_pdf(), candidate_table_pages(act)
+    )
     sub = parse_substructure(act, table_regions=regions)
     elapsed = time.perf_counter() - started
 
@@ -244,8 +241,7 @@ def main() -> int:
     print(f"anomalies   {len(sub.anomalies)} in {len(sub.unreliable)} sections")
     for reason in AnomalyReason:
         print(
-            f"  {reason.value:<16}"
-            f"{sum(1 for a in sub.anomalies if a.reason is reason)}"
+            f"  {reason.value:<16}{sum(1 for a in sub.anomalies if a.reason is reason)}"
         )
     print(f"report      {REPORT} ({elapsed:.1f}s)")
     return 1 if failures else 0

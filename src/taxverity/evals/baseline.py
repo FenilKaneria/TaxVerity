@@ -1,10 +1,3 @@
-"""Step 3.6 — the baseline measurement: one retriever, the Step 3.1 gold set,
-the Step 3.2 ruler, and the per-query detail needed to say *why* a query fails.
-
-Every later retrieval component — dense (Phase 4), fusion and reranking
-(Phase 5) — is judged against the numbers this module produces.
-"""
-
 from __future__ import annotations
 
 import time
@@ -28,9 +21,6 @@ logger = get_logger(__name__)
 
 BASELINE_STAGE_VERSION = 1
 
-# A curve, not a single number: Phase 4 will compare a dense retriever against
-# this one, and recall@1 against recall@20 says whether a change moved the top
-# of the ranking or only its tail. PRIMARY_K is what the prose quotes.
 K_VALUES = (1, 5, 10, 20)
 PRIMARY_K = 10
 
@@ -55,9 +45,7 @@ class QueryOutcome(BaseModel):
 
 
 class NegativeOutcome(BaseModel):
-    """A negative query carries no label, so it has no rank to score. What it
-    does have is a score, and the separation between these and the answerable
-    ones is the first evidence a Phase 12 threshold could be argued from."""
+    """A negative query carries no label, so it has no rank to score."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -71,9 +59,6 @@ class RetrieverBaseline(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: str
-    # A composed retriever (Step 3.5's ShortcutRetriever) emits positions, not
-    # a similarity: its scores rank its own results and say nothing else, so
-    # the negative-separation table is meaningless for it and is suppressed.
     ordinal_scores: bool
     reports: dict[int, RunReport]
     outcomes: tuple[QueryOutcome, ...]
@@ -86,8 +71,6 @@ class RetrieverBaseline(BaseModel):
 
     @property
     def failures(self) -> tuple[QueryOutcome, ...]:
-        """Anything short of a complete lenient answer at PRIMARY_K. Strict
-        imprecision is not a failure — ADR-060 keeps the two numbers apart."""
         return tuple(o for o in self.outcomes if o.lenient_recall < 1.0)
 
 
@@ -126,9 +109,9 @@ def measure(
     *,
     ordinal_scores: bool = False,
 ) -> RetrieverBaseline:
-    """Run one retriever over the whole gold set once, at max(k_values), and
-    score the same ranking at every k — a retriever's top 10 is the prefix of
-    its top 20, so re-querying would measure the same thing more slowly."""
+    """Run one retriever over the whole gold set once, at max(k_values), and score the
+    same ranking at every k — a retriever's top 10 is the prefix of its top 20, so re-
+    querying would measure the same thing more slowly."""
     started = time.perf_counter()
     widest = max(k_values)
     answerable = [q for q in gold if q.slice is not QuerySlice.NEGATIVE]

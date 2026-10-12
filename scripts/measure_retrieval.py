@@ -90,7 +90,7 @@ def render(report: BaselineReport, elapsed: float) -> str:
         "What happened there is worth reading before treating it as a loss.",
         "q064 asks whether an unexplained cash credit is taxed at the normal slab",
         "rate, and is labelled `102(1)` / `195(1)`. The newly reachable definition",
-        "`2(70)` — *\"maximum marginal rate\"*, which is precisely the rate such a",
+        '`2(70)` — *"maximum marginal rate"*, which is precisely the rate such a',
         "credit is charged at — now takes rank 1 and pushes `102(1)` to rank 11.",
         "The retriever surfaced a provision that is on point and unlabelled, and",
         "was scored down for it. That is a gold-set limitation, not a retrieval",
@@ -157,11 +157,7 @@ def render(report: BaselineReport, elapsed: float) -> str:
             "only through an ancestor chunk.",
             "",
         ]
-        imprecise = [
-            o
-            for o in baseline.outcomes
-            if o.lenient_recall > o.strict_recall
-        ]
+        imprecise = [o for o in baseline.outcomes if o.lenient_recall > o.strict_recall]
         if not imprecise:
             lines.append("None.")
         else:

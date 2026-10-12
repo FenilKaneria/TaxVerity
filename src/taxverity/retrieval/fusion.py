@@ -1,5 +1,5 @@
-"""Step 5.1 — Reciprocal Rank Fusion (ADR-010): several rankings combined by
-position alone, so a BM25 score and a cosine are never compared (Step 3.3)."""
+"""Reciprocal Rank Fusion: several rankings combined by position alone, so a BM25 score
+and a cosine are never compared."""
 
 from __future__ import annotations
 
@@ -11,10 +11,6 @@ from taxverity.retrieval.base import Retriever, ScoredChunk
 
 FUSION_STAGE_VERSION = 1
 
-# Both fixed before Step 5.2 measures anything, and not tuned against the gold
-# set (ADR-080). 60 is Cormack, Clarke & Buettcher's constant. The depth matters
-# as much: a chunk ranked 30th by both inputs (2/90) outscores one ranked 5th by
-# a single input (1/65), and a shallow read would never see it.
 RRF_K = 60
 FUSION_DEPTH = 100
 
@@ -22,8 +18,7 @@ FUSION_DEPTH = 100
 def reciprocal_rank_fusion(
     rankings: Sequence[Sequence[ScoredChunk]], rrf_k: int = RRF_K
 ) -> list[ScoredChunk]:
-    """Each chunk scores the sum of 1 / (rrf_k + rank) over the rankings that
-    hold it. Ties go to the better single rank, then to the earlier ranking."""
+    """Each chunk scores the sum of 1 / (rrf_k + rank) over the rankings that hold it."""
     if rrf_k < 0:
         raise ValueError(f"rrf_k must be non-negative, not {rrf_k}")
     parts: dict[str, list[float]] = {}
@@ -48,13 +43,6 @@ def reciprocal_rank_fusion(
 
 
 class FusionRetriever:
-    """Satisfies the Step 3.3 `Retriever` Protocol.
-
-    A retriever that raises is not caught here. Falling back when the dense leg
-    fails is Step 5.2's decision, and swallowing the error would make a
-    one-legged ranking look like a fused one.
-    """
-
     def __init__(
         self,
         retrievers: Sequence[Retriever],

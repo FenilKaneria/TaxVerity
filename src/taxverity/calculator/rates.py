@@ -1,17 +1,4 @@
-"""Step 9.1 — rate, slab and threshold data, read only from the 2025 Act.
-
-Every number the calculator may use lives in a per-tax-year data file, and every
-entry quotes the Act verbatim beside its citation (ADR-100). The loader reads
-each value back out of its own quote, so a value typed wrongly refuses to load;
-`tests/test_rates.py` checks each quote against the cited chunk, so a quote
-typed wrongly or pinned to the wrong provision fails the build.
-
-What the Act does not print — old-regime slabs, age-based exemption limits,
-surcharge, marginal relief on surcharge, cess — is declared under `outside_act`
-with the Act's own deferral to "any Central Act", and asking for one raises
-`OutsideActError`. Those values are never supplied from elsewhere: the corpus is
-the Act, and a number the Act does not contain is not this system's to state.
-"""
+"""Rate, slab and threshold data, read only from the 2025 Act."""
 
 from __future__ import annotations
 
@@ -85,8 +72,7 @@ class OutsideAct:
 
 @dataclass(frozen=True)
 class NotAllowed:
-    """A deduction the section 202(1) computation excludes. `section` and
-    `chapter` say which provision is excluded and why the quote reaches it."""
+    """A deduction the section 202(1) computation excludes."""
 
     section: str
     chapter: str
@@ -188,8 +174,6 @@ def _provenance(entry: dict[str, Any]) -> Provenance:
 
 
 def _decimal(raw: Any, what: str) -> Decimal:
-    # Strings only: a JSON number is parsed as a float before anyone sees it,
-    # which is the binary intermediate ADR-017 exists to keep out.
     if not isinstance(raw, str):
         raise RatesError(f"{what} must be a string, not {type(raw).__name__}")
     try:
@@ -251,8 +235,7 @@ def _word_number(word: str) -> int | None:
 
 
 def _read_back(unit: Unit, quote: str) -> set[Decimal]:
-    """The numbers a quote states in `unit`. Figures and number words both, since
-    the Act writes "Rs. 60000" and "twelve lakh rupees" in the same sentence."""
+    """The numbers a quote states in `unit`."""
     text = " ".join(quote.split())
     found: set[int] = set()
     if unit is Unit.RUPEES:

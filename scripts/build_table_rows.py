@@ -1,4 +1,4 @@
-"""R22 Part B — measure in-section tables' grids and keep the ones the chunk
+"""Measure in-section tables' grids and keep the ones the chunk
 text proves.
 
 For every section or Schedule whose chunk text carries a `TABLE` line,

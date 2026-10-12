@@ -1,25 +1,3 @@
-"""Step 7.4 — Langfuse tracing, the first entry on rule 03's egress list.
-
-The LLM call itself never logs its body (Step 7.2). A trace is the opposite: it
-exists to carry the prompt and the completion off this machine, which is the
-whole reason `redact()` is applied here rather than left to a call site.
-
-Hand-rolled over the raw OTLP HTTP/JSON wire format rather than the Langfuse
-SDK or an OpenTelemetry SDK, either of which would bring the whole
-OpenTelemetry stack plus a second httpx major into an image ADR-076 keeps
-deliberately thin. **Step 17.7 (ADR-111) migrated the endpoint from
-Langfuse's legacy `/api/public/ingestion` batch-event envelope to
-`/api/public/otel/v1/traces`** — the legacy endpoint is deprecated and
-Langfuse Cloud drops it on its v4 upgrade (16 November 2026). One generation
-is now one OTLP span, carrying Langfuse's `langfuse.observation.*` and
-`langfuse.trace.*` attributes rather than a `trace-create`/`generation-create`
-event pair; the wire format lives in `_span()` and `flush()` alone.
-
-Tracing is never allowed to break, slow or fail a call. An unconfigured process
-traces nothing, a failed post is dropped with a WARNING, and no post is ever
-retried: losing a trace is cheap, delaying an answer is not.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -27,6 +5,7 @@ import json
 import threading
 import time
 import uuid
+import weakref
 from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol, runtime_checkable
@@ -55,10 +34,25 @@ TRACE_TIMEOUT = 5.0
 # kilobytes, so a count is a sufficient proxy and needs no byte accounting.
 MAX_BATCH_EVENTS = 20
 
-# R21 Part B: a full batch is posted off the answer path. At most this many
+# A full batch is posted off the answer path. At most this many
 # batches wait for the one sender thread; beyond that a batch is dropped and
 # counted, never queued without bound against a slow or unreachable host.
 MAX_PENDING_BATCHES = 2
+
+# Every tracer `from_settings` built in this process. Lambda freezes an
+# instance between requests and recycles it without notice, so a batch
+# waiting for MAX_BATCH_EVENTS spans was never sent in production: each
+# node has its own tracer and a turn makes three to five calls in all.
+_LIVE: weakref.WeakSet[LangfuseTracer] = weakref.WeakSet()
+
+
+def flush_traces() -> None:
+    """Sends what every tracer holds."""
+    for tracer in list(_LIVE):
+        try:
+            tracer.flush()
+        except Exception:
+            logger.warning("trace flush failed", exc_info=True)
 
 
 @runtime_checkable
@@ -80,7 +74,7 @@ class Tracer(Protocol):
 
 
 class NullTracer:
-    """What an unconfigured process gets. Every call is a no-op."""
+    """What an unconfigured process gets."""
 
     def generation(self, name: str, messages: Sequence[Message], **_: Any) -> None:
         return None
@@ -105,9 +99,9 @@ class LangfuseTracer:
         environment: str | None = None,
         background: bool = False,
     ) -> None:
-        """`background=True` (production, via `from_settings`) posts a full
-        batch on a sender thread so no LLM-calling node waits on Langfuse;
-        `flush()`/`close()` stay synchronous either way."""
+        """`background=True` (production, via `from_settings`) posts a full batch on a
+        sender thread so no LLM-calling node waits on Langfuse; `flush()`/`close()` stay
+        synchronous either way."""
         if not (public_key and secret_key and host):
             raise ValueError(
                 "a Langfuse tracer needs a public key, a secret key and a host"
@@ -141,12 +135,14 @@ class LangfuseTracer:
             logger.warning("no Langfuse configured: LLM calls are not traced")
             return NullTracer()
         kwargs.setdefault("background", True)
-        return cls(
+        tracer = cls(
             settings.require("langfuse_public_key"),
             settings.require("langfuse_secret_key"),
             settings.require("langfuse_host"),
             **kwargs,
         )
+        _LIVE.add(tracer)
+        return tracer
 
     def generation(
         self,
@@ -204,8 +200,6 @@ class LangfuseTracer:
         output = redact(completion.text) if completion is not None else None
         metadata: dict[str, Any] = {"stage_version": TRACING_STAGE_VERSION}
         if completion is not None:
-            # A degraded answer came from the fallback vendor. A trace recording
-            # it as an ordinary one misreports which model was measured.
             metadata["degraded"] = completion.degraded
             metadata["finish_reason"] = completion.finish_reason
             metadata["reasoning_tokens"] = completion.usage.reasoning_tokens
@@ -323,11 +317,7 @@ class LangfuseTracer:
 
 
 class TracedLLMClient:
-    """Wraps a client, the same shape as CachedLLMClient and CachedReranker.
-
-    A failed call is traced too, at ERROR, and then re-raised unchanged: the
-    calls worth reading a trace for are usually the ones that did not work.
-    """
+    """Wraps a client, the same shape as CachedLLMClient and CachedReranker."""
 
     def __init__(self, inner: Any, tracer: Tracer, *, name: str = "llm") -> None:
         self._inner = inner

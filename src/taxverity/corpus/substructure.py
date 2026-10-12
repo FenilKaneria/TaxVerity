@@ -52,7 +52,6 @@ LEAD_IN = re.compile(r"[—:]\s*$")
 _ROMAN_UNITS = ["", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix"]
 _ROMAN_TENS = ["", "x", "xx", "xxx", "xl", "l", "lx", "lxx", "lxxx", "xc"]
 ROMAN_LOWER = tuple(_ROMAN_TENS[n // 10] + _ROMAN_UNITS[n % 10] for n in range(1, 100))
-# The Act continues z with za..zl rather than aa..al — measured, not assumed.
 ALPHA_LOWER = tuple(chr(ord("a") + n) for n in range(26)) + tuple(
     "z" + chr(ord("a") + n) for n in range(26)
 )
@@ -147,12 +146,7 @@ class Substructure(BaseModel):
 
 
 def kinds_for(marker: str) -> tuple[MarkerKind, ...]:
-    """Every alphabet the marker could belong to, romans first.
-
-    ``(i)`` is roman one and alpha nine; ``(v)`` is roman five and alpha
-    twenty-two. Nothing about the marker itself resolves that — only its place in
-    a sequence does — so this returns candidates, never an answer.
-    """
+    """Every alphabet the marker could belong to, romans first."""
     if marker.isdigit():
         return (MarkerKind.NUMERIC,)
     if marker.islower():
@@ -179,17 +173,7 @@ def opens(kind: MarkerKind, marker: str) -> bool:
 
 
 def is_clause_rooted(text: str) -> bool:
-    """Whether the level below this section is clauses rather than sub-sections.
-
-    The Act calls section 9's ``(1)`` a sub-section and section 2's ``(22)`` a
-    clause, and the two markers are typographically identical. What separates
-    them is the section's own opening line: a clause run continues a sentence the
-    section began ("2. In this Act, unless the context otherwise requires,—"),
-    whereas a sub-section carries its marker inline ("9. (1) The income referred
-    to ..."). A bare opening line means the marker merely wrapped, so it is a
-    sub-section. Measured against the Act's own vocabulary, 536 of 537 sections
-    agree; the exception (428) refers to a *different* section's sub-section.
-    """
+    """Whether the level below this section is clauses rather than sub-sections."""
     first = next((line for line in text.split("\n") if line.strip()), "")
     lead = SECTION_HEAD.sub("", first, count=1).strip()
     return bool(lead) and not LEAD_MARKER.match(lead)
@@ -223,14 +207,7 @@ class _Level:
 
 
 class _Builder:
-    """Grows one section's flat lines into a tree, by sibling sequence alone.
-
-    A marker that continues an open level closes everything below it; a marker
-    that opens an alphabet not already on the stack pushes a new level; anything
-    else is prose belonging to the deepest open node. Marker *shape* never
-    decides type — page 27 runs a clause sequence ``a..h, i, j``, so ``(i)`` is a
-    sub-clause only when no alpha level is waiting for it.
-    """
+    """Grows one section's flat lines into a tree, by sibling sequence alone."""
 
     def __init__(
         self,
@@ -277,12 +254,7 @@ class _Builder:
     def place(
         self, marker: str, ahead: str | None, announced: bool
     ) -> AnomalyReason | None:
-        """Place the marker, or name the refusal made.
-
-        Returns ``None`` on success. The two refusals are unrelated and their
-        consequences differ, so the caller is told which one happened rather
-        than re-deriving a cause it cannot see from here.
-        """
+        """Place the marker, or name the refusal made."""
         for depth in range(len(self.stack) - 1, -1, -1):
             if successor(self.stack[depth].kind, self.stack[depth].marker) == marker:
                 if self.nests_instead(depth, marker, ahead):
@@ -306,14 +278,7 @@ class _Builder:
         return AnomalyReason.NOT_A_MARKER
 
     def nests_instead(self, depth: int, marker: str, ahead: str | None) -> bool:
-        """Whether ``(h)`` -> ``(i)`` opens a roman list rather than continuing a-z.
-
-        This is the one marker the sequence rule cannot settle on its own: page 27
-        runs a clause sequence ``a..h, i, j`` while section 19(2)(h) opens a
-        sub-clause list ``i, ii, iii``. Both are the successor of ``(h)``, and
-        both are a roman opener. Only what comes next separates them, so that is
-        what is consulted — never the marker's shape.
-        """
+        """Whether ``(h)`` -> ``(i)`` opens a roman list rather than continuing a-z."""
         roman = next((kind for kind in kinds_for(marker) if opens(kind, marker)), None)
         if roman is None or self.stack[depth].kind is roman:
             return False
@@ -341,8 +306,6 @@ class _Builder:
 
     def finish(self) -> StatutoryNode:
         self.collapse_to(0)
-        # The section keeps the page span Step 1.5 measured over its whole body,
-        # not just the lead-in lines left behind once children took theirs.
         return self.section.model_copy(
             update={
                 "text": "\n".join(self.root.lines),
@@ -389,18 +352,6 @@ def build(
         if scan.strip() == TABLE_LINE:
             guessing_table = True
 
-        # A line pdfplumber has actually measured as table geometry (Step 1.7)
-        # is trusted outright — no marker on it is structural, however it
-        # happens to read. This is what section 206's two-column table needs:
-        # "(2)" is the *enclosing* sequence's real next member, but it is also
-        # the second column's row label, so letting the "resumes an open
-        # sequence" guess below see it closes the table one row early.
-        # Deliberately one-directional: a measured line only ever adds
-        # suppression, it never resets ``guessing_table`` on the strength of
-        # its *absence* — pdfplumber sometimes measures only part of a table
-        # (section 39's ruled region covers 6 of its rows; the rest spill onto
-        # the next page unmeasured), and closing early there reintroduces
-        # duplicate-path anomalies in sections 1.6 already got right.
         measured = bool(in_table) and in_table[index]
 
         opened = 0
@@ -436,11 +387,7 @@ def build(
 
 
 def lead_markers(lines: list[str]) -> list[list[str]]:
-    """Every line's run of leading markers, in document order.
-
-    Read once up front because placement needs to see the *next* marker before
-    deciding the current one (see ``_Builder.nests_instead``).
-    """
+    """Every line's run of leading markers, in document order."""
     runs: list[list[str]] = []
     previous = ""
     for index, raw in enumerate(lines):
@@ -466,12 +413,7 @@ def next_marker(tokens: list[list[str]], index: int, position: int) -> str | Non
 
 
 def candidate_table_pages(act: ParsedAct) -> tuple[int, ...]:
-    """Pages independently known, from our own text, to carry a Table.
-
-    Fed to :func:`taxverity.corpus.tables.find_table_regions` so pdfplumber is
-    only ever pointed at a page we already have textual evidence for — never a
-    blind scan, which Step 1.1 measured to false-positive on ordinary prose.
-    """
+    """Pages independently known, from our own text, to carry a Table."""
     pages: set[int] = set()
     for marker in act.markers:
         section = act.section(marker)

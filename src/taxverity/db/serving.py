@@ -1,18 +1,5 @@
-"""Step 6.6 — the startup guard: what this deployment is configured to serve
-must be what the database actually holds.
-
-Every check here compares configuration against the database and nothing else.
-Model identity is deliberately absent: `PgVectorIndex` already refuses an
-embedding set whose model is not the embedder's (ADR-090), and a second copy of
-a correctness check is a second place it can quietly stop being made. Startup is
-`resolve_serving()` first — plain SQL, no vendor call, so an outage cannot stop a
-boot — and the index second.
-
-Both the corpus version and the embedding set are named in configuration, and
-each is checked against the other. An embedding set id is a global serial: a
-database reloaded from a different corpus hands out the same small integers, so
-an id alone names nothing durable.
-"""
+"""The startup guard: what this deployment is configured to serve must be what the
+database actually holds."""
 
 from __future__ import annotations
 
@@ -45,8 +32,8 @@ class ServingRefusal(RuntimeError):
 
 
 class ServedCorpus(BaseModel):
-    """What a passing guard establishes: the identity of the index about to be
-    served, for the startup log and for a later /health style report."""
+    """What a passing guard establishes: the identity of the index about to be served,
+    for the startup log and for a later /health style report."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -78,9 +65,7 @@ SELECT corpus_version, model_id, dim, revision, runtime, encoding, chunk_count
 
 
 def serving_target(settings: Settings) -> tuple[str, int]:
-    """The configured corpus and embedding set. Raises `MissingSettingError`
-    naming the env var when either is unset — serving without one is not a
-    default this code is willing to pick."""
+    """The configured corpus and embedding set."""
     return settings.require("serving_corpus_version"), settings.require(
         "serving_embedding_set_id"
     )
@@ -89,12 +74,8 @@ def serving_target(settings: Settings) -> tuple[str, int]:
 def resolve_serving(
     conn: psycopg.Connection, *, corpus_version: str, embedding_set_id: int
 ) -> ServedCorpus:
-    """Refuse unless this database holds that corpus and that embedding set, at
-    the schema and chunk stage versions this code carries.
-
-    Every reason is collected rather than raised at the first one: a deployer
-    who fixes one refusal per deploy learns the next one a deploy too late.
-    """
+    """Refuse unless this database holds that corpus and that embedding set, at the
+    schema and chunk stage versions this code carries."""
     reasons: list[str] = []
 
     migrations = discover_migrations()
@@ -129,7 +110,7 @@ def resolve_serving(
     elif corpus["chunk_stage_versions"] != CHUNK_STAGE_VERSIONS:
         # A chunk id is derived from corpus_version alone, so chunks built by
         # different chunking code carry ids that are mislabelled, not merely old
-        # (ADR-058). The corpus_version cannot see that difference; this can.
+        # . The corpus_version cannot see that difference; this can.
         reasons.append(
             f"corpus_version {corpus_version[:16]}… was ingested with chunk stage "
             f"versions {corpus['chunk_stage_versions']}, this code carries "

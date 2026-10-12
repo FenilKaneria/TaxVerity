@@ -68,9 +68,15 @@ HOLDOUT_V2_CONTEXT_AFTER = "loss_holdout_v2_run_after.json"
 
 
 def rows(score: ExtractionScore, labels: dict[str, LabelledTurn]) -> list[str]:
-    lines = ["| turn | clean | wrong values | missed | invented | repaired | turn text |", "|---|---|---|---|---|---|---|"]
+    lines = [
+        "| turn | clean | wrong values | missed | invented | repaired | turn text |",
+        "|---|---|---|---|---|---|---|",
+    ]
     for t in score.turns:
-        wrong = "; ".join(f"{f.value}: expected {e}, got {a}" for f, e, a in t.value_wrong) or "—"
+        wrong = (
+            "; ".join(f"{f.value}: expected {e}, got {a}" for f, e, a in t.value_wrong)
+            or "—"
+        )
         lines.append(
             f"| {t.turn_id} | {'no' if unclean(t) else 'yes'} | {wrong} "
             f"| {', '.join(f.value for f in t.missed) or '—'} "
@@ -87,7 +93,9 @@ def headline(name: str, score: ExtractionScore, count: int) -> str:
     )
 
 
-def context_report(runs, holdout, holdout_v2, gold, v1_after, v2_after, gold_after, elapsed) -> int:
+def context_report(
+    runs, holdout, holdout_v2, gold, v1_after, v2_after, gold_after, elapsed
+) -> int:
     v1_before = judge_extraction(holdout, load_run(runs / HOLDOUT_RECHECK))
     v2_before = judge_extraction(holdout_v2, load_run(runs / HOLDOUT_V2_CONTEXT_BEFORE))
     gold_before = judge_extraction(gold, load_run(runs / GOLD_CONTEXT_BEFORE))
@@ -98,7 +106,10 @@ def context_report(runs, holdout, holdout_v2, gold, v1_after, v2_after, gold_aft
 
     def unclean_only(score: ExtractionScore) -> ExtractionScore:
         return ExtractionScore(
-            turns=tuple(t for t in score.turns if unclean(t)), counts=score.counts, per_slice={}, per_field={}
+            turns=tuple(t for t in score.turns if unclean(t)),
+            counts=score.counts,
+            per_slice={},
+            per_field={},
         )
 
     lines = [
@@ -150,15 +161,23 @@ def context_report(runs, holdout, holdout_v2, gold, v1_after, v2_after, gold_aft
     CONTEXT_REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     print(f"held-out v1 after: {v1_after.clean_turns}/{len(holdout)} clean")
     print(f"held-out v2 after: {v2_after.clean_turns}/{len(holdout_v2)} clean")
-    print(f"7.7 gold after: value {gold_after.value_accuracy:.3f}, strict {gold_after.strict_rate:.3f}, clean {gold_after.clean_turns}/{len(gold)}")
-    print(f"guard: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}")
+    print(
+        f"7.7 gold after: value {gold_after.value_accuracy:.3f}, strict {gold_after.strict_rate:.3f}, clean {gold_after.clean_turns}/{len(gold)}"
+    )
+    print(
+        f"guard: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}"
+    )
     print(f"wrote {CONTEXT_REPORT}")
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=("before", "after", "recheck", "context-before", "context-after"), required=True)
+    parser.add_argument(
+        "--stage",
+        choices=("before", "after", "recheck", "context-before", "context-after"),
+        required=True,
+    )
     parser.add_argument("--stored", action="store_true", help="judge stored runs only")
     parser.add_argument("--pause", type=float, default=DEFAULT_PAUSE)
     args = parser.parse_args()
@@ -183,7 +202,9 @@ def main() -> int:
     extractor = None
     if not args.stored:
         try:
-            extractor = FactExtractor.from_settings(settings, cache=args.stage != "context-after")
+            extractor = FactExtractor.from_settings(
+                settings, cache=args.stage != "context-after"
+            )
         except MissingSettingError as error:
             print(f"cannot run: {error}", file=sys.stderr)
             return 1
@@ -191,33 +212,58 @@ def main() -> int:
     started = time.perf_counter()
     try:
         if args.stage == "context-before":
-            before = judge_extraction(holdout_v2, run_or_load(holdout_v2, HOLDOUT_V2_CONTEXT_BEFORE))
-            print(f"held-out v2 before the guard: {before.clean_turns}/{len(holdout_v2)} clean, {before.tokens:,} tokens")
+            before = judge_extraction(
+                holdout_v2, run_or_load(holdout_v2, HOLDOUT_V2_CONTEXT_BEFORE)
+            )
+            print(
+                f"held-out v2 before the guard: {before.clean_turns}/{len(holdout_v2)} clean, {before.tokens:,} tokens"
+            )
             for t in before.turns:
                 if unclean(t):
-                    print(f"  {t.turn_id}: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}")
+                    print(
+                        f"  {t.turn_id}: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}"
+                    )
             return 0
         if args.stage == "context-after":
-            v1_after = judge_extraction(holdout, run_or_load(holdout, HOLDOUT_V1_CONTEXT_AFTER))
-            v2_after = judge_extraction(holdout_v2, run_or_load(holdout_v2, HOLDOUT_V2_CONTEXT_AFTER))
+            v1_after = judge_extraction(
+                holdout, run_or_load(holdout, HOLDOUT_V1_CONTEXT_AFTER)
+            )
+            v2_after = judge_extraction(
+                holdout_v2, run_or_load(holdout_v2, HOLDOUT_V2_CONTEXT_AFTER)
+            )
             gold_after = judge_extraction(gold, run_or_load(gold, GOLD_CONTEXT_AFTER))
             return context_report(
-                runs, holdout, holdout_v2, gold, v1_after, v2_after, gold_after, time.perf_counter() - started
+                runs,
+                holdout,
+                holdout_v2,
+                gold,
+                v1_after,
+                v2_after,
+                gold_after,
+                time.perf_counter() - started,
             )
         if args.stage == "recheck":
             recheck = judge_extraction(holdout, run_or_load(holdout, HOLDOUT_RECHECK))
-            print(f"held-out recheck: {recheck.clean_turns}/{len(holdout)} clean, {recheck.tokens:,} tokens")
+            print(
+                f"held-out recheck: {recheck.clean_turns}/{len(holdout)} clean, {recheck.tokens:,} tokens"
+            )
             for t in recheck.turns:
                 if unclean(t):
-                    print(f"  {t.turn_id}: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}")
+                    print(
+                        f"  {t.turn_id}: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}"
+                    )
             return 0
         if args.stage == "before":
             before = judge_extraction(holdout, run_or_load(holdout, HOLDOUT_BEFORE))
             elapsed = time.perf_counter() - started
-            print(f"held-out before the fix: {before.clean_turns}/{len(holdout)} clean, {before.tokens:,} tokens, {elapsed:.0f}s")
+            print(
+                f"held-out before the fix: {before.clean_turns}/{len(holdout)} clean, {before.tokens:,} tokens, {elapsed:.0f}s"
+            )
             for t in before.turns:
                 if unclean(t):
-                    print(f"  {t.turn_id}: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}")
+                    print(
+                        f"  {t.turn_id}: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}"
+                    )
             return 0
         holdout_after = judge_extraction(holdout, run_or_load(holdout, HOLDOUT_AFTER))
         gold_after = judge_extraction(gold, run_or_load(gold, GOLD_AFTER))
@@ -281,8 +327,12 @@ def main() -> int:
     ]
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     print(f"held-out after: {holdout_after.clean_turns}/{len(holdout)} clean")
-    print(f"7.7 gold after: value {gold_after.value_accuracy:.3f}, strict {gold_after.strict_rate:.3f}, clean {gold_after.clean_turns}/{len(gold)}")
-    print(f"fix: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}")
+    print(
+        f"7.7 gold after: value {gold_after.value_accuracy:.3f}, strict {gold_after.strict_rate:.3f}, clean {gold_after.clean_turns}/{len(gold)}"
+    )
+    print(
+        f"fix: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}"
+    )
     print(f"wrote {REPORT}")
     return 0
 

@@ -71,8 +71,7 @@ SCORE_TOLERANCE = 1e-5
 
 
 class Offline:
-    """The served identity with no way to embed. Every search here runs from a
-    stored vector, so reaching the network would be a bug, not a slow path."""
+    """The served identity with no way to embed."""
 
     def __init__(self, info: ModelInfo) -> None:
         self._info = info
@@ -125,8 +124,8 @@ def percentiles(samples: Sequence[float]) -> tuple[float, float]:
 def timed(
     retriever: CachedQueryRetriever, gold: Sequence[GoldQuery]
 ) -> tuple[tuple[float, float], dict[str, Sequence[ScoredChunk]]]:
-    """Best of three per query: the floor is the search, the spread above it is
-    the machine."""
+    """Best of three per query: the floor is the search, the spread above it is the
+    machine."""
     samples: list[float] = []
     runs: dict[str, Sequence[ScoredChunk]] = {}
     for query in gold:
@@ -166,9 +165,11 @@ def arm(
     )
 
 
-def explain(conn: psycopg.Connection, index: PgVectorIndex, vector: Sequence[float]) -> str:
-    """The scan node the planner actually chose, so exact and approximate are
-    observed rather than asserted."""
+def explain(
+    conn: psycopg.Connection, index: PgVectorIndex, vector: Sequence[float]
+) -> str:
+    """The scan node the planner actually chose, so exact and approximate are observed
+    rather than asserted."""
     literal = vector_literal(tuple(vector))
     rows = conn.execute(
         "EXPLAIN " + SEARCH_SQL,

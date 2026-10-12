@@ -82,9 +82,7 @@ def _parse_reset(value: str) -> float:
 
 
 def _pace(limits: dict[str, str]) -> None:
-    """Wait out the token window rather than spending the spike's findings on a
-    429. The stream probe alone costs ~4,800 of the 8,000-a-minute allowance.
-    """
+    """Wait out the token window rather than spending the spike's findings on a 429."""
     remaining = limits.get("x-ratelimit-remaining-tokens")
     reset = limits.get("x-ratelimit-reset-tokens")
     if remaining is None or reset is None or int(remaining) >= 6_000:
@@ -374,11 +372,7 @@ CLAIM_SYSTEM = (
 
 
 def build_pack(settings: Settings) -> tuple[str, int, list[str]]:
-    """A real evidence pack for the streaming and calibration probes.
-
-    BM25 plus the citation shortcut, so this bills nothing on the Jina side and
-    still produces a genuine prompt rather than a toy.
-    """
+    """A real evidence pack for the streaming and calibration probes."""
     corpus_version = read_corpus_version(settings.interim_dir / "corpus_manifest.json")
     chunks, _ = load_chunks(settings.interim_dir, corpus_version=corpus_version)
     retriever = ShortcutRetriever(CitationRetriever(chunks), BM25Retriever(chunks))
@@ -479,12 +473,6 @@ such capital."""
 
 
 def probe_multiclaim(client: httpx2.Client) -> Probe:
-    """The Step 10.4 question the first stream probe could not answer.
-
-    That one produced a single claim line, so no newline was ever emitted and
-    the parser contract went untested. A small hand-written pack is enough —
-    what is being measured is delta framing, not retrieval.
-    """
     probe = Probe(
         "stream_multiclaim", "Where do newlines fall relative to stream deltas?"
     )
@@ -543,11 +531,9 @@ def probe_multiclaim(client: httpx2.Client) -> Probe:
 
 
 def probe_reasoning_off(client: httpx2.Client) -> Probe:
-    """Reasoning tokens are billed against max_completion_tokens — the `plain`
-    probe returned empty content at finish_reason=length because 30 of its 32
-    allowed tokens went to reasoning. Whether reasoning can be turned off is
-    therefore a hot-path cost question, not a tuning nicety.
-    """
+    """Reasoning tokens are billed against max_completion_tokens — the `plain` probe
+    returned empty content at finish_reason=length because 30 of its 32 allowed tokens
+    went to reasoning."""
     probe = Probe("reasoning_off", "Can reasoning be disabled, and what does it save?")
     question = "Reply with exactly: ready."
     for label, extra in (

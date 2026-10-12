@@ -7,9 +7,6 @@ import {
   lineForm,
 } from "@/lib/markdown";
 
-// R19 Phase B (ADR-120): this must keep agreeing with generation/claims.py's
-// classify_line — a persisted message is reclassified line by line on the
-// frontend, with no type carried from the server for history.
 describe("classifyLine", () => {
   it("reads a '## ' line as a heading", () => {
     expect(classifyLine("## Deductions from house property")).toBe("heading");
@@ -121,7 +118,7 @@ describe("groupBlocks", () => {
   });
 });
 
-// R26: one chip per run of lines citing the same passages.
+// One chip per run of lines citing the same passages.
 describe("collapseRepeatedChips", () => {
   const line = (text: string): AnswerLine => ({ type: classifyLine(text), text, citations: [] });
   const texts = (lines: string[]) => collapseRepeatedChips(lines.map(line)).map((l) => l.text);
@@ -163,8 +160,6 @@ describe("collapseRepeatedChips", () => {
   });
 });
 
-// R22 Part C (ADR-128): general guidance — mirrors claims.py, where the
-// [guide] marker is checked before any opener.
 describe("classifyLine — R22 Part C guidance", () => {
   const line = (text: string): AnswerLine => ({ type: classifyLine(text), text, citations: [] });
 

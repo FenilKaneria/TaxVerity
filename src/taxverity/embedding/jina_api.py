@@ -1,13 +1,4 @@
-"""Step 4.4 (R15) — the served Embedder: Jina's hosted embeddings API (ADR-075).
-
-Called in-process by the offline job (DOCUMENT) and, from Step 4.5, the query
-path (QUERY). No torch, no weights and no embedding service: the same endpoint
-serves both sides of the index in every environment, which is what keeps them
-in one embedding space (ADR-024 as amended).
-
-Synchronous, for the same reason the deleted Step 4.3 client was: the offline
-job is a batch loop and vector search is synchronous NumPy.
-"""
+"""The served Embedder."""
 
 from __future__ import annotations
 
@@ -28,12 +19,12 @@ API_URL = "https://api.jina.ai/v1/embeddings"
 MODEL_ID = "jina-embeddings-v5-text-small"
 DIM = 1024
 # A hosted endpoint exposes no weights revision. What detects an upstream model
-# change is the probe fingerprint in the vector manifest (ADR-075), not this.
+# change is the probe fingerprint in the vector manifest, not this.
 REVISION = "hosted-unpinned"
 RUNTIME = "jina-api"
 # Bump on any change to the request recipe below — task names, normalisation,
 # truncation, dimensions. A moved recipe shifts every vector while model_id
-# still matches (ADR-069).
+# still matches.
 ENCODING = "jina-api/task+normalized/v1"
 
 TASKS = {
@@ -92,16 +83,9 @@ class JinaAPIEmbedder:
         )
 
     def embed(self, texts: Sequence[str], kind: EmbedKind) -> list[list[float]]:
-        """One unit-length vector per input text, in input order.
-
-        `kind` is required, never defaulted (ADR-069).
-        """
+        """One unit-length vector per input text, in input order."""
         if not texts:
             return []
-        # Query text crosses a trust boundary here, so it is redacted like every
-        # other egress path (rule 03, path 4). Document text is public statute,
-        # and redacting it would silently move a corpus vector wherever a
-        # provision happens to print a nine-digit figure.
         inputs = (
             [redact(text) for text in texts] if kind is EmbedKind.QUERY else list(texts)
         )
@@ -118,9 +102,6 @@ class JinaAPIEmbedder:
                 "truncate": False,
             }
         )
-        # A malformed body is an API failure like any other, so it surfaces as
-        # EmbeddingAPIError: Step 4.5 degrades on that type and must not see a
-        # bare KeyError it cannot tell apart from a bug of ours.
         try:
             data = sorted(body["data"], key=lambda item: item["index"])
             indices = [item["index"] for item in data]
@@ -140,8 +121,6 @@ class JinaAPIEmbedder:
         return [_unit(vector) for vector in vectors]
 
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
-        # The payload carries user query text and is never logged — not on
-        # success, not on retry, not on failure (ADR-067's surviving half).
         last: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             delay = self._backoff_base * 2 ** (attempt - 1)
@@ -203,9 +182,6 @@ def _retry_after(response: httpx2.Response) -> float | None:
 
 
 def _unit(vector: list[float]) -> list[float]:
-    # Re-normalised in float64 even though the request asks for normalized
-    # output: Step 4.5 treats a stored dot product as the cosine, so the norm
-    # must be exact rather than whatever precision the server ran in.
     norm = math.sqrt(math.fsum(v * v for v in vector))
     if norm == 0.0:
         raise EmbeddingAPIError("received an all-zero vector")

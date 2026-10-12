@@ -1,5 +1,5 @@
-"""Step 4.4b — the comparison ladder's pure parts: a cross-validation split,
-parameter selection, and the adoption rule pre-registered before any run."""
+"""The comparison ladder's pure parts: a cross-validation split, parameter selection,
+and the adoption rule pre-registered before any run."""
 
 from __future__ import annotations
 
@@ -27,8 +27,7 @@ class Verdict(BaseModel):
 def two_fold_split(
     gold: Sequence[GoldQuery],
 ) -> tuple[tuple[GoldQuery, ...], tuple[GoldQuery, ...]]:
-    """Answerable queries by id parity. The ids were assigned in authoring
-    order, not by slice, so each fold carries every slice."""
+    """Answerable queries by id parity."""
     answerable = [q for q in gold if q.slice is not QuerySlice.NEGATIVE]
     even = tuple(q for q in answerable if int(q.query_id[1:]) % 2 == 0)
     odd = tuple(q for q in answerable if int(q.query_id[1:]) % 2 == 1)
@@ -36,9 +35,7 @@ def two_fold_split(
 
 
 def select_params(scores: Mapping[Params, float], *, prefer: Params) -> Params:
-    """The best-scoring setting. A tie keeps `prefer` (the defaults), so tuning
-    moves off them only on a strict gain; any other tie goes to the smallest
-    setting, so the pick never depends on dict order."""
+    """The best-scoring setting."""
     if not scores:
         raise ValueError("no settings to select from")
     best = max(scores.values())
@@ -50,8 +47,6 @@ def select_params(scores: Mapping[Params, float], *, prefer: Params) -> Params:
 def judge(
     candidate: RunReport, incumbent: RunReport, *, extra: Sequence[str] = ()
 ) -> Verdict:
-    """Rules 1 and 2 of Step 4.4b. `extra` carries the rung-specific failures
-    (cross-validation, latency) that only the caller can evaluate."""
     if candidate.k != incumbent.k:
         raise ValueError(f"cannot compare k={candidate.k} against k={incumbent.k}")
     reasons = list(extra)

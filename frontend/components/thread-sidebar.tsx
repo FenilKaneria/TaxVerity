@@ -1,20 +1,5 @@
 "use client";
 
-// Step 16.3, restyled for the parchment/burgundy redesign. Plain React state,
-// not SWR or TanStack Query — five endpoints, one list, no polling, no
-// cross-tab sync, and neither library would help with the one hard problem
-// in this app (token refresh), which lives in lib/api.ts regardless.
-//
-// "New thread" no longer calls createThread() up front — that left an empty
-// thread titled "New question" in history the moment the icon was clicked.
-// It now just routes to /chat, the landing composer, which creates the
-// thread on first submit (see app/(app)/chat/page.tsx).
-//
-// Off-canvas below `lg`: `open`/`onOpenChange` let the parent layout control
-// visibility with a backdrop; the <aside> itself is unchanged in shape (it
-// still sits beside two sibling Dialogs in a fragment — both dialogs portal,
-// so wrapping the aside in a fixed/translated container here does not move
-// them).
 
 import { MoreHorizontal, PanelLeftClose, Plus, X } from "lucide-react";
 import Link from "next/link";

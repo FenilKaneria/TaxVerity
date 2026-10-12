@@ -1,4 +1,4 @@
-"""R27 — the production retriever and packer over an outside gold set.
+"""The production retriever and packer over an outside gold set.
 
 The set is statnav's `golden.jsonl` (another project over the same Act),
 downloaded by hand into `data/external/`. Its questions are mostly

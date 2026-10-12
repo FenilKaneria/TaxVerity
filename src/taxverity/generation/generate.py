@@ -1,20 +1,4 @@
-"""R20 Step 20.7 (amending rule 04 — see ADR-121) — answer generation over
-numbered evidence, with verify-before-release.
-
-Standing decision 4: nothing reaches the person before it is verified. The
-model answers in one non-streamed `complete()` call; every line is parsed and
-verified; the lines that fail go to **at most one batched repair call**
-(every failing line at once, not one call per rejection — R19 Phase B's
-argument against a per-claim repair still holds, this only revives the
-mechanism for the lines that actually need it); the repaired lines are
-re-verified; and only then is the final ordered list of `ClaimEvent`/
-`WithheldEvent` released. A line that passed the first time is never sent to
-repair and never rewritten — repair only ever touches what already failed.
-
-The invariant is unchanged from R19 Phase B, only *when* it is enforced
-moved: nothing unverified is ever released, nothing released is ever
-retracted.
-"""
+"""Answer generation over numbered evidence, with verify-before-release."""
 
 from __future__ import annotations
 
@@ -53,28 +37,22 @@ from taxverity.retrieval.tables import with_table_rows
 logger = get_logger(__name__)
 
 GENERATION_STAGE_VERSION = 12
-GENERATION_PROMPT_VERSION = 15
+GENERATION_PROMPT_VERSION = 16
 
-# Reasoning is billed against the cap and cannot be disabled (Step 7.1).
+# Reasoning is billed against the cap and cannot be disabled.
 GENERATION_MAX_COMPLETION_TOKENS = 2_048
 GENERATION_TEMPERATURE = 0.0
-# A long answer is usually a padded one, and every line past this is another
-# chance to fail verification in front of the user. Raised from 12 (the old
-# one-JSON-claim-per-sentence cap) since a heading plus several bullets is a
-# few more lines for the same amount of actual content. R21: 16 -> 20, room
-# for the 1-3 example lines the plain-language prompt now asks for. R22 Part
-# B: 20 -> 24, since the advisor layout's section labels are lines too.
 MAX_CLAIMS = 24
-# R21: "can't yet be determined" lines beyond the first repeat what the
+# "can't yet be determined" lines beyond the first repeat what the
 # clarify chips already ask; they are dropped, never released unverified.
 MAX_UNKNOWN_LINES = 1
-# R22 Part C (ADR-128): general guidance supplements a cited answer; it must
+# General guidance supplements a cited answer; it must
 # never become the bulk of one.
 MAX_GUIDANCE_LINES = 5
 # A previous answer is reference context for a follow-up, not evidence; a
 # bounded excerpt is enough to know what not to repeat.
 PREVIOUS_ANSWER_CHARS = 1_500
-# R22 Part B: a style follow-up rewrites the previous answer, so it needs all
+# A style follow-up rewrites the previous answer, so it needs all
 # of it, not an excerpt. A full answer (24 short lines) fits in this.
 STYLE_PREVIOUS_ANSWER_CHARS = 3_000
 
@@ -87,13 +65,15 @@ Layout. Write plain lines of text, one statement per line, shaped to the questio
 - Prefer plain sentences. Use "- " bullets only for 4 or more parallel items; 3 or fewer points are sentences.
 - A section label is a line "### " followed by a short plain label of 2 to 5 words, with no figure and no citation. Use only the labels the <layout> note names.
 - A "- " bullet or a "1. " numbered step is one line. No other markdown, no code fences, no tables.
-- Keep the answer as short as the question allows: usually 3 to 10 lines, at most 4 bullets or steps under any label. Say each point once; never repeat it under another label, and never turn a condition already stated into a "check that" step.
+- Being easy to follow matters more than being short. Use as many short lines as the person needs, usually 4 to 12, at most 5 bullets or steps under any label. Say each point once; never repeat it under another label, and never turn a condition already stated into a "check that" step.
 - Every answer has at least one line that cites a passage.
 
 Tone:
-- Speak to the person as "you", the way a knowledgeable friend would. Keep sentences under 20 words.
+- Speak to the person as "you", the way a knowledgeable friend would. Write so that someone with no tax knowledge follows every line on first reading. One idea per sentence, under 20 words. A line that needs a second reading is written as two shorter lines instead.
+- Say what a rule means for the person; never copy the Act's sentence structure. Never describe a rule by pointing at another rule ("the rule that lets you treat ...", "properties of the kind referred to in ..."): say directly who or what it covers.
+- For things the person named in their question, keep their own words ("home loan", "rent", "crypto", "my parents").
 - Never write a section, sub-section or clause number, or the word "section", in a line: the bracket number already shows where a line comes from. Name the rule by what it does instead of by its number ("the rebate", "the rule on tax your employer pays"); this replaces only the section number, never a figure. Only when the person named a section themselves may you name that one section, once.
-- Use everyday words. Never use legal phrasing such as "assessee", "notwithstanding", "in respect of", "computed under the head", "aforesaid", "thereof", "the said", "subject to the provisions of", "deemed", "chargeable", "tax liability", "prescribed", "credited against", "in accordance with", "pursuant to", "as the case may be". Say "your tax", "set by the rules", "counts towards". If you must use a technical term, explain it in brackets on the same line.
+- Use everyday words. Never use legal phrasing such as "assessee", "notwithstanding", "in respect of", "computed under the head", "aforesaid", "thereof", "the said", "subject to the provisions of", "deemed", "chargeable", "tax liability", "prescribed", "credited against", "in accordance with", "pursuant to", "as the case may be". Say "your tax", "set by the rules", "counts towards". Also write "in total" for "in aggregate", "give" for "furnish", "loan" for "borrowed capital", "buy" or "build" for "acquire" or "construct", "sale price" for "full value of the consideration", "what you paid for it" for "cost of acquisition", "sell" for "transfer" when the person is selling, and "the person paying" or "the person receiving" for "deductor", "payer" or "payee". If you must use a term the Act defines (such as "annual value" or "resident"), say in brackets, in everyday words, what it means the first time you use it.
 - Speak about the person's situation, not as a summary of the law. Only when the person asks what to do, or asks about their own situation, add how to meet a condition lawfully (the payment mode, the proof to keep, the date to act by), each citing its passage. Never describe how to use a website, portal, app or form in a cited line: the passages do not contain that. Such steps go in general guidance (below).
 - If a <previous_answer> is given, the person is following up on it: do not repeat it, go further in whatever way <latest_message> asks.
 
@@ -232,11 +212,9 @@ def assumptions_note(assumed: Sequence[FactField]) -> str:
 
 
 def with_assumption_line(lines: list[str], assumed: Sequence[FactField]) -> list[str]:
-    """A provisional figure (`materiality.Reason.PROVISIONAL`) is never served
-    without its assumptions: fixed text, inserted by code rather than asked of
-    the model, right after the first `[calc]` line, and verified like any
-    other line. An answer restating no figure needs none. A `[calc]` line of
-    the model's own about assumptions is dropped, so it is said once."""
+    """A provisional figure (`materiality.Reason.PROVISIONAL`) is never served without
+    its assumptions: fixed text, inserted by code rather than asked of the model, right
+    after the first `[calc]` line, and verified like any other line."""
     lines = [
         text
         for text in lines
@@ -264,7 +242,7 @@ def _assumption_clause(assumed: Sequence[FactField]) -> str:
     return "assumes " + joined
 
 
-# R22 Part B: fixed text, never model-written, sent when the person asked to
+# Fixed text, never model-written, sent when the person asked to
 # have the last answer explained again ("explain simply", "I don't
 # understand", "give an example"). The pack then holds exactly the passages
 # that answer cited, so the rewrite stays on the same law and is verified the
@@ -277,11 +255,6 @@ STYLE_REQUEST_NOTE = (
     "included, with the number of the passage it explains."
 )
 
-# R20 Step 20.7 (standing decision 4): the one batched repair call, fired
-# only when at least one line above failed verification. Same citation and
-# marker rules as SYSTEM_PROMPT, restated rather than assumed remembered —
-# this is a fresh call, not a continued conversation.
-# R26: the repair note for a grounded line that names a figure only vaguely.
 VAGUE_FIGURE_DETAIL = (
     "refers to an amount, rate, limit or condition without stating it, or "
     "names a sub-section, clause or proviso; write the figure and the "
@@ -306,8 +279,7 @@ Reply with exactly one corrected line per failure below, in the same order, each
 @dataclass(frozen=True)
 class DraftOutcome:
     """One line as the verifier judged it, for an offline observer
-    (`scripts/measure_generation.py`). `type` is None for a line that never
-    parsed as a claim; `violations` is empty exactly when the line passed."""
+    (`scripts/measure_generation.py`)."""
 
     claim_id: int
     line: str
@@ -333,13 +305,6 @@ class AnswerGenerator:
         *,
         max_claims: int = MAX_CLAIMS,
     ) -> None:
-        """`llm` needs only `complete()` — R20 Step 20.7 dropped streaming
-        generation (rule 04's amendment: nothing is released before it is
-        verified, so there is nothing left to show token by token). `chunks`
-        is kept for interface stability across every existing call site —
-        the verifier no longer consults it, since a `[n]` marker resolves by
-        its position in the evidence pack, not by parsing a path out of the
-        corpus."""
         self._llm = llm
         self._chunks = chunks
         self._max_claims = max_claims
@@ -360,21 +325,8 @@ class AnswerGenerator:
         assumed_nil: Sequence[FactField] = (),
         on_repair: Callable[[], None] | None = None,
     ) -> list[ClaimEvent | WithheldEvent]:
-        """Non-streamed: generate, verify every line, repair the failures
-        (at most once), re-verify, then return the whole ordered list. A
-        caller that emits these one at a time (rule 04's SSE contract) is
-        emitting an already-verified answer, not a live one.
-
-        R21: `request` is the person's own latest message when a follow-up
-        was rewritten into `question` (so "explain simply" or "give examples"
-        survives the rewrite); `previous_answer` is the last served answer's
-        plain text. Both are prompt context only — neither grounds a number.
-
-        R22 Part A: `on_repair` is called once, just before the repair call,
-        so the caller can tell the person what the extra wait is.
-
-        R22 Part B: `style_request` adds the fixed rewrite note for a
-        "explain simply" follow-up (`memory.contextualize.is_style_followup`)."""
+        """Non-streamed: generate, verify every line, repair the failures (at most
+        once), re-verify, then return the whole ordered list."""
         verifier = Verifier(
             pack,
             question=question,
@@ -444,7 +396,7 @@ class AnswerGenerator:
         ]
         self._observe("first_pass", drafts)
         failing = [draft for draft in drafts if not draft.passed]
-        # R26: a grounded line that says "the limit" where its passage states
+        # A grounded line that says "the limit" where its passage states
         # the figure rides along in the same one repair call; it is never
         # withheld for that alone (see `_repair`).
         vague = [
@@ -539,7 +491,7 @@ class AnswerGenerator:
 def _renumbered(line: str, verifier: Verifier) -> str:
     line = renumber_section_markers(line, verifier.section_markers, verifier.pack_size)
     line = collapse_repeated_markers(line)
-    # R21 Part B: with no computation block there is nothing for [calc] to
+    # With no computation block there is nothing for [calc] to
     # restate; a "Suppose …" line marked [calc] is a worked example, so it is
     # verified as one — under the stricter legal-figure rule, never looser.
     if (
@@ -550,9 +502,6 @@ def _renumbered(line: str, verifier: Verifier) -> str:
         line = line.replace(
             CALC_MARKER, "" if EXAMPLE_MARKER in line else EXAMPLE_MARKER
         )
-    # R26: a cited "Suppose …" line written without [eg] is a worked example
-    # whose marker was forgotten (g029); verified as one, its legal figures
-    # still must ground, and it no longer counts towards the evidence gate.
     if (
         line_body(line).startswith(EXAMPLE_OPENERS)
         and MARKER.search(line)
@@ -568,21 +517,15 @@ _REPEATED_MARKER = re.compile(r"(\[\d+\])(?:\s*\1)+")
 
 
 def collapse_repeated_markers(line: str) -> str:
-    """A line ending "[4][4]" cites one passage twice: shown as one marker.
-    Only an immediate repeat of the same number is collapsed, so what the
-    line cites — and so what it is verified against — never changes."""
+    """A line ending "[4][4]" cites one passage twice: shown as one marker."""
     return _REPEATED_MARKER.sub(r"\1", line)
 
 
 def renumber_section_markers(
     line: str, sections: Mapping[str, tuple[int, ...]], pack_size: int
 ) -> str:
-    """R21 Part B: the model sometimes cites a passage by its section number
-    ("[408]") instead of its pack position. Only a marker beyond the pack
-    that names a section the pack actually holds is rewritten — to every
-    position of that section — so the verifier then checks the line against
-    those real passages exactly as if the model had cited them. A marker that
-    matches nothing is left alone and fails verification as before."""
+    """The model sometimes cites a passage by its section number ("[408]") instead of
+    its pack position."""
 
     def swap(match: re.Match[str]) -> str:
         number = int(match.group(1))
@@ -594,7 +537,7 @@ def renumber_section_markers(
     return MARKER.sub(swap, line)
 
 
-# R26: a question that can be answered "yes" or "no" has a clause opening
+# A question that can be answered "yes" or "no" has a clause opening
 # with one of these ("Can I deduct…", "I pay rent. Is it allowed?").
 _YES_NO_OPENERS = frozenset(
     "am are is was were do does did can could may might must shall should will "
@@ -614,10 +557,7 @@ def asks_yes_or_no(question: str) -> bool:
 
 
 def without_unasked_yes_no(lines: list[str]) -> list[str]:
-    """g026 answered "How is crypto taxed?" with "Yes — …". The leading
-    "Yes"/"No" of the first statement is left out when nothing in the
-    question can be answered that way; the statement itself is unchanged and
-    still verified."""
+    """G026 answered "How is crypto taxed?" with "Yes — …"."""
     for i, line in enumerate(lines):
         if classify_line(line) is ClaimType.HEADING:
             continue
@@ -633,8 +573,6 @@ def without_unasked_yes_no(lines: list[str]) -> list[str]:
     return lines
 
 
-# R26: content words, for spotting a line that restates an earlier one
-# (g029's "What to do next" repeated its three conditions almost word for word).
 _WORD = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset(
     "a an and are as at be by can for from has have if in is it its may must "
@@ -656,9 +594,8 @@ def _content_words(text: str) -> frozenset[str]:
 def _drop_repeats(
     events: list[ClaimEvent | WithheldEvent],
 ) -> list[ClaimEvent | WithheldEvent]:
-    """R26: a served statement whose content words mostly match an earlier
-    served one says the same thing twice; the later one is left out. Both
-    passed verification, so leaving the repeat out hides nothing."""
+    """A served statement whose content words mostly match an earlier served one says
+    the same thing twice; the later one is left out."""
     kept: list[ClaimEvent | WithheldEvent] = []
     seen: list[frozenset[str]] = []
     for event in events:
@@ -677,10 +614,8 @@ def _drop_repeats(
 def _drop_empty_sections(
     events: list[ClaimEvent | WithheldEvent],
 ) -> list[ClaimEvent | WithheldEvent]:
-    """R22 Part B: a section label with no served line under it (every line
-    was withheld, or none was written) is left out, so the answer never shows
-    an empty "### Example". A label carries nothing to verify, so leaving one
-    out hides nothing."""
+    """A section label with no served line under it (every line was withheld, or none
+    was written) is left out, so the answer never shows an empty "### Example"."""
     kept: list[ClaimEvent | WithheldEvent] = []
     for i, event in enumerate(events):
         if isinstance(event, ClaimEvent) and event.type is ClaimType.HEADING:
@@ -708,17 +643,15 @@ def _cap_lines(lines: list[str], kind: ClaimType, limit: int) -> list[str]:
 
 
 def _is_guidance_label(line: str) -> bool:
-    """R22 Part C: the frontend labels the guidance box itself with fixed
-    text, so a model-written "### General guidance" label would only repeat
-    it."""
+    """The frontend labels the guidance box itself with fixed text, so a model-written
+    "### General guidance" label would only repeat it."""
     return classify_line(line) is ClaimType.HEADING and (
         line.lstrip("#").strip().rstrip(":").lower() == "general guidance"
     )
 
 
 class _Draft:
-    """One line's outcome before the final event is built. `verdict` is
-    `None` only when the line never parsed as a claim at all."""
+    """One line's outcome before the final event is built."""
 
     __slots__ = ("claim_id", "line", "verdict", "malformed_reason")
 
@@ -787,11 +720,10 @@ def _event(draft: _Draft) -> ClaimEvent | WithheldEvent:
 
 
 def passage_numbers_note(count: int) -> str:
-    """Measured on gpt-5-mini: given one whole section as its only passage, it
-    cited sub-sections "(2)(b)", "(8)" as "[2]", "[8]", and a system-prompt
-    rule alone did not stop it; stating the valid range next to the evidence
-    did (a02, 76 bad first-pass markers in 3 runs, 1 in 4). Generation and its repair
-    only; the `reason` prompt shares `render_context` and does not get it."""
+    """Given one whole section as its only passage, it cited sub-sections "(2)(b)",
+    "(8)" as "[2]", "[8]", and a system-prompt rule alone did not stop it; stating the
+    valid range next to the evidence did (a02, 76 bad first-pass markers in 3 runs, 1 in
+    4)."""
     if count == 1:
         valid = 'There is 1 passage. Cite it only as "[1]".'
     else:
@@ -819,11 +751,7 @@ def render_context(
     calculation_pending: bool = False,
     style_request: bool = False,
 ) -> str:
-    """The user message. User text is fenced as data; evidence is verbatim,
-    numbered in pack order — that numbering is exactly what a `[n]` marker in
-    the model's answer, and later in the verifier, refers to. `analysis` is
-    R20 Step 20.5's validated output; `reasoning/prompt.py` calls this
-    function unchanged, without it, to build the `reason` call's own prompt."""
+    """The user message."""
     parts = [f"<question>\n{question}\n</question>"]
     if request and request.strip() != question.strip():
         parts.append(f"<latest_message>\n{request}\n</latest_message>")
@@ -860,8 +788,6 @@ def render_context(
             block[0] += EXCERPT_NOTE
         for line in unit.context:
             block.append(f"[lead-in of {line.citation}]\n{line.text}")
-        # R22 Part B: a measured table reads one row per line, so a date or
-        # rate stays with the row (and condition) it belongs to.
         block.append(
             with_table_rows(unit.chunk) if unit.excerpt is None else unit.excerpt
         )
@@ -870,7 +796,7 @@ def render_context(
     return "\n\n".join(parts)
 
 
-# R27: fixed text beside an excerpt's label. The verifier enforces it
+# Fixed text beside an excerpt's label. The verifier enforces it
 # (`partial_passage_denial`); this only saves a repair.
 EXCERPT_NOTE = (
     " (only the parts of this long section that match the question are shown;"
@@ -880,11 +806,8 @@ EXCERPT_NOTE = (
 
 
 def render_analysis(analysis: ValidatedAnalysis) -> str:
-    """R20 Step 20.7: the validated `reason` output, in the same `[n]`
-    numbering as the evidence block above — a marker here names the same
-    passage a citation marker in the answer would. Only what survived
-    `reasoning/validate.py` reaches here; nothing here is trusted further by
-    the model than by that validation."""
+    """The validated `reason` output, in the same `[n]` numbering as the evidence block
+    above — a marker here names the same passage a citation marker in the answer would."""
     blocks = []
     for rule in analysis.legal_rules:
         markers = "".join(f"[{m}]" for m in rule.markers)

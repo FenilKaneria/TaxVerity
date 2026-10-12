@@ -1,13 +1,4 @@
-"""Phase 14 — bulk chunk hydration from Postgres.
-
-Step 6.4's `PgVectorIndex` already hydrates a chunk from its row on every hit
-(ADR-090), so serving needs no `chunks.jsonl`. BM25 and the citation shortcut
-need every chunk up front, not just the ones a vector search happens to
-return, so this is the same hydration widened to a whole corpus. TaxVerity is
-deploy-only (the corpus PDF and `data/interim/` are never shipped to a
-production instance) — the API's startup composition must read the corpus it
-serves from the database, not from a local file.
-"""
+"""Bulk chunk hydration from Postgres."""
 
 from __future__ import annotations
 
@@ -35,9 +26,6 @@ SELECT c.chunk_id, c.parent_id, c.doc_id, c.corpus_version, c.node_type,
 
 
 def load_chunks_from_db(conn: psycopg.Connection, corpus_version: str) -> list[Chunk]:
-    """Every chunk of `corpus_version`, in corpus order. Empty for a version
-    not ingested — a caller comparing the count against `resolve_serving()`'s
-    `ServedCorpus.chunk_count` catches that rather than silently building an
-    empty index."""
+    """Every chunk of `corpus_version`, in corpus order."""
     rows = conn.cursor(row_factory=dict_row).execute(_ALL_CHUNKS_SQL, (corpus_version,))
     return [chunk_from_row(row) for row in rows]

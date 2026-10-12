@@ -1,4 +1,4 @@
-"""Step 1.5 — parse sections, titles and chapters, and report what is left over."""
+"""Parse sections, titles and chapters, and report what is left over."""
 
 from __future__ import annotations
 
@@ -51,10 +51,16 @@ def render(act: ParsedAct, elapsed: float) -> str:
                 ("Numbering gaps", act.gaps() or "none"),
                 ("Strictly ascending", ascending),
                 ("Letter-suffixed", ", ".join(suffixed) or "none"),
-                ("Sections without a title", sum(1 for n in act.sections if not n.title)),
+                (
+                    "Sections without a title",
+                    sum(1 for n in act.sections if not n.title),
+                ),
                 ("Sections with empty text", ", ".join(empty) or "none"),
                 ("Chapters", len(act.chapters)),
-                ("Chapters without a title", sum(1 for c in act.chapters if not c.title)),
+                (
+                    "Chapters without a title",
+                    sum(1 for c in act.chapters if not c.title),
+                ),
                 ("Division headings", len(act.divisions)),
                 ("Footnote lines separated", len(act.footnotes)),
                 ("Pages carrying footnotes", len(footnote_pages)),

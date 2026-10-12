@@ -129,7 +129,9 @@ def rank_of(results: Sequence[ScoredChunk], label: str) -> int | None:
     return None
 
 
-def hops_to(classifier: FailureClassifier, chunks_by_path, packed: Sequence[str], label: str) -> int | None:
+def hops_to(
+    classifier: FailureClassifier, chunks_by_path, packed: Sequence[str], label: str
+) -> int | None:
     if any(classifier.cites(unit, label) for unit in packed):
         return 1
     for unit in packed:
@@ -152,9 +154,13 @@ def diagnose(settings: Settings) -> TaxonomyReport | str:
     questions = [q.question for q in gold]
     with embedder:
         try:
-            dense = DenseRetriever.from_store(store, chunks, embedder, corpus_version=corpus_version)
+            dense = DenseRetriever.from_store(
+                store, chunks, embedder, corpus_version=corpus_version
+            )
             cached = load_query_vectors(
-                store / QUERY_VECTORS_FILENAME, model=embedder.info(), questions=questions
+                store / QUERY_VECTORS_FILENAME,
+                model=embedder.info(),
+                questions=questions,
             )
             stored = load_rerank_scores(
                 settings.data_dir / "rerank" / RERANK_SCORES_FILENAME,
@@ -176,7 +182,8 @@ def diagnose(settings: Settings) -> TaxonomyReport | str:
     bm25 = BM25Retriever(chunks)
     fusion = FusionRetriever([dense_leg, bm25])
     retriever = ShortcutRetriever(
-        CitationRetriever(chunks), RerankRetriever(fusion, StoredReranker(stored.scores))
+        CitationRetriever(chunks),
+        RerankRetriever(fusion, StoredReranker(stored.scores)),
     )
     packer = EvidencePacker(chunks)
     classifier = FailureClassifier(chunks)
@@ -190,7 +197,9 @@ def diagnose(settings: Settings) -> TaxonomyReport | str:
         packed = [unit.citation for unit in pack.units]
         if query.slice is QuerySlice.NEGATIVE:
             negatives.append(
-                NegativeDelivery(query_id=query.query_id, units=len(packed), tokens=pack.tokens)
+                NegativeDelivery(
+                    query_id=query.query_id, units=len(packed), tokens=pack.tokens
+                )
             )
             continue
         pooled = [result.chunk.node_path for result in pool]
@@ -229,7 +238,9 @@ def diagnose(settings: Settings) -> TaxonomyReport | str:
         chunk_count=len(chunks),
         gold_count=len(gold),
         answerable=sum(1 for q in gold if q.slice is not QuerySlice.NEGATIVE),
-        slice_sizes=Counter(q.slice for q in gold if q.slice is not QuerySlice.NEGATIVE),
+        slice_sizes=Counter(
+            q.slice for q in gold if q.slice is not QuerySlice.NEGATIVE
+        ),
         labels=sum(len(q.required) for q in gold),
         budget=EVIDENCE_BUDGET,
         pool=EVIDENCE_POOL,
@@ -255,7 +266,9 @@ def named(members: Sequence[Diagnosed]) -> str:
 def render(report: TaxonomyReport, cohort_note: str, elapsed: float) -> str:
     diagnosed = report.diagnosed
     failing = {d.failure.query_id for d in diagnosed}
-    by_category = {c: [d for d in diagnosed if d.failure.category is c] for c in FailureCategory}
+    by_category = {
+        c: [d for d in diagnosed if d.failure.category is c] for c in FailureCategory
+    }
     lines = [
         "# Retrieval failure taxonomy — Income-tax Act, 2025",
         "",
@@ -293,7 +306,7 @@ def render(report: TaxonomyReport, cohort_note: str, elapsed: float) -> str:
         "6. **vocabulary**: a one-label question whose wording reached nothing",
         "   that leads to the answer.",
         "",
-        "\"Genuinely absent\" is not a category here. Every answerable label names",
+        '"Genuinely absent" is not a category here. Every answerable label names',
         "a chunk, so absence arises only for the negatives, reported last.",
         "",
         "## Counts",
@@ -331,8 +344,8 @@ def render(report: TaxonomyReport, cohort_note: str, elapsed: float) -> str:
         "## Every missed label",
         "",
         "Ranks are 1-based: pool is the reranked top 20, fusion is read to",
-        f"{FUSION_DEPTH}, and each leg over the whole corpus. \"5.4\" is whether",
-        "Step 5.4's expansion would have delivered it; \"hops\" the fewest outgoing",
+        f'{FUSION_DEPTH}, and each leg over the whole corpus. "5.4" is whether',
+        'Step 5.4\'s expansion would have delivered it; "hops" the fewest outgoing',
         "references from any delivered unit, up to two.",
         "",
         "| query | slice | label | category | via | pool | fusion | bm25 | dense "
@@ -401,8 +414,12 @@ def main() -> int:
     elif load_cohorts(registered) == cohorts:
         cohort_note = "this run reproduces it exactly."
     else:
-        cohort_note = "**this run differs from it; the registered file was not changed.**"
-        logger.warning("classification differs from the registered cohorts in %s", registered)
+        cohort_note = (
+            "**this run differs from it; the registered file was not changed.**"
+        )
+        logger.warning(
+            "classification differs from the registered cohorts in %s", registered
+        )
 
     artifact_dir = settings.evals_dir / "reports" / report.corpus_version
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -420,7 +437,9 @@ def main() -> int:
 
     elapsed = time.perf_counter() - started
     REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(render(report, cohort_note, elapsed), encoding="utf-8", newline="")
+    REPORT.write_text(
+        render(report, cohort_note, elapsed), encoding="utf-8", newline=""
+    )
 
     counts = Counter(d.failure.category for d in report.diagnosed)
     for category in FailureCategory:

@@ -14,13 +14,6 @@ logger = get_logger(__name__)
 
 CROSSREF_STAGE_VERSION = 1
 
-# The optional hyphen segment is never real in *this* Act -- 1.1/1.4 measured
-# zero hyphenated section numbers here -- but the repealed 1961 Act numbers
-# some sections that way ("80-IA", "80-ID"), and this Act's own text quotes
-# them by cross-reference. Consuming the whole token (rather than stopping at
-# the hyphen) keeps the constructed citation honestly unresolvable instead of
-# silently truncating to a short prefix ("80") that could coincidentally
-# collide with an unrelated real section of this Act.
 NUMBER = r"\d{1,3}(?:-[A-Z]{1,3})?[A-Z]{0,3}"
 BRACKET_ONE = r"\([^()]{1,10}\)"
 # A PDF line wrap can fall between two brackets of the same citation
@@ -30,12 +23,6 @@ BRACKET_CHAIN = rf"(?:\s*{BRACKET_ONE})*"
 BRACKET_ONE_PATTERN = re.compile(BRACKET_ONE)
 SCHEDULE_ROMAN = r"[IVXLCDM]+"
 
-# Measured, not assumed (scratch_crossrefs.py against the real corpus): the
-# 2025 Act's own drafting convention is the postfix citation form used
-# throughout this codebase's own NodePath.render() -- "section 515(3)(b)" --
-# not the older prefix style "sub-section (3) of section 515". The prefix
-# style survives only as a rare minority (~30 hits across 1.68M chars) and is
-# handled separately by PREFIX_CHAIN below.
 SELF_REF = re.compile(r"\bthis\s+(Act|Chapter|Part|Schedule|sub-section|section)\b")
 
 PREFIX_WORD = r"(?:sub-section|clause|sub-clause|item)"
@@ -49,11 +36,6 @@ PREFIX_CHAIN = re.compile(
 )
 PREFIX_TOKEN = re.compile(rf"{PREFIX_WORD}\s*\(([^()]{{1,10}})\)")
 
-# "Part A of Schedule XI, paragraph 8" -- deferred from Step 1.7 (schedules.py)
-# because a Part is folded into the paragraph's own marker (A8), not a node
-# of its own. These three forms recover that fold from the Act's own prose,
-# most-specific first so a paragraph reference is never re-matched by the
-# coarser bare-Part or bare-Schedule passes below.
 PART_PARAGRAPH = re.compile(
     rf"\bparagraph\s+(?P<num>{NUMBER})(?P<brackets>{BRACKET_CHAIN})\s+of\s+Part\s+"
     rf"(?P<part>[A-Z])\s+of\s+(?:the\s+)?Schedule\s+(?P<sched>{SCHEDULE_ROMAN})\b"
@@ -83,43 +65,13 @@ SECTION_TOKEN = re.compile(
     rf"(?:(?P<num>{NUMBER})(?P<brackets>{BRACKET_CHAIN})|(?P<inherited>{BRACKET_ONE}{BRACKET_CHAIN}))"
 )
 
-# A reference immediately followed by "of/to <Act name>" points outside this
-# corpus entirely -- a different statute (Companies Act, FEMA...) or an
-# anaphoric "the said Act"/"that Act" naming one mentioned earlier in the same
-# clause. Neither is a node this corpus can resolve to, so both are kept out
-# of the edge table and reported separately (ADR-049), exactly as 1.5/1.6
-# separated the amendment apparatus and 1961-Act quotations rather than
-# letting them corrupt the real count.
-# No leading ``^`` here: this is used with ``Pattern.match(text, pos)``, whose
-# match already starts exactly at ``pos`` -- an explicit ``^`` would instead
-# re-anchor to the real start of ``text`` (or just after a newline) and never
-# match at an arbitrary offset, which is the whole point of a lookahead here.
-# The name class allows ``()`` ("Securities Contracts (Regulation) Act"), an
-# apostrophe ("Employees' Provident Funds ... Act"), and ``\s`` rather than a
-# literal space -- a PDF line wrap can fall mid-name ("Income-\ntax Act"), and
-# ``\s`` matches that newline. A named statute occasionally ends in "Code"
-# rather than "Act" (the Insolvency and Bankruptcy Code) or in "Sanhita" --
-# India's 2023 recodified criminal statutes (Bharatiya Nagarik Suraksha
-# Sanhita and siblings) use that word where an older Act would say "Code" --
-# measured, not assumed, against every external mention in the real corpus.
-# The interior quantifier is generous (some real names run past 90 chars --
-# "National Trust for Welfare of Persons with Autism, Cerebral Palsy, Mental
-# Retardation and Multiple Disabilities Act") but still bounded, so an
-# ordinary sentence with no Act name never accidentally spans into one.
 ACT_TAIL = re.compile(
     r"\s*(?:of|to)\s+(?:the\s+)?(?P<name>this Act|said Act|that Act"
     r"|[A-Za-z][A-Za-z&,.\-'()\s]{2,140}?\s+(?:Act|Code|Sanhita))\b"
 )
 
-# Section numbering has zero gaps 1-536 (+354A) -- Step 1.1/1.4 measured
-# this -- so "sections 28 to 33" can be expanded to every integer in between
-# without risking a fabricated citation, but only between two bare, unbracketed
-# numbers; a 50-integer cap keeps a stray match from exploding.
 MAX_RANGE_SPAN = 50
 
-# A clause opening this Act's own definitions convention: `(12)"term" means...`
-# -- measured against every child of section 2 (scratch_section2.py). The
-# marker prefix is stripped by the caller before this is applied.
 GLOSSARY_TERM = re.compile(r'^"([^"]{1,80})"')
 
 
@@ -157,10 +109,8 @@ class CrossReference(BaseModel):
 
 
 class ExternalReference(BaseModel):
-    """A reference this corpus cannot resolve because it names another Act,
-    or refers anaphorically ("the said Act") to one named earlier. Kept
-    verbatim, never silently dropped -- same discipline as ``ParsedAct.footnotes``.
-    """
+    """A reference this corpus cannot resolve because it names another Act, or refers
+    anaphorically ("the said Act") to one named earlier."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -221,8 +171,8 @@ _WHITESPACE = re.compile(r"\s+")
 
 
 def _clean(brackets: str) -> str:
-    """Collapse a line-wrap inside a bracket chain before it becomes part of a
-    citation string -- ``NodePath`` citations never contain whitespace."""
+    """Collapse a line-wrap inside a bracket chain before it becomes part of a citation
+    string -- ``NodePath`` citations never contain whitespace."""
     return _WHITESPACE.sub("", brackets)
 
 
@@ -238,12 +188,11 @@ def _int_range(low: str, high: str) -> list[str]:
 
 
 def _section_citations(group_text: str) -> list[str]:
-    """A later list item may give only its own trailing bracket, inheriting
-    everything before it from the item before ("section 70(1)(a), (c) and
-    (d)" means clauses (a), (c), (d) all of sub-section (1) of section 70 --
-    the *whole* prefix up to the varying bracket carries over, not just the
-    section number, or "(c)" would wrongly collapse to depth-1 ``70(c)``).
-    """
+    """A later list item may give only its own trailing bracket, inheriting everything
+    before it from the item before ("section 70(1)(a), (c) and (d)" means clauses (a),
+    (c), (d) all of sub-section (1) of section 70 -- the *whole* prefix up to the
+    varying bracket carries over, not just the section number, or "(c)" would wrongly
+    collapse to depth-1 ``70(c)``)."""
     citations: list[str] = []
     previous_plain: str | None = None
     prefix: str | None = None
@@ -290,9 +239,7 @@ _SELF_REF_TYPE_SET = frozenset(SELF_REF_TYPES.values())
 
 
 class ScannedReference(BaseModel):
-    """One reference found in a run of text, before anything decides what it
-    means. Step 1.8 resolves these against the corpus tree; Step 3.5 resolves
-    them against the chunk store, and both must read the same surface forms."""
+    """One reference found in a run of text, before anything decides what it means."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -303,11 +250,7 @@ class ScannedReference(BaseModel):
 
 
 def scan_references(text: str) -> list[ScannedReference]:
-    """Every citation surface form this corpus uses, over arbitrary text.
-
-    Order matters: the most specific pattern runs first and claims its span, so
-    a coarser pattern never re-matches part of a reference already read.
-    """
+    """Every citation surface form this corpus uses, over arbitrary text."""
     text = normalise(text)
     found: list[ScannedReference] = []
     consumed: list[tuple[int, int]] = []
@@ -391,10 +334,9 @@ def scan_references(text: str) -> list[ScannedReference]:
 def extract_node_references(
     node: StatutoryNode, index: dict[str, StatutoryNode]
 ) -> tuple[list[CrossReference], list[ExternalReference]]:
-    """Regex over one node's own text (never its children's -- each line of the
-    Act belongs to exactly one node's ``text``, so walking every node once
-    covers the whole tree without double-counting).
-    """
+    """Regex over one node's own text (never its children's -- each line of the Act
+    belongs to exactly one node's ``text``, so walking every node once covers the whole
+    tree without double-counting)."""
     references: list[CrossReference] = []
     external: list[ExternalReference] = []
 
@@ -434,13 +376,7 @@ def extract_node_references(
 
 
 def extract_glossary(sections: Sequence[StatutoryNode]) -> tuple[GlossaryTerm, ...]:
-    """Section 2's definitions, term -> the clause node that names it.
-
-    A clause that delegates ("shall have the meaning assigned to it in section
-    X") is still the right target: it is where a reader looking up the term
-    lands, and the delegation itself is captured as an ordinary outgoing
-    ``CrossReference`` from that same clause.
-    """
+    """Section 2's definitions, term -> the clause node that names it."""
     section2 = next((section for section in sections if section.marker == "2"), None)
     if section2 is None:
         return ()
@@ -453,11 +389,7 @@ def extract_glossary(sections: Sequence[StatutoryNode]) -> tuple[GlossaryTerm, .
 
 
 def defined_term(clause_text: str) -> str | None:
-    """The term a section 2 clause defines, from its first non-empty line.
-
-    Text-level, so the Step 5.8 bridge reads the glossary off the chunk store
-    with this same rule rather than a second copy of it.
-    """
+    """The term a section 2 clause defines, from its first non-empty line."""
     first_line = next((line for line in clause_text.split("\n") if line.strip()), "")
     content = normalise(first_line).strip()
     content = re.sub(r"^\(\d{1,3}[A-Za-z]{0,3}\)\s*", "", content)

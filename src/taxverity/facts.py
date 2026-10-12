@@ -1,23 +1,4 @@
-"""Step 7.5 — the structured user-fact schema.
-
-What the extraction step (7.6) must produce, what its eval (7.7) counts, what
-Phase 9 computes from and what Phase 11 merges across turns. Pure data and
-deterministic normalisation: nothing here calls a model, and this module does
-not import the LLM layer at all — it hands 7.6 a JSON schema and parses what
-comes back.
-
-Two measurements shape it. Step 7.1 found that value *formatting* is not stable
-across runs — one input came back as "1400000" on one run and "14,00,000" on the
-next — so normalisation is this module's job and not the prompt's. And the field
-vocabulary is closed, because 7.7 cannot count recall against a set with no
-members, Phase 11 cannot merge `salary` against `gross_salary`, and 9.7's
-materiality probe has nothing to sweep without a declared domain.
-
-Field names are lay-neutral and carry the **2025** Act's section as data. The
-Act renumbers: the ₹1,50,000 savings-and-insurance deduction is section 123, not
-the 1961 Act's 80C, and a field named `deduction_80c` would bake repealed
-vocabulary into a system whose whole purpose is the current statute.
-"""
+"""The structured user-fact schema."""
 
 from __future__ import annotations
 
@@ -38,9 +19,6 @@ class FactStatus(StrEnum):
     STATED = "stated"
     INFERRED = "inferred"
     MISSING = "missing"
-    # Phase 11 only, and never assertable by a model: rule 04 makes silently
-    # reusing a stale profile fact as `stated` a correctness bug, so the
-    # distinction is unforgeable here rather than enforced by a later convention.
     PROFILE_DEFAULT = "profile_default"
 
 
@@ -230,14 +208,7 @@ class Fact(BaseModel):
 
 
 class SituationFact(BaseModel):
-    """R20 Step 20.4: an open-vocabulary fact, alongside the 15 closed fields
-    above. Never fed to the calculator — `route_calc` and the materiality
-    probe only ever read `UserFacts`. `name` is the model's own words for
-    what the fact is about (there is no enum to validate it against), so the
-    only checks left are the ones already load-bearing for the closed
-    fields: a stated fact must quote itself, and PROFILE_DEFAULT can never
-    reach here (rule 04) because it is not one of the two statuses allowed.
-    """
+    """An open-vocabulary fact, alongside the 15 closed fields above."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -260,12 +231,7 @@ class SituationFact(BaseModel):
 
 
 class UnmappedFact(BaseModel):
-    """A fact the model named outside the vocabulary, kept verbatim.
-
-    Never reaches the calculator. It exists so a closed field set drops nothing
-    silently: 7.7 can count what the vocabulary is missing, rather than the
-    vocabulary quietly deciding what the user said.
-    """
+    """A fact the model named outside the vocabulary, kept verbatim."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -294,13 +260,13 @@ class UserFacts(BaseModel):
         return None
 
     def known(self) -> tuple[Fact, ...]:
-        """Facts with a value. What Phase 9 computes from."""
+        """Facts with a value."""
         return tuple(
             fact for fact in self.facts if fact.status is not FactStatus.MISSING
         )
 
     def missing(self) -> tuple[FactField, ...]:
-        """Fields the extractor reported as absent. What 9.7 probes for materiality."""
+        """Fields the extractor reported as absent."""
         return tuple(
             fact.field for fact in self.facts if fact.status is FactStatus.MISSING
         )
@@ -319,19 +285,12 @@ class Rejection:
 class Extraction:
     facts: UserFacts
     rejections: tuple[Rejection, ...]
-    # R20 Step 20.4. Kept apart from `rejections` on purpose: `llm/extract.py`'s
-    # repair pass only ever repairs the closed fields above, so a situation-fact
-    # rejection must never be mistaken for a repairable one.
     situation_facts: tuple[SituationFact, ...] = ()
     situation_rejections: tuple[Rejection, ...] = ()
 
 
 def parse_facts(payload: Any, turn: str) -> Extraction:
-    """Turn a model payload into facts, refusing rather than raising.
-
-    A single bad entry must not cost the whole turn, and 7.6 needs to know which
-    entry to repair — so every refusal is returned, not thrown.
-    """
+    """Turn a model payload into facts, refusing rather than raising."""
     facts: list[Fact] = []
     unmapped: list[UnmappedFact] = []
     rejections: list[Rejection] = []
@@ -402,10 +361,6 @@ def parse_facts(payload: Any, turn: str) -> Extraction:
             )
             continue
 
-        # A span the turn does not contain is a fabricated quotation, which is
-        # the same failure the Phase 10 verifier exists to catch. The fact is
-        # refused rather than downgraded: a citation nobody can check is worse
-        # than a field nobody extracted.
         if span and normalise(span) not in normalised_turn:
             rejections.append(
                 Rejection(
@@ -424,12 +379,6 @@ def parse_facts(payload: Any, turn: str) -> Extraction:
                 )
             )
             continue
-        # Step 7.7 measured the model quoting "loss" and writing the amount
-        # positive, which inverts the tax. Refused, never flipped: the words can
-        # sit beside a genuine positive figure ("no loss this time"), and a
-        # refusal costs a repair call where a wrong flip costs a wrong answer.
-        # The clause is read, not the span alone, because ADR-100's re-measure
-        # quoted only "3,00,000" out of "a loss of 3,00,000" (ADR-109).
         if (
             FIELDS[field].allows_negative
             and isinstance(value, Decimal)
@@ -476,10 +425,10 @@ def parse_facts(payload: Any, turn: str) -> Extraction:
 def _parse_situation_entries(
     payload: Any, normalised_turn: str
 ) -> tuple[tuple[SituationFact, ...], tuple[Rejection, ...]]:
-    """Same span-check discipline as the closed fields above (a stated fact
-    must quote itself, and a quotation the turn does not contain is refused,
-    never trusted) — but no repair, no vocabulary and no `missing` set,
-    because there is no enum to be exhaustive over."""
+    """Same span-check discipline as the closed fields above (a stated fact must quote
+    itself, and a quotation the turn does not contain is refused, never trusted) — but
+    no repair, no vocabulary and no `missing` set, because there is no enum to be
+    exhaustive over."""
     rejections: list[Rejection] = []
     facts: list[SituationFact] = []
     for entry in _situation_entries(payload, rejections):
@@ -590,11 +539,7 @@ _YEAR_RANGE = re.compile(
 def fact_value(
     field: FactField, raw_value: str, span: str
 ) -> Decimal | int | str | None:
-    """The value a fact carries, from what the model wrote and the words it quoted.
-
-    Recomputed from both wherever a fact is rebuilt, so a stored run re-derives
-    exactly the value the parser produced.
-    """
+    """The value a fact carries, from what the model wrote and the words it quoted."""
     value = normalise_value(FIELDS[field].kind, raw_value)
     # The 2025 Act has no assessment year: section 3(1) makes the tax year the
     # financial year itself. In the repealed Act's usage assessment year 2026-27
@@ -621,7 +566,6 @@ def _names_assessment_year(start: str, *texts: str) -> bool:
 
 
 def normalise_value(kind: ValueKind, raw: str) -> Decimal | int | str | None:
-    """Step 7.1 measured that the model's formatting is not stable. This is the fix."""
     text = normalise(raw).strip().casefold()
     if not text:
         return None
@@ -750,9 +694,6 @@ def _field_description() -> str:
 
 FACTS_SCHEMA_NAME = "user_facts"
 
-# Handed to the model as `response_format`. `name` is an enum so strict mode
-# refuses an invented field outright; `parse_facts` still handles one, because
-# 7.1 measured `json_object` as the fallback mode and nothing is enforced there.
 FACTS_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,

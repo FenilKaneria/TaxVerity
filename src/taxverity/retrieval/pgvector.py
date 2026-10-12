@@ -1,16 +1,4 @@
-"""Step 6.4 — the same exact dense search, served from Postgres (ADR-090).
-
-Behaviourally a drop-in for `DenseRetriever`: the same `Retriever` Protocol, the
-same score (cosine, since both sides are unit vectors), the same tie-break by
-corpus order, and the same `DenseRetrievalError` on vendor failure, so Step 5.2's
-fallback catches one type whichever index is wired in. Step 6.5 measures whether
-the two actually agree on the gold set.
-
-Two things differ, both deliberate. The set that is served is named explicitly —
-a corpus may carry several embedding sets and the schema has no way to say which
-one is current, so guessing would silently serve a stale index. And the chunks
-come back from the database with the hit, so serving needs no chunk file.
-"""
+"""The same exact dense search, served from Postgres."""
 
 from __future__ import annotations
 
@@ -60,7 +48,7 @@ SELECT s.embedding_set_id, s.corpus_version, s.model_id, s.dim, s.revision,
 # One round trip per query: the neighbours and the chunks they name. `<=>` is
 # cosine distance, so 1 - distance is the cosine the NumPy index returns as a dot
 # product. The ordinal tie-break is why chunk_embeddings carries no ordinal of
-# its own — the corpus order lives in one place (ADR-089).
+# its own — the corpus order lives in one place.
 SEARCH_SQL = """
 SELECT c.chunk_id, c.parent_id, c.doc_id, c.corpus_version, c.node_type,
        c.node_path, c.section_number, c.schedule_number, c.root_title,
@@ -79,11 +67,7 @@ SELECT c.chunk_id, c.parent_id, c.doc_id, c.corpus_version, c.node_type,
 
 
 def chunk_from_row(row: dict) -> Chunk:
-    """The inverse of `db.ingest._chunk_row`, plus the edges.
-
-    `Chunk` re-derives its own id from the row's own text, so a row that has
-    been edited in the database refuses itself rather than being served.
-    """
+    """The inverse of `db.ingest._chunk_row`, plus the edges."""
     return Chunk(
         chunk_id=row["chunk_id"],
         parent_id=row["parent_id"],
@@ -111,9 +95,6 @@ def manifest_from_row(row: dict) -> VectorManifest:
     """Rebuild the vector manifest an embedding set was ingested from, so the
     fingerprint check is the same code the file-backed index runs."""
     return VectorManifest(
-        # Not persisted: the row is the ingested form of a store that Step 6.3
-        # already validated, so this records the reader's version rather than
-        # claiming anything about the writer's.
         store_version=VECTOR_STORE_VERSION,
         doc_id=row["doc_id"],
         corpus_version=row["corpus_version"],
@@ -136,8 +117,6 @@ def manifest_from_row(row: dict) -> VectorManifest:
 
 
 class PgVectorIndex:
-    """Satisfies the Step 3.3 `Retriever` Protocol, over a named embedding set."""
-
     def __init__(
         self,
         conn: psycopg.Connection,
@@ -156,7 +135,7 @@ class PgVectorIndex:
             )
         manifest = manifest_from_row(row)
         # The schema refuses a non-document set on insert; checked again because
-        # an index searched in the wrong space is silently wrong (ADR-069), and
+        # an index searched in the wrong space is silently wrong, and
         # a constraint can be dropped by a migration this code never sees.
         if manifest.kind != EmbedKind.DOCUMENT.value:
             raise StaleVectorStoreError(

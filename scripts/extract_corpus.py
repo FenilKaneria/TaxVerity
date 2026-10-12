@@ -1,4 +1,4 @@
-"""Step 1.2 driver — extract the corpus to a per-page JSONL artifact plus a manifest."""
+"""Extract the corpus to a per-page JSONL artifact plus a manifest."""
 
 from taxverity.config import Settings
 from taxverity.corpus.crossrefs import CROSSREF_STAGE_VERSION
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 
 # corpus_version must move whenever any stage's parsing logic changes, not just
 # extraction — the later stages re-derive from pages.jsonl at run time rather
-# than writing their own artifact (Step 1.9), so their version is the only
+# than writing their own artifact, so their version is the only
 # signal a downstream consumer has that their output would differ.
 STAGE_VERSIONS = {
     "extract": EXTRACT_STAGE_VERSION,

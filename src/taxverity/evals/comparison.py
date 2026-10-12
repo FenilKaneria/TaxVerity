@@ -1,7 +1,3 @@
-"""Step 4.6 — the pure parts of the dense measurement: how two retrievers compare
-query by query, and the long-chunk rule pre-registered at R15 before any dense
-result existed (PLAN 4.6, ADR-075)."""
-
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -13,9 +9,6 @@ from taxverity.evals.gold import GoldQuery
 from taxverity.evals.ladder import TOLERANCE, Verdict
 from taxverity.evals.metrics import CreditMode, RunReport, credits, normalise_citation
 
-# The ten chunks over 4,096 real tokens, named in PLAN 4.6 at R15. Fixed as
-# registered: re-deriving the set after the dense run exists would let the
-# result choose its own watch list.
 WATCH_SET = (
     "2",
     "393",
@@ -36,12 +29,8 @@ def intrusions(
     gold: Sequence[GoldQuery],
     watch: Sequence[str] = WATCH_SET,
 ) -> dict[str, int]:
-    """Per watched chunk, the queries whose run contains it while it is neither
-    a label nor an ancestor of one. The caller truncates each run to k.
-
-    A negative carries no label, so any appearance there counts: a giant root
-    surfacing for an unanswerable question is the dilution the rule watches for.
-    """
+    """Per watched chunk, the queries whose run contains it while it is neither a label
+    nor an ancestor of one."""
     counts = dict.fromkeys(watch, 0)
     for query in gold:
         retrieved = {normalise_citation(c) for c in runs[query.query_id]}
@@ -60,9 +49,7 @@ def rule_triggered(counts: Mapping[str, int]) -> bool:
 
 
 def judge_exclusion(candidate: RunReport, incumbent: RunReport) -> Verdict:
-    """Adopt the reduced index only if lenient recall and lenient nDCG both hold.
-    Unlike Step 4.4b no rise is required: the intrusion count is the case for
-    the exclusion, and the exclusion has only to cost nothing."""
+    """Adopt the reduced index only if lenient recall and lenient nDCG both hold."""
     if candidate.k != incumbent.k:
         raise ValueError(f"cannot compare k={candidate.k} against k={incumbent.k}")
     new = candidate.overall[CreditMode.LENIENT]

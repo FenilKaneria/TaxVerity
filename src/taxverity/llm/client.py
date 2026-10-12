@@ -1,18 +1,4 @@
-"""Step 7.2 — the one place this project talks to an LLM.
-
-A thin internal client, not a gateway: two OpenAI-compatible providers do not
-justify LiteLLM or Portkey. Groq's `openai/gpt-oss-120b` answers; Google's
-Gemini Flash is a single cross-vendor fallback for availability only.
-
-Every knob here was measured in the Step 7.1 spike rather than assumed —
-`reasoning_effort` cannot be turned off and bills against the completion cap,
-so the default is the cheapest setting that exists and every cap must be sized
-for reasoning plus answer.
-
-`complete()` is non-streaming. `stream()` (Step 10.3) is a separate contract
-because a stream cannot retry once a token has been shown: retries and the
-fallback apply only before the first token, and a failure after it raises.
-"""
+"""The one place this project talks to an LLM."""
 
 from __future__ import annotations
 
@@ -36,7 +22,7 @@ DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_BASE = 0.5
 MAX_RETRY_AFTER = 60.0
-# R22 Part A: a rate limit asking for a longer wait than this, with every key
+# A rate limit asking for a longer wait than this, with every key
 # already tried, fails over to the other vendor at once rather than sleeping —
 # a free-tier 429 routinely asks for 15-60 s, the whole of a turn's budget.
 SPILLOVER_AFTER = 5.0
@@ -60,13 +46,12 @@ class LLMUnavailable(LLMError):
 
 
 class LLMRequestError(LLMError):
-    """The request itself was refused. Retrying or failing over repeats it."""
+    """The request itself was refused."""
 
 
 class _RateLimitSpill(LLMUnavailable):
-    """R22 Part A: the primary is rate-limited on every key for longer than
-    SPILLOVER_AFTER, so the call tried the fallback instead of sleeping. It
-    carries the wait, so a failed fallback can still wait it out."""
+    """The primary is rate-limited on every key for longer than SPILLOVER_AFTER, so the
+    call tried the fallback instead of sleeping."""
 
     def __init__(self, message: str, retry_after: float) -> None:
         super().__init__(message)
@@ -95,7 +80,7 @@ GROQ = Provider(
     extras={"reasoning_effort": "low"},
 )
 
-# R18: the four small call sites (classify, contextualize, extract_facts,
+# The four small call sites (classify, contextualize, extract_facts,
 # respond_conversational) get their own 8K TPM / 200K TPD bucket on this
 # model, separate from generation's. Same key, same base URL as GROQ — only
 # the model differs.
@@ -107,37 +92,29 @@ GROQ_20B = Provider(
     extras={"reasoning_effort": "low"},
 )
 
-# Google's OpenAI-compatible surface, so the fallback is a base URL, a model and
-# a key rather than a second SDK, a second request shape and a second parser.
-# `reasoning_effort` was believed gpt-oss-only until R18's live probe: Gemini
-# accepts it too (a 9-token exchange billed total_tokens=100 with it absent;
-# `"low"` cut that to ~95, and `"none"` timed out at 60s — never use "none").
-# Without it, a 2,048-token generation cap is spent entirely on invisible
-# reasoning before a single NDJSON line completes (R18 gate 1 spike,
-# `reports/gemini_streaming_spike.md`: finish_reason="length" on every
-# successful run, 0 completed claims).
 GEMINI = Provider(
     name="gemini",
     base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-    # gemini-2.5-flash was retired for new users; the live API's own 404
-    # names gemini-3.6-flash as its replacement (confirmed 2026-09-14).
     model="gemini-3.6-flash",
     settings_key="gemini_api_key",
     extras={"reasoning_effort": "low"},
 )
 
-# R23 (ADR-129): OpenAI's paid API (Tier 1: 500K TPM, 500 RPM on
-# gpt-5-mini — probed 2026-10-02), so the hot path no longer sleeps on a free
-# tier's 8K TPM. One model for every node. Reasoning bills as output and
-# counts against the cap, so it is "minimal": on "low" the `reason` node
-# spent its whole 1,536-token cap reasoning and returned nothing on 6 of its
-# smoke-set calls, and classify's 450-token cap ran out the same way.
-# gpt-5-nano failed the classify gate (safety accuracy 0.824, refusal recall
-# 0.90, routing 14/15).
 OPENAI_MINI = Provider(
     name="openai",
     base_url="https://api.openai.com/v1",
     model="gpt-5-mini",
+    settings_key="openai_api_key",
+    extras={"reasoning_effort": "minimal"},
+    omit=frozenset({"temperature"}),
+)
+
+# Answer generation. On the same evidence gpt-5-mini kept the statute's
+# wording; gpt-5 wrote plainer lines and kept the one-statement-per-line format.
+OPENAI_GPT5 = Provider(
+    name="openai",
+    base_url="https://api.openai.com/v1",
+    model="gpt-5",
     settings_key="openai_api_key",
     extras={"reasoning_effort": "minimal"},
     omit=frozenset({"temperature"}),
@@ -180,8 +157,6 @@ class Completion(BaseModel):
     model: str
     finish_reason: str
     usage: Usage
-    # True when the fallback answered: the caller may want to say so, and the
-    # traces in Step 7.4 must not record a degraded answer as a normal one.
     degraded: bool
 
 
@@ -228,15 +203,12 @@ class LLMClient:
         self._backoff_base = backoff_base
         self._owns_client = http_client is None
         self._client = http_client or httpx2.Client(timeout=timeout)
-        # Accounting is in tokens, not currency: both tiers are free, and a
-        # price table written now would be a number nobody measured.
         self.tokens_used: dict[str, int] = {}
 
     def _ordered_keys(self, provider: Provider) -> tuple[str, ...]:
-        """This call's key order: round-robin start, so normal traffic
-        alternates between every key in the pool; a retryable failure on the
-        first key then tries the next one before the caller ever sees a
-        fallback-provider failover."""
+        """This call's key order: round-robin start, so normal traffic alternates
+        between every key in the pool; a retryable failure on the first key then tries
+        the next one before the caller ever sees a fallback-provider failover."""
         keys = self._keys[provider.name]
         if len(keys) == 1:
             return keys
@@ -246,13 +218,9 @@ class LLMClient:
 
     @property
     def primary(self) -> Provider:
-        """Which provider this client asks first. Step 7.3's cache key covers
-        it: an answer from one model is not an answer from another."""
+        """Which provider this client asks first."""
         return self._primary
 
-    # R18 default: unchanged from before per-node routing existed. A caller
-    # (graph/build.py) overrides one or both per node via the kwargs below;
-    # every call site that doesn't pass them keeps today's behaviour exactly.
     _PRIMARY = GROQ
     _FALLBACK = GEMINI
 
@@ -265,22 +233,7 @@ class LLMClient:
         fallback: Provider | None = None,
         **kwargs: Any,
     ) -> LLMClient:
-        """The fallback is configured only when its key is present.
-
-        A missing fallback key is an ordinary state, not an error — it means
-        this process has one provider and says so once, at construction.
-
-        A second account for the primary provider is picked up by naming
-        convention — `<settings_key>_2` (e.g. `TAXVERITY_GROQ_API_KEY_2`) —
-        purely optional and additive: absent, this is unchanged from a single
-        key; present, `LLMClient` round-robins and fails over between both
-        before ever consulting the fallback provider.
-
-        `primary`/`fallback` default to `cls._PRIMARY`/`cls._FALLBACK` (Groq
-        120b / Gemini) and exist so a caller can request a different pair —
-        e.g. Gemini primary with Groq as its fallback for generation, or
-        Groq's 20b model for a small call site — without subclassing.
-        """
+        """The fallback is configured only when its key is present."""
         primary = primary or cls._PRIMARY
         fallback = cls._FALLBACK if fallback is None else fallback
         fallback_secret = getattr(settings, fallback.settings_key, None)
@@ -393,10 +346,7 @@ class LLMClient:
         max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
         temperature: float | None = None,
     ) -> CompletionStream:
-        """Token streaming. Not on the answer path since R20: generation is
-        one `complete()` call verified line by line before release (rule 04),
-        so a token stream would only be shown after verification anyway.
-        Kept for the provider probes (`scripts/probe_*.py`)."""
+        """Token streaming."""
         if not messages:
             raise ValueError("messages must be non-empty")
         # Rule 03, egress path 5, exactly as complete() applies it.
@@ -692,10 +642,7 @@ class _OpenStream:
 
 
 class CompletionStream:
-    """Text deltas as they arrive. `completion` is set once the stream ends.
-
-    Opening happens on first iteration, so constructing a stream sends nothing.
-    """
+    """Text deltas as they arrive."""
 
     def __init__(self, client: LLMClient, body: dict[str, Any]) -> None:
         self._client = client

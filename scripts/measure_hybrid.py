@@ -87,12 +87,17 @@ def percentiles(samples: Sequence[float]) -> tuple[float, float]:
 
 
 def question_vectors(
-    dense: DenseRetriever, embedder: JinaAPIEmbedder, path: Path, gold: Sequence[GoldQuery]
+    dense: DenseRetriever,
+    embedder: JinaAPIEmbedder,
+    path: Path,
+    gold: Sequence[GoldQuery],
 ) -> tuple[QueryVectors, str]:
     questions = [q.question for q in gold]
     if path.exists():
         try:
-            return load_query_vectors(path, model=embedder.info(), questions=questions), "cache"
+            return load_query_vectors(
+                path, model=embedder.info(), questions=questions
+            ), "cache"
         except StaleVectorStoreError as error:
             logger.warning("re-embedding the gold questions: %s", error)
     vectors = {question: tuple(dense.embed_query(question)) for question in questions}
@@ -116,7 +121,9 @@ def overall_row(baseline: RetrieverBaseline) -> str:
     )
 
 
-def duel_rows(title: str, ids: Sequence[str], mine: RetrieverBaseline, theirs: RetrieverBaseline) -> list[str]:
+def duel_rows(
+    title: str, ids: Sequence[str], mine: RetrieverBaseline, theirs: RetrieverBaseline
+) -> list[str]:
     mine_by = {o.query_id: o for o in mine.outcomes}
     theirs_by = {o.query_id: o for o in theirs.outcomes}
     lines = [
@@ -249,7 +256,9 @@ def main() -> int:
 
     gold = load_gold_set(settings.evals_dir / "datasets" / GOLD_V2_FILENAME)
     if len({q.question for q in gold}) != len(gold):
-        print("error: gold questions must be unique to key their vectors", file=sys.stderr)
+        print(
+            "error: gold questions must be unique to key their vectors", file=sys.stderr
+        )
         return 1
     index = CitationIndex(chunks)
     bm25 = BM25Retriever(chunks)
@@ -270,13 +279,15 @@ def main() -> int:
 
     dense_leg = CachedQueryRetriever(dense, cached.vectors)
     # Dense first: input order breaks exact RRF ties, and dense is the stronger
-    # single retriever (ADR-079, ADR-080).
+    # single retriever.
     hybrid = FusionRetriever([dense_leg, bm25])
 
     baselines = []
     for name, retriever in (("bm25", bm25), ("dense", dense_leg), ("hybrid", hybrid)):
         # An RRF score is a function of rank alone; it measures no similarity.
-        baselines.append(measure(name, retriever, gold, index, ordinal_scores=name == "hybrid"))
+        baselines.append(
+            measure(name, retriever, gold, index, ordinal_scores=name == "hybrid")
+        )
         baselines.append(
             measure(
                 f"{name}+citation_shortcut",
@@ -344,7 +355,9 @@ def main() -> int:
             f"nDCG {overall.ndcg:.3f}"
         )
     verdict = report.verdict
-    print(f"verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}")
+    print(
+        f"verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}"
+    )
     print(f"question vectors: {source}, {tokens} tokens billed")
     print(f"wrote {artifact}")
     print(f"wrote {REPORT}")

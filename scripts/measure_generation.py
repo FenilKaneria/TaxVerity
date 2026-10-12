@@ -93,7 +93,7 @@ LOCAL_DATABASE_URL = "postgresql://taxverity:taxverity@127.0.0.1:5432/taxverity"
 # each turn's latency is one person's turn, not the previous turn's debt.
 DEFAULT_PAUSE = 20.0
 JUDGES = {"gemini": GEMINI, "groq": GROQ, "openai": OPENAI_MINI}
-DEFAULT_JUDGE = "gemini"  # generation runs on OpenAI gpt-5-mini (ADR-129)
+DEFAULT_JUDGE = "gemini"  # generation runs on OpenAI gpt-5-mini
 JUDGE_MAX_TOKENS = 600
 LABEL_SAMPLE = 30
 LABEL_SEED = 20261004
@@ -132,8 +132,8 @@ def _store(label: str, run: dict[str, Any]) -> None:
 
 
 class TokenRecorder(logging.Handler):
-    """Sums `LLMClient`'s own per-call boundary records (advisor_smoke.py's
-    format) into one turn's call count and tokens."""
+    """Sums `LLMClient`'s own per-call boundary records (advisor_smoke.py's format) into
+    one turn's call count and tokens."""
 
     def __init__(self) -> None:
         super().__init__(level=logging.INFO)
@@ -402,7 +402,9 @@ def _judge_record(client: CachedLLMClient, item: Any, record: dict[str, Any]) ->
             judged: tuple[bool, ...] = ()
             if points:
                 reply = _ask(
-                    client, KEY_POINT_JUDGE_PROMPT, key_point_judge_input(answer, points)
+                    client,
+                    KEY_POINT_JUDGE_PROMPT,
+                    key_point_judge_input(answer, points),
                 )
                 judged = parse_coverage(reply, len(points))
             judge["key_points"] = merge_key_points(

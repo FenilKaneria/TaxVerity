@@ -66,7 +66,7 @@ def is_body_bold(span: Span) -> bool:
 
 
 def title_before(spans: list[Span], index: int) -> str | None:
-    """The section title sits on its own bold line above the number (Step 1.1)."""
+    """The section title sits on its own bold line above the number."""
     parts: list[str] = []
     cursor = index - 1
     while cursor >= 0:

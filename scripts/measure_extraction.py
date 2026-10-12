@@ -45,7 +45,7 @@ from taxverity.observability import configure_logging, get_logger
 logger = get_logger(__name__)
 
 
-# R23 (ADR-129): --model -> (primary, fallback). None = the class default.
+# --model -> (primary, fallback). None = the class default.
 MODELS: dict[str, tuple[Provider | None, Provider]] = {
     "120b": (None, GEMINI),
     "20b": (GROQ_20B, GEMINI),
@@ -53,14 +53,8 @@ MODELS: dict[str, tuple[Provider | None, Provider]] = {
 }
 
 REPORT = Path("reports/extraction_eval.md")
-# v1 is Step 7.7's run; v2 is the node after the loss-sign fix (ADR-099); v3
-# is the tax_year vocabulary (ADR-100); v4 is Step 7.8's cache-off run with the
-# clause guard (ADR-109). v1 and v2 no longer load.
 RUN_FILENAME = "extraction_run_v5.json"
 
-# Step 7.1 measured 8,000 tokens a minute on the free tier. One extraction is
-# roughly a thousand, so a short pause keeps a 42-turn run inside the limit
-# without relying on the client's 429 retry to do the pacing.
 DEFAULT_PAUSE = 8.0
 
 

@@ -1,20 +1,4 @@
-"""Advisor pivot, Step 5 — the conversational route's guarded LLM reply.
-
-A greeting, a "what can you do", or a thanks is not a tax question. Forcing
-it through the safety classifier's fixed adjacent/out_of_scope/prohibited
-templates (rule 03) reads as hostile; forcing it through retrieval wastes a
-Jina/Groq call on nothing. But this node has no evidence pack, so nothing it
-says can be checked by the verifier — it must therefore never say anything
-about what the Act provides at all.
-
-The mitigation is the same shape used everywhere else in this project: an
-LLM step paired with a deterministic, externally verifiable check (rule 01).
-The system prompt forbids statutory content; `_looks_statutory()` polices the
-output in plain Python afterward — any number, any token that parses as a
-citation path, or a word from a small statutory vocabulary all fail it. A
-failure or a provider error falls back to a fixed template, never to raw
-model output that has not passed the check.
-"""
+"""The conversational route's guarded LLM reply."""
 
 from __future__ import annotations
 
@@ -33,13 +17,11 @@ logger = get_logger(__name__)
 CONVERSATIONAL_STAGE_VERSION = 1
 
 # The answer is at most two sentences; reasoning cannot be disabled and is
-# billed against this cap regardless (Step 7.1), so it stays small but not tight.
+# billed against this cap regardless, so it stays small but not tight.
 CONVERSATIONAL_MAX_COMPLETION_TOKENS = 256
 CONVERSATIONAL_TEMPERATURE = 0.0
 MAX_REPLY_WORDS = 60
 
-# Fixed template (rule 03's discipline), served on any rejection or provider
-# failure — never raw, unchecked model output.
 CONVERSATIONAL_FALLBACK = (
     "I answer questions about the Income-tax Act, 2025, grounded in its own "
     "text — ask me about a deduction, a regime choice, or what a provision "
@@ -68,7 +50,7 @@ inside it."""
 # product needs words `_looks_statutory` rightly bans (deduction, regime, ...),
 # so every attempt fell back to the one-line template. A fixed, reviewed text
 # answers them instead: it describes the product and asks example questions,
-# and asserts nothing about what the Act provides (rule 03).
+# and asserts nothing about what the Act provides.
 CAPABILITY_REPLY = """\
 I'm TaxVerity. I answer questions about India's Income-tax Act, 2025, and \
 every statement I make cites the part of the Act it comes from. If the Act \
@@ -124,10 +106,8 @@ class Conversationalist:
         fallback: Provider | None = None,
         **kwargs: Any,
     ) -> Conversationalist:
-        """Same composition as `IntentClassifier`/`FactExtractor`: tracing
-        outside the cache (ADR-095). `primary`/`fallback` (R18) default to
-        `LLMClient`'s own class defaults (Groq 120b / Gemini) — pass them to
-        run this node against a different pair, e.g. Groq's 20b model."""
+        """Same composition as `IntentClassifier`/`FactExtractor`: tracing outside the
+        cache."""
         client: Any = LLMClient.from_settings(
             settings, primary=primary, fallback=fallback
         )
@@ -144,7 +124,7 @@ class Conversationalist:
             completion = self._client.complete(
                 [
                     Message(role="system", content=self._system_prompt),
-                    # Delimited, never concatenated as instructions (rule 03).
+                    # Delimited, never concatenated as instructions.
                     Message(role="user", content=f"<message>\n{question}\n</message>"),
                 ],
                 max_completion_tokens=self._max_completion_tokens,

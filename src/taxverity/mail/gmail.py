@@ -1,16 +1,4 @@
-"""Step 11.4c — outbound mail for account verification and password reset.
-
-Registration must not tell a caller whether an address is already registered
-(rule 03), so both the new-account and already-registered paths send mail
-instead of returning a distinguishing response. This is the delivery
-mechanism for that: a personal Gmail sender, reached through Gmail's REST API
-with an OAuth refresh token — there is no Workspace domain here to delegate a
-service account from.
-
-This is rule 03's egress path 6. The message body carries a one-time token
-embedded in a link; it must never reach a log or a trace, so `send()` logs
-only the purpose and recipient count, never the subject or body.
-"""
+"""Outbound mail for account verification and password reset."""
 
 from __future__ import annotations
 
@@ -36,8 +24,7 @@ TOKEN_REFRESH_MARGIN = 60.0
 
 
 class MailError(RuntimeError):
-    """The provider refused the send. Never retried automatically — a caller
-    that must not fail silently (registration, reset) decides what to do."""
+    """The provider refused the send."""
 
 
 class Mailer(Protocol):
@@ -52,8 +39,7 @@ class SentMail:
 
 
 class NullMailer:
-    """No provider configured. Records what would have been sent so a test or
-    a dev session can inspect it; never used in a real deployment."""
+    """No provider configured."""
 
     def __init__(self) -> None:
         self.sent: list[SentMail] = []
@@ -162,9 +148,9 @@ class GmailMailer:
 
 
 def mailer_from_settings(settings: Settings) -> Mailer:
-    """A `NullMailer` when Gmail is not configured, so a dev session or a test
-    database run needs no real credentials — the same shape as
-    `LLMClient.from_settings`'s optional fallback."""
+    """A `NullMailer` when Gmail is not configured, so a dev session or a test database
+    run needs no real credentials — the same shape as `LLMClient.from_settings`'s
+    optional fallback."""
     if (
         settings.gmail_client_id is None
         or settings.gmail_client_secret is None

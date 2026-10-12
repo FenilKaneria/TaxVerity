@@ -1,4 +1,4 @@
-"""Step 1.1 corpus characterisation spike — a one-off investigation, not library code."""
+"""A one-off investigation, not library code."""
 
 import re
 import statistics

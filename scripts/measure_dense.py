@@ -119,7 +119,7 @@ def reduce_index(
     embedder: JinaAPIEmbedder,
     corpus_version: str,
 ) -> DenseRetriever:
-    """The dense index without the excluded roots. BM25 keeps them (PLAN 4.6)."""
+    """The dense index without the excluded roots."""
     vectors, ids, manifest = load_vector_store(store, corpus_version=corpus_version)
     keep = [c for c in chunks if c.node_path not in excluded]
     keep_ids = {c.chunk_id for c in keep}
@@ -146,7 +146,9 @@ def spread(values: list[float]) -> str:
     return f"{ordered[0]:.3f} / {ordered[len(ordered) // 2]:.3f} / {ordered[-1]:.3f}"
 
 
-def slice_union(duel: HeadToHead, outcomes: Sequence[QueryOutcome], member: QuerySlice) -> float:
+def slice_union(
+    duel: HeadToHead, outcomes: Sequence[QueryOutcome], member: QuerySlice
+) -> float:
     ids = [o.query_id for o in outcomes if o.slice is member]
     return sum(duel.union[i] for i in ids) / len(ids)
 
@@ -194,9 +196,9 @@ def render(report: DenseReport, elapsed: float) -> str:
         "",
         "Lenient recall / lenient nDCG.",
         "",
-        "| slice | " + " | ".join(
-            f"{a.name} | {a.name} + shortcut" for a in arms
-        ) + " |",
+        "| slice | "
+        + " | ".join(f"{a.name} | {a.name} + shortcut" for a in arms)
+        + " |",
         "|---|" + "---|" * (2 * len(arms)),
     ]
     for member in QuerySlice:
@@ -221,7 +223,10 @@ def render(report: DenseReport, elapsed: float) -> str:
         "| union recall |",
         "|---|---|---|---|---|---|",
     ]
-    for label, duel in (("bare", report.bare_duel), ("with shortcut", report.shortcut_duel)):
+    for label, duel in (
+        ("bare", report.bare_duel),
+        ("with shortcut", report.shortcut_duel),
+    ):
         lines.append(
             f"| {label} | {len(duel.a_wins)} | {len(duel.b_wins)} "
             f"| {len(duel.both_complete)} | {len(duel.tied_incomplete)} "
@@ -281,7 +286,8 @@ def render(report: DenseReport, elapsed: float) -> str:
         *[
             f"| {citation} | {report.intrusions[citation]} |"
             for citation in sorted(
-                report.intrusions, key=lambda c: (-report.intrusions[c], WATCH_SET.index(c))
+                report.intrusions,
+                key=lambda c: (-report.intrusions[c], WATCH_SET.index(c)),
             )
         ],
         "",
@@ -300,8 +306,12 @@ def render(report: DenseReport, elapsed: float) -> str:
             f"Verdict: **{'adopted' if verdict.adopted else 'rejected'}** ({why})."
         )
 
-    answerable = [o.top_score for o in report.dense.bare.outcomes if o.top_score is not None]
-    negative = [n.top_score for n in report.dense.bare.negatives if n.top_score is not None]
+    answerable = [
+        o.top_score for o in report.dense.bare.outcomes if o.top_score is not None
+    ]
+    negative = [
+        n.top_score for n in report.dense.bare.negatives if n.top_score is not None
+    ]
     beaten = sum(1 for s in answerable if negative and s < max(negative))
     lines += [
         "",
@@ -353,7 +363,9 @@ def main() -> int:
 
     gold = load_gold_set(settings.evals_dir / "datasets" / GOLD_V2_FILENAME)
     if len({q.question for q in gold}) != len(gold):
-        print("error: gold questions must be unique to key their vectors", file=sys.stderr)
+        print(
+            "error: gold questions must be unique to key their vectors", file=sys.stderr
+        )
         return 1
     index = CitationIndex(chunks)
     bm25 = BM25Retriever(chunks)
@@ -399,7 +411,9 @@ def main() -> int:
         triggered = rule_triggered(counts)
         watched = set(WATCH_SET)
         excluded = tuple(
-            c.node_path for c in chunks if c.parent_id is None and c.node_path in watched
+            c.node_path
+            for c in chunks
+            if c.parent_id is None and c.node_path in watched
         )
         reduced_arm = verdict = None
         if triggered:
@@ -407,7 +421,11 @@ def main() -> int:
                 store, chunks, set(excluded), dense, embedder, corpus_version
             )
             reduced_arm = arm(
-                "dense − long roots", CachedQueryRetriever(reduced, vectors), shortcut, gold, index
+                "dense − long roots",
+                CachedQueryRetriever(reduced, vectors),
+                shortcut,
+                gold,
+                index,
             )
             verdict = judge_exclusion(reduced_arm.bare.primary, dense_arm.bare.primary)
 
@@ -465,7 +483,9 @@ def main() -> int:
     )
     print(f"long-chunk rule: max intrusions {max(counts.values())}, fired={triggered}")
     if verdict is not None:
-        print(f"exclusion {'adopted' if verdict.adopted else 'rejected'}: {verdict.reasons}")
+        print(
+            f"exclusion {'adopted' if verdict.adopted else 'rejected'}: {verdict.reasons}"
+        )
     print(f"wrote {artifact}")
     print(f"wrote {REPORT}")
     return 0

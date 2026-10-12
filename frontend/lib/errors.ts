@@ -1,13 +1,3 @@
-// Step 16.2. Maps the backend's `detail` vocabulary (src/taxverity/api/errors.py)
-// to something a component can branch on (`code`) and show (`message`).
-//
-// `detail` on the wire is not one shape: it is a fixed vocabulary string for
-// most failures, but free human-readable text for the two validation errors
-// register/reset-password pass through verbatim (InvalidEmail, WeakPassword —
-// documented in errors.py as safe to show), and an ARRAY of
-// {loc, msg, type, ...} objects for FastAPI's own 422 request-validation
-// errors, which taxverity.api.errors does not intercept.
-
 export type ApiErrorCode =
   | "auth_failed"
   | "not_found"
@@ -74,8 +64,6 @@ export function parseError(status: number, body: unknown): ApiError {
     if (KNOWN_CODES.has(detail)) {
       return new ApiError(status, detail as ApiErrorCode);
     }
-    // Free text from InvalidEmail/WeakPassword etc. — shown verbatim, not
-    // mapped to a generic message, per errors.py's own "safe to show" note.
     return new ApiError(status, "invalid_request", detail);
   }
 

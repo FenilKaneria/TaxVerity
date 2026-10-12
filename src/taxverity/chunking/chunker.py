@@ -16,13 +16,7 @@ CHUNKER_STAGE_VERSION = 1
 
 
 def layout(node: StatutoryNode) -> tuple[str, dict[str, tuple[int, int]]]:
-    """A subtree's text, plus where each descendant sits inside it.
-
-    Offsets are computed by construction rather than by searching for the
-    child's text in the parent's: identical clause wording repeats across the
-    Act, and a search would silently attach the second occurrence to the first.
-    The assembly mirrors ``StatutoryNode.full_text()`` exactly.
-    """
+    """A subtree's text, plus where each descendant sits inside it."""
     parts: list[str] = []
     spans: dict[str, tuple[int, int]] = {}
     cursor = 0
@@ -144,14 +138,7 @@ def build_chunks(
     crossrefs: CrossReferenceIndex | None = None,
     untrusted: Collection[str] = (),
 ) -> tuple[Chunk, ...]:
-    """One chunk per structural node, parents before their own children.
-
-    A root whose tree shape Step 1.6/1.7 could not trust yields its own chunk
-    and nothing below it: no text is lost (the root carries the whole subtree),
-    and no chunk is emitted under a node_path the parser itself flagged --
-    including a duplicate path, which would otherwise put two different chunks
-    at one citation for the Phase 10 verifier to choose between.
-    """
+    """One chunk per structural node, parents before their own children."""
     chapter_titles = {chapter.numeral: chapter.title for chapter in chapters}
     by_source = references_by_source(crossrefs)
     glossary = tuple(term.term for term in crossrefs.glossary) if crossrefs else ()

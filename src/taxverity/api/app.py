@@ -1,26 +1,4 @@
-"""Step 14.1 — the app factory, its lifespan, and the two endpoints that need
-no auth: `/health` and `/v1/corpus`.
-
-Everything the graph needs beyond a per-request connection is built exactly
-once here, at startup: `resolve_serving()` first — plain SQL, so a vendor
-outage cannot stop a boot (Step 6.6) — then chunks hydrated from the database
-(TaxVerity is deploy-only; a production instance carries no `chunks.jsonl`),
-then BM25, the citation shortcut, the term bridge, the reranker and the LLM
-stack (`build_deps`, Step 13.2/Phase 14). Only `GraphDeps.conn` varies per
-request.
-
-A small `psycopg_pool.ConnectionPool` hands out one connection per request
-for thread, fact-state and auth persistence, with prepared statements
-disabled — the Supabase pooler runs in transaction-pooling mode, where a
-server-side prepared statement from one checkout can be replayed against a
-different backend on the next. The dense index keeps one dedicated
-connection, opened once and never pooled: it only ever runs read-only vector
-search, and psycopg3 connections are safe (if serialising) to share across
-threads, so concurrent requests queue behind an in-flight search rather than
-corrupt one another — an accepted simplification at this project's scale
-(rule 01: the simplest production-sensible implementation), not a hidden
-correctness gap.
-"""
+"""The app factory, its lifespan, and the two endpoints that need no auth."""
 
 from __future__ import annotations
 
@@ -56,11 +34,6 @@ POOL_MAX_SIZE = 10
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    """Step 14.6. Refuses on `Content-Length` alone — cheap, and every client
-    this API expects (JSON POSTs from the frontend) sends one. A request with
-    no `Content-Length` (chunked transfer) is not rejected here; it is not a
-    request shape this project's own frontend produces."""
-
     def __init__(self, app: ASGIApp, max_bytes: int = MAX_BODY_BYTES) -> None:
         super().__init__(app)
         self._max_bytes = max_bytes
@@ -139,8 +112,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="TaxVerity API", lifespan=lifespan)
     install_error_handlers(app)
     app.add_middleware(BodySizeLimitMiddleware)
-    # Only the configured frontend origin (Vercel in prod, PLAN 14.6) — not a
-    # wildcard, since credentials (the refresh cookie) are allowed.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.app_base_url],
@@ -179,8 +150,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 @contextmanager
 def request_deps(state: AppState) -> Iterator[GraphDeps]:
-    """One `GraphDeps` per request: every built-once component of
-    `state.static_deps`, with `conn` swapped for a connection checked out from
-    the pool for exactly this request's lifetime."""
+    """One `GraphDeps` per request: every built-once component of `state.static_deps`,
+    with `conn` swapped for a connection checked out from the pool for exactly this
+    request's lifetime."""
     with state.pool.connection() as conn:
         yield dataclasses.replace(state.static_deps, conn=conn)

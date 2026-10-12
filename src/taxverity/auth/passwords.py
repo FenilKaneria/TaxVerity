@@ -1,9 +1,4 @@
-"""Step 11.2 — password hashing (ADR-029, ADR-111).
-
-argon2id through `argon2-cffi`, at the library's RFC 9106 low-memory profile
-(t=3, m=64 MiB, p=4). The hash string carries its own parameters, so raising
-them later needs no migration: `needs_rehash()` flags an old hash at login.
-"""
+"""Password hashing."""
 
 from __future__ import annotations
 
@@ -22,7 +17,7 @@ _HASHER = PasswordHasher(type=Type.ID)
 
 
 class WeakPassword(ValueError):
-    """A password outside the length policy. Safe to show the user."""
+    """A password outside the length policy."""
 
 
 def check_policy(password: str) -> None:
@@ -55,6 +50,6 @@ def needs_rehash(password_hash: str) -> bool:
 
 @cache
 def dummy_hash() -> str:
-    """A real hash to verify against when no account exists, so an unknown
-    address costs the same time as a wrong password and timing reveals nothing."""
+    """A real hash to verify against when no account exists, so an unknown address costs
+    the same time as a wrong password and timing reveals nothing."""
     return _HASHER.hash("no account has this password")

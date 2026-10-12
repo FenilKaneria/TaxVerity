@@ -1,5 +1,4 @@
-"""Plain-text bodies for the account-flow emails. Kept as code, not a
-template engine — three short messages do not need one."""
+"""Plain-text bodies for the account-flow emails."""
 
 from __future__ import annotations
 

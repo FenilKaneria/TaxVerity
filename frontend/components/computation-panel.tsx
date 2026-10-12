@@ -2,7 +2,6 @@ import { parseComputationTrace } from "@/lib/computation";
 import type { ComputationSummary } from "@/lib/sse";
 import { cn } from "@/lib/utils";
 
-// Step 16.6. From `final.computation` only.
 export function ComputationPanel({ computation }: { computation: ComputationSummary | null }) {
   if (!computation) return null;
   const rows = parseComputationTrace(computation.trace);

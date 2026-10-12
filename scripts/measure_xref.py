@@ -220,13 +220,17 @@ def main() -> int:
                 questions=[q.question for q in gold],
             )
         except (RuntimeError, DenseRetrievalError, StaleVectorStoreError) as error:
-            print(f"error: {error} (run scripts/measure_hybrid.py first)", file=sys.stderr)
+            print(
+                f"error: {error} (run scripts/measure_hybrid.py first)", file=sys.stderr
+            )
             return 1
 
     index = CitationIndex(chunks)
     hybrid = ShortcutRetriever(
         CitationRetriever(chunks),
-        FusionRetriever([CachedQueryRetriever(dense, cached.vectors), BM25Retriever(chunks)]),
+        FusionRetriever(
+            [CachedQueryRetriever(dense, cached.vectors), BM25Retriever(chunks)]
+        ),
     )
     packer = EvidencePacker(chunks)
 
@@ -247,7 +251,9 @@ def main() -> int:
                 question=query.question,
                 packed=tuple(packed_runs[query.query_id]),
                 expanded=tuple(expanded_runs[query.query_id]),
-                referenced=tuple(f"{unit.citation} ← {unit.cited_by}" for unit in extra),
+                referenced=tuple(
+                    f"{unit.citation} ← {unit.cited_by}" for unit in extra
+                ),
                 packed_tokens=packed.tokens,
                 expanded_tokens=expanded.tokens,
                 referenced_tokens=sum(unit.tokens for unit in extra),
@@ -288,12 +294,17 @@ def main() -> int:
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(render(report, elapsed), encoding="utf-8", newline="")
 
-    for label, run in (("step 5.3 pack", packed_report), ("expanded pack", expanded_report)):
+    for label, run in (
+        ("step 5.3 pack", packed_report),
+        ("expanded pack", expanded_report),
+    ):
         overall = run.overall[CreditMode.LENIENT].recall
         crossref = run.per_slice[QuerySlice.CROSSREF][CreditMode.LENIENT].recall
         print(f"{label}: lenient recall {overall:.3f}, crossref {crossref:.3f}")
     verdict = report.verdict
-    print(f"verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}")
+    print(
+        f"verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}"
+    )
     print(f"wrote {artifact}")
     print(f"wrote {REPORT}")
     return 0

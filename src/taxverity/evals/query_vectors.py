@@ -1,7 +1,3 @@
-"""Step 5.2 — gold-question vectors, embedded once through the API and kept, so
-dense and hybrid runs can be re-measured and floor-tested without a network
-call. Deferred here from Step 4.6 (ADR-079), where it had no second consumer."""
-
 from __future__ import annotations
 
 import json
@@ -61,17 +57,13 @@ def load_query_vectors(
 
 
 class VectorIndex(Protocol):
-    """Both dense indexes, the NumPy one and Step 6.4's Postgres one, so a
-    cached-vector run can be pointed at either (Step 6.5)."""
-
     def search_vector(
         self, vector: Sequence[float], k: int
     ) -> Sequence[ScoredChunk]: ...
 
 
 class CachedQueryRetriever:
-    """A dense index searched with stored question vectors. A question with no
-    vector raises KeyError; it never reaches the network."""
+    """A dense index searched with stored question vectors."""
 
     def __init__(
         self, dense: VectorIndex, vectors: Mapping[str, Sequence[float]]

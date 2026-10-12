@@ -90,7 +90,9 @@ def percentiles(samples: Sequence[float]) -> tuple[float, float]:
 
 
 def context_tokens(pack: EvidencePack) -> int:
-    return sum(estimate_tokens(line.text) for unit in pack.units for line in unit.context)
+    return sum(
+        estimate_tokens(line.text) for unit in pack.units for line in unit.context
+    )
 
 
 def lenient(report: RunReport) -> dict[str, float]:
@@ -216,17 +218,23 @@ def main() -> int:
                 questions=[q.question for q in gold],
             )
         except (RuntimeError, DenseRetrievalError, StaleVectorStoreError) as error:
-            print(f"error: {error} (run scripts/measure_hybrid.py first)", file=sys.stderr)
+            print(
+                f"error: {error} (run scripts/measure_hybrid.py first)", file=sys.stderr
+            )
             return 1
 
     index = CitationIndex(chunks)
     hybrid = ShortcutRetriever(
         CitationRetriever(chunks),
-        FusionRetriever([CachedQueryRetriever(dense, cached.vectors), BM25Retriever(chunks)]),
+        FusionRetriever(
+            [CachedQueryRetriever(dense, cached.vectors), BM25Retriever(chunks)]
+        ),
     )
     packer = EvidencePacker(chunks)
 
-    ranked = measure("hybrid+citation_shortcut", hybrid, gold, index, ordinal_scores=True)
+    ranked = measure(
+        "hybrid+citation_shortcut", hybrid, gold, index, ordinal_scores=True
+    )
     queries, runs, samples = [], {}, []
     for query in gold:
         results = hybrid.search(query.question, EVIDENCE_POOL)
@@ -279,11 +287,16 @@ def main() -> int:
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(render(report, elapsed), encoding="utf-8", newline="")
 
-    for label, run in (("ranking top 10", ranked.primary), ("delivered pack", delivered)):
+    for label, run in (
+        ("ranking top 10", ranked.primary),
+        ("delivered pack", delivered),
+    ):
         overall = run.overall[CreditMode.LENIENT]
         print(f"{label}: lenient recall {overall.recall:.3f}")
     verdict = report.verdict
-    print(f"verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}")
+    print(
+        f"verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}"
+    )
     print(f"wrote {artifact}")
     print(f"wrote {REPORT}")
     return 0

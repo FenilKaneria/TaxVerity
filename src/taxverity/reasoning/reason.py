@@ -1,20 +1,3 @@
-"""R20 Step 20.5 — the `reason` call itself: one strict-schema completion,
-composed exactly like `safety/classifier.py`'s `IntentClassifier` and
-`llm/extract.py`'s `FactExtractor` (tracing outside the cache, ADR-095;
-strict `json_schema` first, `json_object` on a provider refusal, Step 7.1's
-measured fallback). No repair retry — unlike extraction's closed 15 fields,
-a malformed or ungrounded entry here is simply dropped by
-`reasoning/validate.py`, and 20.5's own scope note commits to no new
-mechanism beyond what that deterministic pass already buys.
-
-A malformed completion (not valid JSON, or failing the pydantic shape even
-under the lenient `json_object` fallback) is not an exception — `reason()`
-returns `analysis=None`, and the caller (the `reason` graph node) falls
-back to plain generation over the pack, the same "nothing survives" path
-`reasoning/validate.py` already defines for a well-formed-but-empty
-analysis. A reasoning failure must never stop a turn from answering (rule
-01: `reason` is additive, not a grounding gate — the verifier is)."""
-
 from __future__ import annotations
 
 import json
@@ -50,7 +33,7 @@ logger = get_logger(__name__)
 REASON_STAGE_VERSION = 1
 
 # Reasoning cannot be disabled and is billed against this cap regardless
-# (Step 7.1). The completion is structurally larger than extraction's or
+# . The completion is structurally larger than extraction's or
 # the classifier's — several rules, each with several conditions — so this
 # starts above both of theirs.
 REASON_MAX_COMPLETION_TOKENS = 1_536
@@ -65,8 +48,6 @@ STRICT_FORMAT: dict[str, Any] = {
     },
 }
 
-# Step 7.1's measured fallback mode. Nothing is enforced at the wire under
-# it, so `_parse` polices the shape either way, exactly as extract.py's does.
 OBJECT_FORMAT: dict[str, Any] = {"type": "json_object"}
 
 
@@ -109,9 +90,8 @@ class Reasoner:
         fallback: Provider | None = None,
         **kwargs: Any,
     ) -> Reasoner:
-        """Same composition as `FactExtractor`/`IntentClassifier`: tracing
-        outside the cache (ADR-095). `primary`/`fallback` default to
-        `LLMClient`'s own class defaults (Groq 120b / Gemini)."""
+        """Same composition as `FactExtractor`/`IntentClassifier`: tracing outside the
+        cache."""
         client: Any = LLMClient.from_settings(
             settings, primary=primary, fallback=fallback
         )

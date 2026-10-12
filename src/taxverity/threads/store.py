@@ -1,12 +1,4 @@
-"""Step 11.4 — thread and message persistence, isolated per user.
-
-Every function takes the acting user's id and every query filters by it. A
-thread that does not exist and a thread owned by someone else raise the same
-`ThreadNotFound`, so a guessed id tells the caller nothing. The schema backs
-this up: a message points at its thread through (thread_id, user_id), so a
-query that forgot its filter still could not attach a message to another
-user's thread.
-"""
+"""Thread and message persistence, isolated per user."""
 
 from __future__ import annotations
 
@@ -141,7 +133,7 @@ def list_messages(
     *,
     last: int | None = None,
 ) -> list[Message]:
-    """Oldest first. `last` keeps only the most recent n."""
+    """Oldest first."""
     get_thread(conn, user_id, thread_id)
     if last is not None and last < 1:
         raise ValueError(f"last must be at least 1, not {last}")

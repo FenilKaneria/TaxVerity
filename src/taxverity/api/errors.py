@@ -1,17 +1,5 @@
-"""Step 14.7 — the error taxonomy PLAN 14.7 names: a small, fixed vocabulary
-of `detail` strings every route maps its failures onto, instead of each route
-inventing its own string. A client branches on `detail`, not on guessing from
-a status code plus free text.
-
-`invalid_request()` takes an optional message because two of this project's
-own exceptions (`InvalidEmail`, `WeakPassword`) are explicitly documented as
-"safe to show the user" — that is a validation message, not an internal
-leak, and the taxonomy is not asking routes to throw away information the
-caller needs to fix their request. What must never happen is an *unhandled*
-exception's own text reaching a response; `install_error_handlers()` is the
-one place that boundary is enforced, not each route remembering to catch
-`Exception`.
-"""
+"""A small, fixed vocabulary of `detail` strings every route maps its failures onto,
+instead of each route inventing its own string."""
 
 from __future__ import annotations
 
@@ -45,11 +33,9 @@ def rate_limited() -> HTTPException:
 
 
 def upstream_unavailable() -> HTTPException:
-    """No caller yet (ADR-115): every vendor call on the request path today
-    either degrades in-process (dense/rerank fallback) or runs inside the
-    turns stream, past the point a status code can still be returned. Kept in
-    the vocabulary for the route that does need it, rather than invented
-    ahead of one."""
+    """No caller yet: every vendor call on the request path today either degrades in-
+    process (dense/rerank fallback) or runs inside the turns stream, past the point a
+    status code can still be returned."""
     return HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=UPSTREAM_UNAVAILABLE
     )
@@ -62,11 +48,7 @@ def invalid_request(message: str | None = None) -> HTTPException:
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    """The one place an unhandled exception is stopped from reaching a
-    response body. Every route above raises `HTTPException` for anything it
-    recognises; this handler only ever fires for something no route
-    anticipated, which is exactly when leaking `str(error)` would be a bug,
-    not a convenience."""
+    """The one place an unhandled exception is stopped from reaching a response body."""
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:

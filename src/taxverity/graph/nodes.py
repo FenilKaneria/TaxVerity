@@ -1,19 +1,3 @@
-"""Step 13.2 — thin node wrappers over Phases 7-12, plus Step 13.5's minimal
-corrective retry. No logic moves into the graph: every node is a few lines
-composing an already-built, already-tested function or class. `route_calc`'s
-branch on `Route` and `finalize`'s framing of a served answer are the only
-real decisions made here, and both are mechanical reflections of what
-`calculator.scope` / `safety.evidence_gate` already decided, not new policy.
-`retrieve_retry` is the one exception with a genuine decision of its own — a
-fixed wider pool and `expand=True` — but the *whether to retry* decision
-lives in `build.py`'s conditional edge, not here.
-
-Every node takes `(state, deps, writer=None)`. `writer` defaults to
-`get_stream_writer()`, which only resolves inside a running graph (rule 04's
-`stream_mode="custom"`); tests pass a fake writer explicitly instead, so a
-node is directly callable with no graph context required.
-"""
-
 from __future__ import annotations
 
 import re
@@ -70,24 +54,17 @@ logger = get_logger(__name__)
 
 Writer = Callable[[Any], None]
 
-# Step 13.5's corrective retry: a fixed wider pool, not `deps.pool_k * n` —
-# registered before any run, per PLAN 13.5.
 RETRY_POOL = 40
 
-# R21 Part B: sub-query searches run concurrently, two at a time. Each search
+# Sub-query searches run concurrently, two at a time. Each search
 # makes its Jina calls (embed, then rerank) one after another, so two workers
-# never exceed Jina's free-tier concurrency limit of 2 (ADR-123).
+# never exceed Jina's free-tier concurrency limit of 2.
 SUBQUERY_WORKERS = 2
 
-# R19 Phase C: fields the materiality probe can sweep or ask about. A thread
-# with none of these stated or inferred yet has said nothing quantitative at
-# all — asking 6-7 clarify questions on that first turn is an interrogation,
-# not a conversation. `_has_amount_fact` gates the probe on there being at
-# least one such fact already in the thread before it runs.
 _AMOUNT_FIELDS = tuple(f for f in FactField if FIELDS[f].kind is ValueKind.MONEY)
 
 
-# R22 Part A: a possessive, or a first-person statement of the kind that
+# A possessive, or a first-person statement of the kind that
 # carries a fact ("I earn", "I'm 65", "we sold"). Deliberately not a bare "I"
 # or "me": "I didn't understand, give me an example" states nothing.
 _FACT_CUE = re.compile(
@@ -110,10 +87,8 @@ _PROVISION_REF = re.compile(
 
 
 def may_state_facts(turn: str) -> bool:
-    """Whether a turn could carry a fact worth an extraction call: a figure
-    (digits or number words) or a fact-bearing first-person cue. Fail-safe by
-    construction — skipping can only miss a fact (which surfaces later as a
-    clarify question), never invent one."""
+    """Whether a turn could carry a fact worth an extraction call: a figure (digits or
+    number words) or a fact-bearing first-person cue."""
     figures = numbers_in(_PROVISION_REF.sub(" ", turn))
     return bool(figures) or _FACT_CUE.search(turn) is not None
 
@@ -165,10 +140,7 @@ def _previous_citations(messages: Sequence[Any]) -> tuple[str, ...]:
 
 
 def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
-    """R23: also resolves a follow-up, replacing the separate contextualize
-    call. The deterministic check (ADR-113) decides whether the classifier
-    sees the recent turns; a standalone question is classified and answered
-    exactly as written."""
+    """Also resolves a follow-up, replacing the separate contextualize call."""
     question = state["question"]
     prior_turns = state.get("prior_turns") or []
     follow_up = needs_contextualization(question, prior_turns)
@@ -180,10 +152,7 @@ def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     # A follow-up is answered as the classifier's resolved restatement of it,
     # a standalone question as the person wrote it.
     query = (getattr(result, "tax_request", "") or question) if follow_up else question
-    # getattr, not result.search_query: a test double's classifier stub may
-    # predate R19 Phase B (ADR-120) and not set it.
     search_query = getattr(result, "search_query", None) or query
-    # R20 Step 20.2: same getattr guard for a stub predating sub_queries.
     sub_queries = tuple(getattr(result, "sub_queries", None) or ())
     reopened = False
     if (
@@ -193,19 +162,11 @@ def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
         and query.strip() == question.strip()
         and may_state_facts(question)
     ):
-        # A statement answering the last turn's questions ("I'm resident and
-        # my salary is my only income") that the classifier left as it was:
-        # alone it searches for nothing. The open request is the last
-        # question asked, now with these facts (measured on R24's a09). That
-        # request is classified again on its own: it may be one the
-        # classifier refused last turn, and a fact statement must never carry
-        # it past the gate (rule 03).
         query = f"{prior_turns[-1]}\n{question}"
         result = deps.classifier.classify(query, prior_turns=(), previous_answer="")
         search_query = getattr(result, "search_query", None) or query
         sub_queries = tuple(getattr(result, "sub_queries", None) or ())
         reopened = True
-    # R20 Step 20.3: same getattr guard for a stub predating intent.
     intent = getattr(result, "intent", None) or Intent.EXPLANATION
     return {
         "query": query,
@@ -221,8 +182,7 @@ def classify(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
 def respond_fixed(
     state: GraphState, deps: GraphDeps, writer: Writer | None = None
 ) -> dict:
-    """Reached only for `adjacent | out_of_scope | prohibited` (rule 03). No
-    LLM call, no retrieval — the classifier already picked the fixed template."""
+    """Reached only for `adjacent | out_of_scope | prohibited`."""
     return {
         "answer_text": state["fixed_response"],
         "events": [],
@@ -234,11 +194,7 @@ def respond_fixed(
 def respond_conversational(
     state: GraphState, deps: GraphDeps, writer: Writer | None = None
 ) -> dict:
-    """Reached only for `conversational` (advisor pivot, Step 5). No
-    retrieval, no facts, no claims — `deps.conversational` is a guarded LLM
-    call that cannot say anything about the Act (see llm/conversational.py);
-    its reply rides to the browser as `FinalEvent.text`, the same field
-    `respond_fixed`'s template uses, so no new event type is needed."""
+    """Reached only for `conversational`."""
     return {
         "answer_text": deps.conversational.reply(state["query"]),
         "events": [],
@@ -250,10 +206,10 @@ def respond_conversational(
 def extract_facts(
     state: GraphState, deps: GraphDeps, writer: Writer | None = None
 ) -> dict:
-    # The raw turn, never the contextualized query (rule 04): a follow-up
+    # The raw turn, never the contextualized query: a follow-up
     # rewrite resolves references for retrieval, it is never fact truth.
     question = state["question"]
-    # R22 Part A: rule 01's deterministic pre-check, the same shape as the
+    # Rule 01's deterministic pre-check, the same shape as the
     # contextualizer's skip. A reasoning intent always extracts, since its
     # answer applies the person's facts; any other intent extracts only when
     # the turn itself could state one.
@@ -268,8 +224,6 @@ def merge_facts(
 ) -> dict:
     emit = writer or get_stream_writer()
     extraction = state["extraction"]
-    # getattr, not extraction.situation_facts: a test double's ExtractionResult
-    # stub may predate R20 Step 20.4, same guard style as sub_queries/intent.
     situation_facts = getattr(extraction, "situation_facts", None) or ()
     merged = merge_turn(
         state["fact_state"],
@@ -289,11 +243,6 @@ def retrieve(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
 def retrieve_retry(
     state: GraphState, deps: GraphDeps, writer: Writer | None = None
 ) -> dict:
-    """Step 13.5's one corrective retry (ADR-033 as amended by ADR-110, PLAN
-    13.5): fires only when `generate_verify`'s first pass served zero statute
-    claims, over a wider pool with `pack(expand=True)`. Bounded to one retry by
-    `build.py`'s `_retry_branch` checking `state["retried"]`, not by anything
-    here — this node has no memory of whether it already ran."""
     emit = writer or get_stream_writer()
     emit(StageEvent(stage="refining search").model_dump())
     result = _retrieve(state, deps, writer, k=RETRY_POOL, expand=True)
@@ -304,10 +253,6 @@ def retrieve_retry(
 def _merge_subquery_results(
     per_query: Sequence[Sequence[ScoredChunk]], limit: int
 ) -> list[ScoredChunk]:
-    """Round-robin interleave each sub-query's own ranking, deduplicated by
-    chunk id (first occurrence wins), so no single sub-query's pool
-    dominates the merged order the packer then walks (rule 01: the packer
-    itself is untouched — this only changes what ranking it is handed)."""
     seen: set[str] = set()
     merged: list[ScoredChunk] = []
     depth = max((len(results) for results in per_query), default=0)
@@ -328,10 +273,10 @@ def _merge_subquery_results(
 def pinned_first(
     pins: Sequence[ScoredChunk], results: Sequence[ScoredChunk]
 ) -> list[ScoredChunk]:
-    """The calculator's own provisions ahead of the ranking for a calculation
-    question: a first "can you calculate my tax?" names no section, so the
-    citation shortcut never fires, and the ranking alone surfaced ss.190/405
-    rather than the slab rates on a live turn."""
+    """The calculator's own provisions ahead of the ranking for a calculation question:
+    a first "can you calculate my tax?" names no section, so the citation shortcut never
+    fires, and the ranking alone surfaced ss.190/405 rather than the slab rates on a
+    live turn."""
     pinned = {pin.chunk.chunk_id for pin in pins}
     return [
         *pins,
@@ -340,9 +285,7 @@ def pinned_first(
 
 
 def _style_pins(state: GraphState, deps: GraphDeps) -> list[ScoredChunk]:
-    """R22 Part B: the passages the last answer cited, for a style follow-up
-    ("explain simply"). The rewrite then works from the same law that answer
-    stood on, instead of a fresh search re-reading the statute."""
+    """The passages the last answer cited, for a style follow-up ("explain simply")."""
     if not state.get("style_followup") or deps.citation_lookup is None:
         return []
     found = (deps.citation_lookup(path) for path in state.get("previous_citations", ()))
@@ -366,29 +309,14 @@ def _retrieve(
             ).model_dump()
         )
         return {"pack": pack, "trace": []}
-    # R19 Phase B (ADR-120): retrieval runs on the classifier's Act-vocabulary
-    # rewrite when one exists, falling back to the raw query for callers
-    # (tests, an older classifier stub) that don't set it.
     base_query = state.get("search_query") or state["query"]
     sub_queries = tuple(state.get("sub_queries") or ())
-    # R26: the person's own wording is searched alongside the rewrite. The
-    # classifier's rewrite varies run to run, and on g028/g031 it dropped the
-    # words that found the answer. `query` is the resolved request on a
-    # follow-up, so it never searches a bare "what about 65?".
     own = state["query"]
     if own.strip() and own.strip() != base_query.strip() and own not in sub_queries:
         sub_queries = (*(sub_queries or (base_query,)), own)
     sub_trace: list[dict[str, str | float]] = []
     if sub_queries:
-        # R20 Step 20.2: one retrieval pass per legal sub-question for a
-        # multi-issue question, reranked independently (each pass already
-        # goes through `deps.retriever`'s own reranker) and merged before
-        # packing — a plain question still takes the single-search path
-        # below (rule 01: no extra pass where one suffices).
-        #
-        # R21 Part B: run concurrently; `map` returns results in sub-query
-        # order, so the round-robin merge is exactly as deterministic as the
-        # sequential loop it replaced.
+
         def timed_search(sub_query: str) -> tuple[Sequence[ScoredChunk], float]:
             started = time.perf_counter()
             found = deps.retriever.search(sub_query, k)
@@ -406,9 +334,9 @@ def _retrieve(
         results = list(deps.retriever.search(base_query, k))
     if state.get("intent") is Intent.CALCULATION:
         results = pinned_first(deps.calc_pins, results)
-    # ADR-131: a first pass fills leftover budget with what its hits refer
+    # A first pass fills leftover budget with what its hits refer
     # to; the retry's `expand` already brings references, ahead of the tail.
-    # R27: the question's own words and the rewrite both choose what an
+    # The question's own words and the rewrite both choose what an
     # oversize hit is excerpted to.
     pack = deps.packer.pack(
         results,
@@ -427,20 +355,6 @@ def _retrieve(
 def route_calc(
     state: GraphState, deps: GraphDeps, writer: Writer | None = None
 ) -> dict:
-    """`scope.route`, then `materiality.probe` or `compute` (PLAN 13.2).
-
-    `TEXT_ONLY` and `INCOMPLETE` are not graph branches — only what this
-    node hands `generate_verify` varies. An `INCOMPLETE` decision with
-    nothing left to ask (every unknown field is `ASSUME`/`NOT_COMPUTED`) is
-    computed here exactly like a `COMPUTE` decision; one still waiting on an
-    `ASK`/`DEFERRED` field emits a `clarify` event and answers text-only
-    (PLAN 13.3).
-
-    R19 Phase C: an `INCOMPLETE` decision on a thread that has stated or
-    inferred no amount fact at all skips the probe entirely rather than
-    interrogating a first turn with 6-7 questions — it answers text-only,
-    same as an `INCOMPLETE` decision the probe itself resolves with nothing
-    to ask."""
     emit = writer or get_stream_writer()
     facts = state["fact_state"].as_user_facts()
     decision = route(facts)
@@ -472,8 +386,6 @@ def route_calc(
     elif (
         decision.route is Route.INCOMPLETE and state.get("intent") is Intent.CALCULATION
     ):
-        # The one exception to R19 Phase C's "no first-turn questions": the
-        # person asked for a calculation, so their income is the question.
         clarify_questions = (CALCULATION_CLARIFY,)
     if clarify_questions:
         emit(ClarifyEvent(questions=clarify_questions).model_dump())
@@ -485,12 +397,6 @@ def route_calc(
     }
 
 
-# R20 Step 20.5: `reason` runs only for these intents (standing decision 3,
-# `i-want-you-to-misty-pudding.md`) — a plain "what does section X say"
-# explanation question, and a procedure or single-deduction-limit question,
-# already answer directly from the pack with no condition-checking to do,
-# so a second LLM call for them is exactly the "no LLM call for a job code
-# already does" rule 01 forbids.
 _REASONING_INTENTS = frozenset(
     {
         Intent.ELIGIBILITY,
@@ -510,16 +416,8 @@ _NO_ANALYSIS: dict[str, Any] = {
 
 
 def reason(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
-    """R20 Step 20.5: structured legal analysis of the pack, joined after
-    `retrieve` and the facts/calculator branch (`build.py`, `defer=True`)
-    and feeding `decide`.
-
-    Skipped for an intent that needs no condition-checking, and skipped or
-    falling back whenever the model's own output does not survive
-    `reasoning/validate.py` — a reasoning failure must never stop a turn
-    from answering; `decide`/`generate` (20.6-20.7) treat `answer_plan is
-    None` as "reason over the pack directly", the existing path unchanged.
-    """
+    """Structured legal analysis of the pack, joined after `retrieve` and the
+    facts/calculator branch (`build.py`, `defer=True`) and feeding `decide`."""
     intent = state.get("intent", Intent.EXPLANATION)
     if intent not in _REASONING_INTENTS:
         return dict(_NO_ANALYSIS)
@@ -546,21 +444,8 @@ def reason(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> 
 
 
 def decide(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
-    """R20 Step 20.6: deterministic clarify | answer gate, downstream of
-    `reason` (20.5), wired between `reason` and `generate_verify`
-    (`build.py`).
-
-    Calculator-sourced clarify questions (`route_calc`, Step 13.2, fixed
-    `CLARIFY_TEMPLATES`) are untouched and already emitted their own event.
-    This node adds reasoning-sourced questions: one per `missing_facts`
-    entry the model itself marked `material` (PLAN's decision 2 — "missing
-    facts that change the conclusion"). Every such question already passed
-    `reasoning/validate.py`'s gate before reaching here — grounded in the
-    linked condition's own citations, no invented legal number, pointed at
-    a condition that genuinely survived as `unknown` — so trusting
-    `material` here is exactly as safe as trusting a validated `LegalRule`;
-    the untrustworthy part of the model's output was already stripped out
-    upstream, not here."""
+    """Deterministic clarify | answer gate, downstream of `reason` (20.5), wired between
+    `reason` and `generate_verify` (`build.py`)."""
     emit = writer or get_stream_writer()
     existing = state.get("clarify_questions", ())
     if CALCULATION_CLARIFY in existing:
@@ -580,8 +465,6 @@ def decide(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> 
         asked_topics.add("computed_tax")
     for question in material_questions:
         topics = _question_topics(question)
-        # The same fact asked twice in other words (R24's a09 asked residency
-        # three times: the calculator's template and two from reasoning).
         if question in existing or topics & asked_topics:
             continue
         new_questions += (question,)
@@ -619,10 +502,6 @@ def _question_topics(question: str) -> set[str]:
 
 
 def _analysis_from_state(state: GraphState) -> ValidatedAnalysis | None:
-    """Step 20.8: rebuilds R20's validated reasoning output from the state
-    fields `reason` (20.5) wrote, or `None` when `reason` was skipped or
-    nothing survived validation — `AnswerGenerator.generate()` treats `None`
-    exactly like the pre-R20 path, no fallback logic needed here."""
     legal_rules = state.get("legal_rules") or ()
     if not legal_rules:
         return None
@@ -637,14 +516,7 @@ def _analysis_from_state(state: GraphState) -> ValidatedAnalysis | None:
 def generate_verify(
     state: GraphState, deps: GraphDeps, writer: Writer | None = None
 ) -> dict:
-    """R22 Part B: releases only what will be served. The events are held
-    until the evidence gate has judged them; an answer the gate replaces (an
-    empty pack, or zero grounded claims, whether or not the corrective retry
-    still follows) emits none of them. A retry therefore shows only its own
-    pass, never a first pass stacked above it.
-
-    R22 Part C: once no retry is left, a gated answer that still has
-    guidance lines releases those alone (`evidence_gate.release`)."""
+    """Releases only what will be served."""
     emit = writer or get_stream_writer()
     facts = state["fact_state"].as_user_facts()
     emit(StageEvent(stage="writing").model_dump())
@@ -677,10 +549,8 @@ def generate_verify(
 
 
 def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -> dict:
-    """Persists the turn — this node, not `merge_facts`, owns messages, so a
-    crash mid-generation leaves no assistant message for a user turn nobody
-    saw answered. Facts are persisted as soon as they are merged (rule 04:
-    "persist with per-turn provenance"), independent of how the turn ends."""
+    """Persists the turn — this node, not `merge_facts`, owns messages, so a crash mid-
+    generation leaves no assistant message for a user turn nobody saw answered."""
     emit = writer or get_stream_writer()
     decision = state.get("scope_decision")
     route_label = (
@@ -691,7 +561,7 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
     text = answer_text if answer_text is not None else _served_text(events)
     computation = state.get("computation")
     if answer_text is not None:
-        # A gated turn keeps only its guidance lines (R22 Part C); a refusal
+        # A gated turn keeps only its guidance lines; a refusal
         # or conversational reply has no events at all.
         events = guidance_lines(events)
         if events:
@@ -729,12 +599,6 @@ def finalize(state: GraphState, deps: GraphDeps, writer: Writer | None = None) -
             "withheld": _withheld_records(events),
             "clarify_questions": list(state.get("clarify_questions", ())),
             "trace": [entry.model_dump() for entry in trace],
-            # R19 Phase B (ADR-120): True when `text` is the generator's own
-            # markdown claim lines (frontend renders it with MarkdownAnswer);
-            # False when it is a fixed/gated plain-prose string (a refusal
-            # template, the conversational reply, or the insufficient-
-            # evidence message) — those are never run through line
-            # classification, and never bulleted.
             "structured": answer_text is None or bool(events),
         },
     )
@@ -746,10 +610,6 @@ def _facts_payload(state: ThreadFactState) -> dict[str, str]:
 
 
 def _served_text(events: list[ClaimEvent | WithheldEvent]) -> str:
-    # R19 Phase B (ADR-120): a newline, not a space — each claim is a whole
-    # markdown line (a heading, a bullet, a no_basis sentence), and joining
-    # with a space would run them onto one line and destroy that structure
-    # for the frontend's markdown renderer.
     return "\n".join(event.text for event in events if isinstance(event, ClaimEvent))
 
 
@@ -767,13 +627,9 @@ def _served_citations(events: list[ClaimEvent | WithheldEvent]) -> tuple[str, ..
 def _served_citation_records(
     events: list[ClaimEvent | WithheldEvent],
 ) -> list[dict[str, str | int]]:
-    """First-seen (marker, path, quote) triples, persisted on the message so
-    history can both reopen the citation dialog and resolve the `[n]`
-    markers still embedded in the persisted text (R19 Phase B, ADR-120) —
-    without a live turn's own `cited` state. `marker` numbers a single
-    evidence pack (this turn's), so they never collide within one message
-    even across a corrective retry: `events` is replaced, not accumulated,
-    by whichever `generate_verify` pass actually produced what is served."""
+    """First-seen (marker, path, quote) triples, persisted on the message so history can
+    both reopen the citation dialog and resolve the `[n]` markers still embedded in the
+    persisted text — without a live turn's own `cited` state."""
     seen: set[int] = set()
     records: list[dict[str, str | int]] = []
     for event in events:

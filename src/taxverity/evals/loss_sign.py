@@ -1,17 +1,3 @@
-"""The loss-sign fix's adoption rule, registered before the fix was written or
-the held-out turns were measured (ADR-099).
-
-Step 7.7 found the node dropping the sign of a stated loss (t013, t017). A loss
-read as income inverts the tax, so the rule is all-or-nothing on sign, not a
-rate:
-
-1. every held-out turn is clean, the 8 loss turns and the 4 controls alike: a
-   control that comes back negative, or drops its fact, is the fix
-   over-correcting;
-2. t013 and t017 of the 7.7 gold set now carry the right value;
-3. no 7.7 turn that was clean before the fix is unclean after it.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -63,18 +49,6 @@ def judge_context_guard(
     *,
     fixed: Sequence[str] = CONTEXT_FAILURES_BEFORE,
 ) -> Verdict:
-    """Step 7.8's rule, registered before the context guard was written (ADR-109).
-
-    ADR-100's re-measure left gold t041 positive for a stated loss (the span
-    quoted only the figure) and held-out v1 t006 missing its loss (a mis-copied
-    span the repair then dropped). The rule is all-or-nothing:
-
-    1. no wrong value on either held-out set or on the gold set;
-    2. every turn of both held-out sets is clean, so v1's t006 is cleared and no
-       v2 control is lost to a guard that fires on a neighbouring clause;
-    3. t041 of the gold set carries the right value;
-    4. no gold turn that was clean before the change is unclean after it.
-    """
     reasons = [
         f"{name} {t.turn_id} has a wrong value"
         for name, score in (

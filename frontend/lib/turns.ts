@@ -1,11 +1,3 @@
-// Step 16.4. `postTurn()`'s promised caller (lib/api.ts's own comment): opens
-// `POST /v1/threads/{id}/turns` as a live stream over the same
-// `authorizedFetch` 401-retry-once path every other authenticated call uses,
-// then hands the raw bytes to lib/sse.ts's decoder.
-//
-// This is `fetch`+`ReadableStream`, not `EventSource` (rule 04) — `EventSource`
-// cannot send a bearer header or a POST body, both required here.
-
 import { authorizedFetch } from "./api";
 import { ApiError, parseError } from "./errors";
 import { SSEDecoder, type TurnEvent } from "./sse";

@@ -1,19 +1,10 @@
-// Step 16.4. Pure SSE frame parser for rule 04's turn-stream contract
-// (src/taxverity/api/turns_routes.py's `_sse()`, one `event: X\ndata: Y\n\n`
-// frame per emitted graph event). Kept free of `fetch`/`ReadableStream` so it
-// is unit-testable on plain strings — see lib/__tests__/sse.test.ts for the
-// split-chunk and unknown-event cases lib/turns.ts's live stream cannot
-// exercise deterministically.
-
 export interface Citation {
-  // R19 Phase B (ADR-120): the `[n]` marker embedded in the claim's own
-  // text that this citation resolves.
   marker: number;
   path: string;
   quote: string;
 }
 
-// R22 Part A: "analysing" / "writing" / "checking" name the reason, generation
+// "analysing" / "writing" / "checking" name the reason, generation
 // and repair calls, so a long wait says what it is waiting on.
 export type Stage =
   | "thinking"
@@ -39,15 +30,6 @@ export interface ClarifyEvent {
 export interface ClaimEvent {
   kind: "claim";
   id: number;
-  // R19 Phase B (ADR-120): "heading" is a structural "### " section label
-  // (R22 Part B); "content" is a bullet, numbered step or sentence applying or restating the Act (the old
-  // statute/advice split is now just voice, not a schema field); "no_basis"
-  // names what the Act does not address (it carries no citations). See
-  // generation/claims.py's ClaimType.
-  // R20/R21: "application" applies a cited rule to the person's facts,
-  // "unknown" names a condition not yet decidable, "example" illustrates a
-  // cited rule with made-up figures. R22 Part C: "guidance" is general
-  // process help, not from the Act (ADR-128), shown in its own labelled box.
   type:
     | "heading"
     | "content"
@@ -59,9 +41,6 @@ export interface ClaimEvent {
     | "guidance";
   text: string;
   citations: Citation[];
-  // Rule 04's invariant is a type on the wire (generation/claims.py's
-  // `Literal[True]`) — a claim event that ever carried `false` would not be
-  // one, so this field exists only to document that, not to be branched on.
   verified: true;
 }
 
@@ -71,7 +50,7 @@ export interface WithheldEvent {
   reason: string;
 }
 
-// R19: one graph node's wall-clock cost, for the always-visible trace panel.
+// One graph node's wall-clock cost, for the always-visible trace panel.
 export interface TraceEntry {
   node: string;
   ms: number;
@@ -96,7 +75,7 @@ export interface FinalEvent {
   // Provision paths the evidence pack actually held, when `text` names an
   // insufficient-evidence refusal — empty otherwise.
   searched?: string[];
-  // R19: per-node timings, for the always-visible trace panel.
+  // Per-node timings, for the always-visible trace panel.
   trace?: TraceEntry[];
 }
 

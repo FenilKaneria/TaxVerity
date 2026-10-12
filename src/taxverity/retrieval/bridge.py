@@ -1,11 +1,5 @@
-"""Step 5.8 — the statutory-term bridge (ADR-037, ADR-086): a question's
-everyday words mapped to the Act's own, appended before retrieval.
-
-The Act writes its own vocabulary down, in the section 2 glossary and in its
-section titles, so the statutory side of the map is read off the corpus and
-checked against it. The lay side exists nowhere in the Act and is hand-written
-in `term_bridge_v1.json`. Deterministic, no model call.
-"""
+"""The statutory-term bridge: a question's everyday words mapped to the Act's own,
+appended before retrieval."""
 
 from __future__ import annotations
 
@@ -29,10 +23,6 @@ BRIDGE_STAGE_VERSION = 1
 BRIDGE_MAP_VERSION = 1
 BRIDGE_MAP = Path(__file__).with_name("term_bridge_v1.json")
 
-# A term found in more of the Act's roots than this cannot steer retrieval
-# anywhere: "tax" is in 79% of them, "income" 77%, "interest" 22%. Set in the
-# gap between 0.112 ("notification") and 0.146 ("resident") in the section 2
-# glossary's own distribution, measured over the corpus before any gold run.
 MAX_ROOT_SHARE = 0.125
 
 
@@ -67,9 +57,8 @@ def load_bridge_map(path: Path = BRIDGE_MAP) -> tuple[BridgeEntry, ...]:
 
 
 def terms(text: str) -> tuple[str, ...]:
-    """BM25's tokens with a trailing plural `s` folded off, so "instalments"
-    meets "instalment". Both sides fold the same way, so a mangled stem
-    ("taxe") still meets itself."""
+    """BM25's tokens with a trailing plural `s` folded off, so "instalments" meets
+    "instalment"."""
     return tuple(
         token[:-1]
         if len(token) > 3 and token.endswith("s") and not token.endswith("ss")
@@ -162,11 +151,8 @@ class TermBridge:
         return hits / len(self._roots)
 
     def expand(self, query: str) -> tuple[str, ...]:
-        """The statutory terms the question's everyday words stand for, in the
-        order the question uses them. An already-statutory question is left as
-        it is: a term it already says is not added again, and a question that
-        names a provision is not rewritten at all, since the citation shortcut
-        answers it by citation (ADR-086)."""
+        """The statutory terms the question's everyday words stand for, in the order the
+        question uses them."""
         if extract_query_citations(query):
             return ()
         words = terms(query)
@@ -183,9 +169,8 @@ class TermBridge:
         return f"{query} ({'; '.join(added)})" if added else query
 
     def definitions(self, query: str) -> tuple[Chunk, ...]:
-        """The section 2 clauses defining a specific term the question uses, in
-        the order it uses them. Pass the rewritten question, so a term the
-        bridge added is defined too."""
+        """The section 2 clauses defining a specific term the question uses, in the
+        order it uses them."""
         words = terms(query)
         placed = [(find(words, term), chunk) for term, chunk in self._glossary]
         return tuple(
@@ -198,12 +183,6 @@ class TermBridge:
 
 
 class BridgedRetriever:
-    """Satisfies the Step 3.3 `Retriever` Protocol.
-
-    Sits inside the citation shortcut: a cited provision is found by its
-    citation, and the bridge rewrites only what fusion and the reranker see.
-    """
-
     def __init__(self, bridge: TermBridge, inner: Retriever) -> None:
         self._bridge = bridge
         self._inner = inner

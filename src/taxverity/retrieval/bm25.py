@@ -1,6 +1,3 @@
-"""Step 3.4 — in-process BM25 over the Step 2.4 chunk store: the lexical
-baseline every later retrieval component is measured against."""
-
 from __future__ import annotations
 
 import math
@@ -18,12 +15,6 @@ logger = get_logger(__name__)
 
 BM25_STAGE_VERSION = 2
 
-# Chosen at Step 4.4b by two-fold cross-validation on the gold set (ADR-077).
-# b fell from Okapi's 0.75 to 0.3: chunks here run from a `[***]` mark to a
-# 59,000-character root, and the full length penalty buried the long provisions
-# that carry whole answers. 0.3 is the edge of the pre-registered grid, not a
-# measured optimum; widening the grid after seeing it would fit the ruler.
-# k1 moved nothing measurable and stays at Okapi's 1.5.
 K1 = 1.5
 B = 0.3
 
@@ -38,8 +29,6 @@ def tokenize(text: str) -> list[str]:
 
 
 class BM25Retriever:
-    """Satisfies the Step 3.3 `Retriever` Protocol."""
-
     def __init__(
         self,
         chunks: Iterable[Chunk],
@@ -55,9 +44,6 @@ class BM25Retriever:
         self._k1 = k1
         self._b = b
         self.tokenize = tokenizer
-        # The breadcrumb is indexed along with the text: it is the surface Phase 4
-        # embeds, so the two retrievers stay comparable, and a section title is a
-        # real lexical signal for a question that does not quote the statute.
         self._documents = [
             Counter(tokenizer(chunk.embed_text())) for chunk in self._chunks
         ]

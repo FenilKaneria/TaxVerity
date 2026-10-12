@@ -1,15 +1,5 @@
-"""Step 11.8 — multi-turn retrieval, simplified into ~5 follow-up cases run
-through the 10.7 smoke script (ADR-110): no recall study, no gold-set slice,
-no threshold. Each case pairs one already-labelled gold-v2 question with a
-follow-up phrasing that only makes sense after it — the same shape rule 04's
-recent-turns window exists for. Step 11.7's `QueryContextualizer` rewrites the
-follow-up before it reaches retrieval, exactly as Phase 13's graph will do per
-turn.
-
-`expected` is recorded so a human reading the rendered report can see whether
-the rewrite kept retrieval on the right provision. It is not scored — the full
-rescue-rate study stays deferred with Phase 8's corrective loop.
-"""
+"""Multi-turn retrieval, simplified into ~5 follow-up cases run through the 10.7 smoke
+script: no recall study, no gold-set slice, no threshold."""
 
 from __future__ import annotations
 
@@ -35,9 +25,6 @@ class FollowUpCase(BaseModel):
     expected: tuple[str, ...]
 
 
-# Each follow-up shares no content word with the provision that answers it —
-# the point of the case. f002 is rule 03's own canonical lawful-planning
-# example ("can I pay rent to my mother"), asked as a follow-up on purpose.
 FOLLOW_UP_CASES: tuple[FollowUpCase, ...] = (
     FollowUpCase(
         case_id="f001",
@@ -84,16 +71,13 @@ class FollowUpRecord(BaseModel):
     retrieved: tuple[str, ...]
     # A provider or retrieval failure ends the case; reported, not raised.
     error: str | None = None
-    # None when contextualized is False: the deterministic skip made no LLM
-    # call at all, so there is no model to name (rule 04's contract).
     provider: str | None = None
     model: str | None = None
 
     @property
     def hit(self) -> bool:
-        """Lenient (ADR-060): a retrieved section root covers a required
-        sub-section's text too (ADR-055), so it counts, same as everywhere
-        else in this project a citation is scored."""
+        """Lenient: a retrieved section root covers a required sub-section's text too,
+        so it counts, same as everywhere else in this project a citation is scored."""
         return any(
             credits(retrieved, expected, CreditMode.LENIENT)
             for retrieved in self.retrieved
@@ -128,10 +112,7 @@ def load_followup_run(path: Path) -> FollowUpRun:
 
 
 def distinct_models(run: FollowUpRun) -> frozenset[tuple[str, str]]:
-    """Every (provider, model) pair actually used to rewrite a query in this
-    run. A record with no rewrite (`provider is None`) made no LLM call and
-    contributes nothing — R18.3's pinning, applied to the one eval run that
-    previously recorded neither field at all."""
+    """Every (provider, model) pair actually used to rewrite a query in this run."""
     return frozenset(
         (record.provider, record.model)
         for record in run.records

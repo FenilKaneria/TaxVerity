@@ -1,16 +1,3 @@
-// R19 Phase B (ADR-120), R22 Part B — rendering for the generator's
-// plain-markdown output. Each released line already arrives pre-classified
-// (a live `ClaimEvent.type`, or reconstructed here for a persisted message —
-// see `classifyLine`, which must stay in sync with `generation/claims.py`'s
-// `classify_line`). R22 Part B groups consecutive lines into blocks for the
-// advisor layout: a "### " section label, a paragraph of plain sentences, a
-// "- " bullet list, a "1. " numbered list, or an example callout. R22 Part C
-// adds the general-guidance box (`[guide]` lines, ADR-128): labelled as not
-// from the Act, with a fixed link to the official portal that the model never
-// writes. `[n]`/`[calc]` tokens become small clickable section references or
-// a "computed" badge; `[fact]`/`[eg]`/`[guide]` markers are dropped. No
-// markdown library.
-
 import { Calculator, ExternalLink, Info, Lightbulb } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ClickedCitation } from "@/components/citation-dialog";
@@ -25,22 +12,18 @@ export type LineType =
   | "example"
   | "guidance";
 
-// Mirrors generation/claims.py's openers, markers and `classify_line` order —
-// keep these in sync if the backend's grammar ever changes.
 const NO_BASIS_OPENERS = ["The Act does not", "The Act is silent on", "Nothing in the Act"];
 const UNKNOWN_OPENERS = ["This can't yet be determined", "This cannot yet be determined"];
 const CALC_MARKER = "[calc]";
 const FACT_MARKER = "[fact]";
 const EXAMPLE_MARKER = "[eg]";
 const GUIDE_MARKER = "[guide]";
-// Fixed, never model-written (ADR-128): the guidance verifier withholds any
+// Fixed, never model-written: the guidance verifier withholds any
 // line carrying a link, so this is the only one the box ever shows.
 export const EFILING_PORTAL_URL = "https://www.incometax.gov.in/iec/foportal/";
 export const GUIDANCE_LABEL = "General guidance — not from the Act, not verified";
 const HEADING_RE = /^#{1,6}\s+\S/;
 const BULLET_RE = /^[-*•]\s+/;
-// R22 Part B: a numbered step's digits are list syntax (claims.py's
-// `_LIST_NUMBER`). The list is numbered here, never by the model's digits.
 const LIST_NUMBER_RE = /^\d{1,2}[.)]\s+/;
 const CITATION_RE = /\[\d+\]/;
 // `[fact]`/`[eg]` only tell the verifier what kind of line this is; they
@@ -74,8 +57,6 @@ export function lineForm(text: string): LineForm {
 }
 
 export interface MarkerCitation {
-  // null for a citation persisted before markers existed (R19 Phase B,
-  // ADR-120) — it simply never matches any `[n]` token in the text.
   marker: number | null;
   path: string;
   quote: string | null;
@@ -115,7 +96,7 @@ function markerSet(text: string): string {
     .join(",");
 }
 
-// R26: a run of lines citing exactly the same passages shows that passage's
+// A run of lines citing exactly the same passages shows that passage's
 // chip once, on the run's last line, instead of on every line. Display only:
 // every line was verified with its own markers, and `citations` is untouched.
 export function collapseRepeatedChips(lines: AnswerLine[]): AnswerLine[] {
@@ -336,9 +317,6 @@ export function AnswerBlocks({
   );
 }
 
-// A persisted message's whole joined text (graph/nodes.py's `_served_text`,
-// one claim per line), reclassified line by line. Its citations are the
-// message's own, looked up by marker.
 export function MarkdownAnswer({
   content,
   citations,

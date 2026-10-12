@@ -13,14 +13,6 @@ logger = get_logger(__name__)
 
 TABLE_STAGE_VERSION = 1
 
-# Measured, not assumed: on a page pdfplumber can genuinely rule into a grid
-# (section 206, page 246) it returns real multiple columns. On a borderless
-# table (sections 2, 194, 46, 52, 394; Schedule III) it degenerates to one
-# whole-page cell — always exactly 2 rows, 1 column. Requiring at least two
-# columns is what tells the two apart; PyMuPDF's find_tables() was rejected
-# outright for false-positiving on ordinary prose (Step 1.1), so even this
-# pdfplumber measurement is only ever run on pages already independently
-# known, from our own text, to carry a table — never a blind document scan.
 MIN_TABLE_COLUMNS = 2
 
 
@@ -36,12 +28,7 @@ class TableRegion(BaseModel):
 
 
 def find_table_regions(pdf_path: Path, pages: Iterable[int]) -> tuple[TableRegion, ...]:
-    """Genuine table geometry, restricted to pages already known to carry one.
-
-    A page can hold more than one table (e.g. a two-part rate schedule), so
-    every grid pdfplumber finds on a candidate page is kept, not just the
-    first.
-    """
+    """Genuine table geometry, restricted to pages already known to carry one."""
     regions: list[TableRegion] = []
     candidates = list(pages)
     started = time.perf_counter()

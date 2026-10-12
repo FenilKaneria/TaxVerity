@@ -1,21 +1,4 @@
-"""Step 20.1 — Legal Rule Coverage@k and friends, scored over the
-`gold_r20.R20GoldQuery` benchmark. Deterministic, no model, same discipline
-as `evals.metrics` (which this module deliberately does not modify — the
-Step 3.2 gold-v2 floors stay pinned to what they already measure).
-
-Two things are measured that `evals.metrics` does not:
-
-- **Precision@k**, meaningful here because a query names several
-  `rule_units`, so "how much of the top k is actually relevant" is not the
-  same question as recall.
-- **Legal Rule Coverage@k**: the fraction of a question's `rule_units`
-  (governing provision + its conditions/limits/exceptions/cross-references)
-  credited within the top k, and `coverage_complete@k`, true only when every
-  one is. A retriever can score perfect *recall* on `required` (find the
-  governing section) while covering none of a rule's actual conditions —
-  that gap is exactly what R20's `reason`/`applicability` stage depends on
-  not having.
-"""
+"""Legal Rule Coverage@k and friends, scored over the `gold_r20.R20GoldQuery` benchmark."""
 
 from __future__ import annotations
 

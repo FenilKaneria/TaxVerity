@@ -1,9 +1,4 @@
-"""Step 2.4 — the chunk store: a flat JSONL file and its manifest.
-
-No database yet. The store's one non-obvious job is refusing to serve a stale
-file: a chunk id is derived from corpus_version, so chunks built against an
-older corpus are not merely out of date, they are mislabelled.
-"""
+"""The chunk store: a flat JSONL file and its manifest."""
 
 from __future__ import annotations
 

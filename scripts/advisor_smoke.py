@@ -50,16 +50,13 @@ DATASET_PATH = Path("evals") / "datasets" / "advisor_smoke_v1.jsonl"
 RESULT_DIR = Path("data") / "answers"
 REPORT_PATH = Path("reports") / "advisor_smoke.md"
 LOCAL_DATABASE_URL = "postgresql://taxverity:taxverity@127.0.0.1:5432/taxverity"
-# A pause between turns lets the per-minute token bucket partly refill, so a
-# turn's latency is measured as one person's turn would be, not as the tail of
-# the previous turn's rate-limit debt. Same pause on every run being compared.
 DEFAULT_PAUSE = 30.0
 ADVISOR_SMOKE_VERSION = 1
 
 
 class LLMCallRecorder(logging.Handler):
-    """Collects `LLMClient`'s own boundary records: one per answered call, one
-    per retry, one per fallback. The format strings are `llm/client.py`'s."""
+    """Collects `LLMClient`'s own boundary records: one per answered call, one per
+    retry, one per fallback."""
 
     def __init__(self) -> None:
         super().__init__(level=logging.INFO)

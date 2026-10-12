@@ -1,13 +1,4 @@
-"""Step 14.6 — the per-user daily turn cap and the request body size cap.
-
-The turn cap lives in Postgres, not memory: Lambda runs many instances, so an
-in-memory counter would not hold across them (rule 04). It counts recent
-user-role `messages` rows rather than a separate counter table — that row is
-already written by `finalize` for every served turn, so there is nothing new
-to keep in sync. Both caps exist to protect the Groq and Jina free-tier quota
-(Step 7.1 measured ~1.7 evidence-pack queries a minute) from one runaway
-caller, not to meter a paid plan.
-"""
+"""The per-user daily turn cap and the request body size cap."""
 
 from __future__ import annotations
 

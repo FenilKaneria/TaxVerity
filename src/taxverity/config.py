@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     reports_dir: Path = REPO_ROOT / "reports"
     evals_dir: Path = REPO_ROOT / "evals"
 
-    # Which index this process serves (Step 6.6). Both are named, never
+    # Which index this process serves. Both are named, never
     # inferred: an embedding set id is a serial, so it means nothing without the
     # corpus it was built for.
     serving_corpus_version: str | None = None
@@ -45,21 +45,18 @@ class Settings(BaseSettings):
     # fails over between both before ever touching the fallback provider.
     groq_api_key_2: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
-    # R23 (ADR-129): OpenAI's paid API.
+    # OpenAI's paid API.
     openai_api_key: SecretStr | None = None
-    # R23 (ADR-129): who writes the answer (generate + repair). "openai" is
-    # gpt-5-mini with Groq's 120b as its fallback; "groq" is the pre-R23
-    # 120b + Gemini pair. Every other node stays on Groq.
     generation_llm: Literal["groq", "openai"] = "openai"
     jina_api_key: SecretStr | None = None
     database_url: SecretStr | None = None
-    # Signs access tokens (Step 11.3). At least 32 bytes.
+    # Signs access tokens. At least 32 bytes.
     jwt_secret: SecretStr | None = None
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None
     langfuse_host: str | None = None
 
-    # Step 11.4 — the Gmail API sends verification and password-reset mail.
+    # The Gmail API sends verification and password-reset mail.
     # An OAuth refresh token for a personal Gmail sender, not a service account
     # (this project has no Workspace domain to delegate from).
     gmail_client_id: SecretStr | None = None

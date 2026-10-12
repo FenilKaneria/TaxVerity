@@ -1,4 +1,4 @@
-"""Step 1.3 driver — probe the extracted artifact for structure and report every gap."""
+"""Probe the extracted artifact for structure and report every gap."""
 
 import sys
 

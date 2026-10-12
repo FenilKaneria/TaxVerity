@@ -1,12 +1,4 @@
-"""Step 9.7 — which unknown facts are worth asking about, decided by arithmetic.
-
-A field whose values are bounded is swept through the calculator, and it is
-asked about only when the rounded tax differs across them. A field whose values
-are not bounded cannot be shown not to matter, so each class gets a fixed
-policy instead: income is asked, income under another head or an unnamed
-deduction is asked because any non-zero amount changes the route, and tax
-already paid leaves the balance uncomputed rather than guessed (ADR-108).
-"""
+"""Which unknown facts are worth asking about, decided by arithmetic."""
 
 from __future__ import annotations
 
@@ -90,7 +82,7 @@ class Finding:
     spread: tuple[Decimal, Decimal] | None = None
     assumed: object = None
     # A profile default is surfaced for confirmation whatever the probe finds
-    # (rule 04), so the answer needs to know which unknowns were one.
+    # , so the answer needs to know which unknowns were one.
     unconfirmed_profile_default: bool = False
 
     def __post_init__(self) -> None:
@@ -133,9 +125,7 @@ def probe(
     *,
     provisional: bool = False,
 ) -> Probe:
-    """`provisional` gives a salaried person a figure instead of a list of
-    questions. Only with a known salary, so the figure always rests on income
-    the person gave; `provisional_fields()` names what it assumed."""
+    """`provisional` gives a salaried person a figure instead of a list of questions."""
     if decision.route is Route.TEXT_ONLY:
         raise ValueError("a text-only decision has nothing to probe")
     if decision.route is Route.COMPUTE:

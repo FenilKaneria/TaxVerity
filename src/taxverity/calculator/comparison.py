@@ -1,13 +1,4 @@
-"""Step 9.4 — the two routes section 202 offers, compared as far as the Act goes.
-
-Section 202(1) is computed in full (Step 9.3). Section 202(4) lets a person opt
-out of it, but the rates that would then apply are outside the Act (ADR-100), so
-that side stops at total income: the section 19(1) standard deduction for "any
-other case", the section 123 deduction within its cap, and the section 122(2)
-limit to gross total income. Its tax is carried as the `OutsideAct` declaration,
-never as a number, and a section 126 claim is left undetermined because its
-limit turns on whose health is insured (ADR-104).
-"""
+"""The two routes section 202 offers, compared as far as the Act goes."""
 
 from __future__ import annotations
 

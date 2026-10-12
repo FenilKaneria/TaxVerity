@@ -1,26 +1,5 @@
 "use client";
 
-// Extracted from the original TurnComposer.submit() — moved, not rewritten,
-// so it can be shared by the authenticated composer, the guest composer, and
-// the New Chat landing's first-question submit. Four things here are
-// load-bearing and were preserved verbatim from the original:
-//
-//   1. `pool`/`cited` are plain closure variables inside `submit`, not
-//      `useState` — `applyEvent` needs each running total *before* the next
-//      state update commits, which a setState callback cannot give you
-//      synchronously.
-//   2. `onTurnComplete` runs in the stream's `finally` block, so it fires on
-//      abort and on error too, not only on a clean finish.
-//   3. `AbortError` is swallowed — cancelling is not a reportable error.
-//   4. Every piece of turn-local state is cleared at the *start* of
-//      `submit()`, not at the end of the previous one.
-//
-// New here: `pending` holds the question just submitted so the caller can
-// render it immediately as a user message, before the persisted history
-// catches up (Step 16.3's history had a lag — the question vanished until
-// `onTurnComplete`'s reload finished). `onError` may return `true` to mean
-// "I handled this myself" (e.g. GuestComposer's rate_limited branch), in
-// which case the hook does not also set its own `error` string.
 
 import { useRef, useState } from "react";
 import { ApiError } from "@/lib/errors";
@@ -29,7 +8,6 @@ import type {
   ClaimEvent,
   ComputationSummary,
   Stage,
-  TraceEntry,
   TurnEvent,
   WithheldEvent,
 } from "@/lib/sse";
@@ -43,7 +21,7 @@ interface UseTurnStreamOptions {
   // Authenticated threads persist every turn and `onTurnComplete` reloads
   // that history, so the live transcript can be cleared once a `final`
   // event lands without losing anything. A guest turn has no persisted
-  // history at all (rule 04 — stateless by design), so clearing here would
+  // history at all, so clearing here would
   // wipe the only rendering of the answer the moment it finishes. Default
   // true; GuestComposer passes false.
   clearOnComplete?: boolean;
@@ -65,7 +43,6 @@ export function useTurnStream({
   const [disclaimer, setDisclaimer] = useState<string | null>(null);
   const [finalText, setFinalText] = useState<string | null>(null);
   const [searched, setSearched] = useState<string[]>([]);
-  const [trace, setTrace] = useState<TraceEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -81,7 +58,6 @@ export function useTurnStream({
     setDisclaimer(null);
     setFinalText(null);
     setSearched([]);
-    setTrace([]);
     setError(null);
     onEvidence?.([], []);
     onComputation?.(null);
@@ -117,20 +93,11 @@ export function useTurnStream({
           setDisclaimer(event.disclaimer);
           setFinalText(event.text ?? null);
           setSearched(event.searched ?? []);
-          setTrace(event.trace ?? []);
           onComputation?.(event.computation);
           break;
       }
     }
 
-    // R19: whether the stream finished by receiving a `final` event, as
-    // opposed to erroring or being aborted mid-turn. Only a clean finish
-    // means `finalize()` ran and persisted the assistant message — only then
-    // is it safe to clear the live transcript below, because the reloaded
-    // history (`onTurnComplete`) will show the same content from here on.
-    // Clearing it unconditionally would silently drop an in-flight answer
-    // that failed before a `final` event arrived (rule 04: nothing rendered
-    // is ever retracted).
     let completedCleanly = false;
 
     try {
@@ -159,7 +126,6 @@ export function useTurnStream({
         setDisclaimer(null);
         setFinalText(null);
         setSearched([]);
-        setTrace([]);
       }
       onTurnComplete?.();
     }
@@ -178,7 +144,6 @@ export function useTurnStream({
     disclaimer,
     finalText,
     searched,
-    trace,
     error,
     submit,
     cancel,

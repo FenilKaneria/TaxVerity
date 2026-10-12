@@ -1,6 +1,3 @@
-"""Step 3.3 — the one abstraction introduced this early: what a retriever is,
-and what it hands to the Step 3.2 metrics."""
-
 from __future__ import annotations
 
 import math
@@ -38,12 +35,7 @@ class Retriever(Protocol):
 
 
 def as_ranked_citations(results: Sequence[ScoredChunk]) -> list[str]:
-    """The bridge to `score_run`, which takes citations rather than chunks.
-
-    The ordering and duplicate checks live here because this is where a broken
-    ranking stops being visible: the metrics rank by list position, so results
-    out of score order would score a retriever on an order it did not return.
-    """
+    """The bridge to `score_run`, which takes citations rather than chunks."""
     seen: set[str] = set()
     for previous, current in pairwise(results):
         if current.score > previous.score:

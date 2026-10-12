@@ -1,13 +1,3 @@
-"""Step 4.5 — exact dense retrieval: brute-force cosine over the Step 4.4 vector
-store, with the query embedded by the same hosted model that built it (ADR-075).
-
-Two kinds of failure, deliberately handled differently (ADR-078). A store or an
-embedder that disagrees with itself is our own misconfiguration, so it refuses
-loudly at construction. The vendor going away, or drifting, is what the BM25 +
-citation-shortcut fallback exists for, so it surfaces from `search()` as one
-typed `DenseRetrievalError` that Step 5.2 catches.
-"""
-
 from __future__ import annotations
 
 import time
@@ -45,19 +35,12 @@ UNIT_NORM_TOLERANCE = 1e-4
 
 
 class DenseRetrievalError(RuntimeError):
-    """The dense path cannot answer this query. The caller falls back to BM25 +
-    the citation shortcut; it is never told "no results" instead."""
+    """The dense path cannot answer this query."""
 
 
 class FingerprintGate:
-    """The probe-fingerprint check and the query-side encode, shared by every
-    dense index.
-
-    It exists once rather than per index because both halves are correctness
-    paths. ADR-069 allows exactly one QUERY call site in the system, and the
-    drift refusal has to be sticky in the same way wherever an index is served
-    from — a second copy is a second place that can quietly stop being either.
-    """
+    """The probe-fingerprint check and the query-side encode, shared by every dense
+    index."""
 
     def __init__(self, embedder: Embedder, manifest: VectorManifest) -> None:
         self._embedder = embedder
@@ -70,7 +53,7 @@ class FingerprintGate:
         self.ensure_verified()
         try:
             # QUERY is a literal here and the only query-side call site in the
-            # system (ADR-069). It is never taken from an argument.
+            # system. It is never taken from an argument.
             (vector,) = self._embedder.embed([query], EmbedKind.QUERY)
         except EmbeddingAPIError as error:
             raise DenseRetrievalError(f"query embedding failed: {error}") from error
@@ -101,8 +84,6 @@ class FingerprintGate:
 
 
 class DenseRetriever:
-    """Satisfies the Step 3.3 `Retriever` Protocol."""
-
     def __init__(
         self,
         chunks: Iterable[Chunk],
@@ -112,7 +93,7 @@ class DenseRetriever:
         embedder: Embedder,
     ) -> None:
         started = time.perf_counter()
-        # A vector carries no evidence of how it was encoded (ADR-069).
+        # A vector carries no evidence of how it was encoded.
         if manifest.kind != EmbedKind.DOCUMENT.value:
             raise StaleVectorStoreError(
                 f"index was encoded as {manifest.kind!r}, not 'document' — "
@@ -201,8 +182,8 @@ class DenseRetriever:
         return self._gate.fingerprint_cosine
 
     def embed_query(self, query: str) -> list[float]:
-        """Public so a measurement can embed each question once and search it
-        against several indexes, without a second query-side call site."""
+        """Public so a measurement can embed each question once and search it against
+        several indexes, without a second query-side call site."""
         return self._gate.embed_query(query)
 
     def search_vector(self, vector: Sequence[float], k: int) -> Sequence[ScoredChunk]:

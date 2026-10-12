@@ -1,9 +1,4 @@
-"""The corpus -> chunks pipeline, in one place.
-
-Two scripts need it (Step 2.3's statistics report and Step 2.4's store build),
-and a parser change that reached only one of them would give the two artifacts
-different content under the same corpus_version.
-"""
+"""The corpus -> chunks pipeline, in one place."""
 
 from __future__ import annotations
 

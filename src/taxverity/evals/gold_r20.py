@@ -1,29 +1,8 @@
-"""Step 20.1 — the R20 retrieval-quality benchmark: a small, hand-verified
-set of reasoning-shaped questions, each carrying not just the governing
-citation (as `evals.gold.GoldQuery` already does) but the full set of
-provisions a correct *legal rule extraction* needs — the governing
-provision plus its conditions, limits, exceptions/provisos, and any
-cross-referenced provision the rule cannot be stated correctly without.
-
-This is deliberately a separate file from `retrieval_gold_v2.jsonl`
-(ADR-064's file stays frozen and untouched — Step 3.7's own anti-
-overfitting rule) rather than an edit to it. Several rows reuse a v2
-`query_id` and `question` verbatim (the benchmark quotes them, not the
-frozen file) precisely because they are already reasoning-shaped questions
-(HRA, house-property loss set-off, salary standard deduction under the
-default regime) — widening what is measured about them, not re-labelling
-what v2 already measures.
-
-`rule_units` is a superset of `required`: `required` names the smallest
-node that answers a plain citation lookup (what `evals.gold.GoldQuery`
-already measures); `rule_units` names every provision a rule extraction
-step needs to state the rule *completely* — its conditions, its limits, an
-exception it does not apply under, and a cross-reference it names by
-number. Every citation in every row was checked against the real corpus
-text before being written here (see `reports/r20_retrieval_diagnosis.md`
-for the verification transcript) — this file does not restate anything
-that has not been read.
-"""
+"""A small, hand-verified set of reasoning-shaped questions, each carrying not just the
+governing citation (as `evals.gold.GoldQuery` already does) but the full set of
+provisions a correct *legal rule extraction* needs — the governing provision plus its
+conditions, limits, exceptions/provisos, and any cross- referenced provision the rule
+cannot be stated correctly without."""
 
 from __future__ import annotations
 

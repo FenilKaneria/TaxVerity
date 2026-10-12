@@ -1,7 +1,3 @@
-"""Step 5.6 — the rule the reranker is held to, written before
-`scripts/measure_rerank.py` first ran (ADR-051, ADR-084), and the stored gold
-rerank scores that let it be re-measured and floor-tested without billing."""
-
 from __future__ import annotations
 
 import json
@@ -14,10 +10,6 @@ from taxverity.chunking.models import Chunk
 from taxverity.evals.ladder import TOLERANCE, Verdict
 from taxverity.evals.metrics import CreditMode, RunReport
 
-# ADR-051's two build-blocking guards: nDCG at 5 against the un-reranked fusion
-# order, and a p95 latency budget on the rerank call. The budget is argued from
-# the streamed answer (a stalled evidence stage reads as a frozen screen), not
-# from any measurement, and was fixed before the first paid run.
 GUARD_K = 5
 RERANK_P95_BUDGET_MS = 1_500.0
 
@@ -29,10 +21,8 @@ class StaleRerankScoresError(RuntimeError):
 
 
 def judge_rerank(reranked: RunReport, fusion: RunReport, p95_ms: float) -> Verdict:
-    """Adopted only if lenient nDCG@5 does not fall against the fusion order and
-    the rerank call's p95 is within budget. No rise is required: ADR-051 made
-    the reranker a scheduled build, and the guards ask only whether it is
-    configured well."""
+    """Adopted only if lenient nDCG@5 does not fall against the fusion order and the
+    rerank call's p95 is within budget."""
     if reranked.k != GUARD_K or fusion.k != GUARD_K:
         raise ValueError(
             f"the guard is nDCG@{GUARD_K}; got k={reranked.k} and k={fusion.k}"
@@ -87,8 +77,8 @@ def load_rerank_scores(
     depth: int,
     questions: Sequence[str],
 ) -> RerankScores:
-    """Refuses scores from another model, corpus or depth, or missing any
-    question asked for."""
+    """Refuses scores from another model, corpus or depth, or missing any question asked
+    for."""
     loaded = RerankScores.model_validate_json(path.read_text(encoding="utf-8"))
     for name, want in (
         ("model_id", model_id),
@@ -109,8 +99,7 @@ def load_rerank_scores(
 
 
 class StoredReranker:
-    """Satisfies `Reranker` from stored scores. A question or candidate not on
-    file raises KeyError; it never reaches the network."""
+    """Satisfies `Reranker` from stored scores."""
 
     def __init__(self, scores: Mapping[str, Mapping[str, float]]) -> None:
         self._scores = scores

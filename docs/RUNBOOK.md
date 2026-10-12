@@ -183,7 +183,7 @@ Each step stores its output, so a stopped run can be resumed.
    uv run python scripts/measure_generation.py judge --label v1
    ```
 
-   The judge defaults to Gemini, a different vendor from the gpt-5-mini
+   The judge defaults to Gemini, a different vendor from the gpt-5
    generator. Its replies are cached, so judging the same run again is free.
 4. Check the judge against a human:
 

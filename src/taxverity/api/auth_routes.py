@@ -1,15 +1,3 @@
-"""Step 14.2 — auth endpoints: register, login, refresh, logout, plus the
-verify-email and password-reset flows Step 11.4 already built (a registered
-account is otherwise never reachable, since it starts unverified).
-
-The refresh token travels in an httpOnly, Secure, `SameSite=None` cookie
-(rule 04); the access token goes in the response body only, never a cookie,
-so the frontend holds it in memory. The cookie's `path` is `/v1/auth` rather
-than the plan's literal "the refresh path" — scoping it to `/v1/auth/refresh`
-alone would keep the browser from ever presenting it to `/v1/auth/logout`,
-which needs to read it too.
-"""
-
 from __future__ import annotations
 
 import psycopg
@@ -109,8 +97,6 @@ def register_route(
         )
     except (InvalidEmail, WeakPassword) as error:
         raise invalid_request(str(error)) from None
-    # Deliberately the same response whatever happened inside `register()` —
-    # rule 03's enumeration concern extends to this endpoint's own shape.
     return {"status": "if that address can register, a verification email was sent"}
 
 

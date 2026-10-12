@@ -1,24 +1,4 @@
-"""Step 4.4 — the vector store: the offline-built corpus embeddings and their
-manifest.
-
-Three files, written by `scripts/embed_corpus.py` and read by Step 4.5's vector
-search:
-
-- `corpus_vectors.npy`   float32 matrix, shape [N, dim], row i is chunk i
-- `corpus_vectors.ids.json`  the N chunk ids, row order — the join key
-- `vector_manifest.json`  identity, integrity and fingerprint metadata
-
-Unlike every other artifact in this project the `.npy` is *not* byte-reproducible
-across runs — a re-encode drifts at ~1e-6 (ADR-073). `vectors_sha256` is
-therefore an integrity seal for one built artifact, not a reproducibility claim;
-the thing that says two indexes are comparable is `corpus_version` plus the
-`ModelInfo` tuple plus the probe fingerprint.
-
-The fingerprint exists because the served embedder is a hosted API (ADR-075),
-which exposes no weights revision. A fixed set of probe texts is embedded when
-the index is built; before the index is searched they are embedded again, and
-an embedder that no longer reproduces them is refused.
-"""
+"""The vector store: the offline-built corpus embeddings and their manifest."""
 
 from __future__ import annotations
 
@@ -68,10 +48,6 @@ PROBES: tuple[tuple[EmbedKind, str], ...] = (
     (EmbedKind.QUERY, "Can I claim a deduction for rent paid to my mother?"),
     (EmbedKind.QUERY, "How is long-term capital gain on listed shares taxed?"),
 )
-# Measured 2026-09-11: re-embedding the probes through the Jina API drifts to a
-# lowest cosine of 0.999958 (~4e-5), and the API agrees with the pinned local
-# weights at >= 0.99991. 0.999 sits ~24x above that noise and far below the gap
-# any model change opens.
 FINGERPRINT_MIN_COSINE = 0.999
 _PROBE_DECIMALS = 7
 
@@ -98,11 +74,9 @@ class VectorManifest(BaseModel):
     # merely old, against another — same rule the chunk store enforces.
     corpus_version: str = Field(min_length=1)
     model: ModelInfo
-    # EmbedKind.value. A vector carries no evidence of how it was encoded, so
-    # Step 4.5 refuses an index that is not "document" (ADR-069).
     kind: str = Field(min_length=1)
     # Provenance only — where the batch job ran. Never compared as skew
-    # (ADR-072).
+    # .
     device: str = Field(min_length=1)
     dim: int = Field(gt=0)
     chunk_count: int = Field(ge=1)
@@ -148,10 +122,7 @@ def verify_fingerprint(
     *,
     min_cosine: float = FINGERPRINT_MIN_COSINE,
 ) -> float:
-    """Refuse an embedder that no longer reproduces the index's probe vectors.
-
-    Returns the lowest probe cosine, so a caller can record the margin.
-    """
+    """Refuse an embedder that no longer reproduces the index's probe vectors."""
     if manifest.probe_set_version != PROBE_SET_VERSION:
         raise StaleVectorStoreError(
             f"index fingerprinted with probe set {manifest.probe_set_version}, "
@@ -209,8 +180,7 @@ def write_vector_store(
     device: str,
     probes: tuple[ProbeVector, ...],
 ) -> VectorManifest:
-    """Write the three files and return the manifest. `vectors` is a float32
-    ndarray of shape (len(chunk_ids), model.dim)."""
+    """Write the three files and return the manifest."""
     import numpy as np
 
     arr = np.asarray(vectors)
@@ -251,9 +221,8 @@ def write_vector_store(
 def load_vector_store(
     directory: Path, *, corpus_version: str | None = None
 ) -> tuple[object, tuple[str, ...], VectorManifest]:
-    """Read the store, refusing anything that does not describe this corpus or
-    that fails its own integrity seals. Returns (vectors ndarray, chunk_ids,
-    manifest)."""
+    """Read the store, refusing anything that does not describe this corpus or that
+    fails its own integrity seals."""
     import numpy as np
 
     vectors_path = directory / VECTORS_FILENAME

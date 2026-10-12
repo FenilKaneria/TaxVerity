@@ -1,19 +1,5 @@
-"""Step 14.5 — `POST /v1/threads/{thread_id}/turns`, the real caller of
-`request_deps` and the compiled graph. This is the SSE contract rule 04
-defines (`stage`/`clarify`/`claim`/`withheld`/`final`), served as a
-`StreamingResponse` over `graph.stream(..., stream_mode=["custom"])`.
-
-Ownership and the daily turn cap (Step 14.6) are checked with a short-lived
-pooled connection *before* the stream starts, so a foreign or nonexistent
-thread id and a capped user both get an ordinary HTTP error rather than a
-stream that opens and then dies. The graph itself needs its own connection
-open for the whole response body, past the point this route function
-returns — `request_deps(state)` is called directly inside the generator
-rather than through `Depends(get_conn)`, because FastAPI closes a `yield`
-dependency's connection as soon as the endpoint function returns the
-`StreamingResponse` object, before the body iterator (and this generator)
-actually runs.
-"""
+"""`POST /v1/threads/{thread_id}/turns`, the real caller of `request_deps` and the
+compiled graph."""
 
 from __future__ import annotations
 
@@ -31,6 +17,7 @@ from taxverity.api.deps import current_user, get_conn
 from taxverity.api.errors import not_found, rate_limited
 from taxverity.api.limits import DailyLimitReached, check_daily_turn_limit
 from taxverity.graph.build import build_graph
+from taxverity.llm.tracing import flush_traces
 from taxverity.observability import get_logger
 from taxverity.threads.store import ThreadNotFound, get_thread
 
@@ -94,6 +81,8 @@ def create_turn_route(
         except Exception:
             logger.exception("turn stream failed for thread %s", thread_id)
             raise
+        finally:
+            flush_traces()
 
     return StreamingResponse(
         event_stream(),

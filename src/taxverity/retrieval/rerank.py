@@ -1,11 +1,4 @@
-"""Step 5.6 — cross-encoder reranking of the fused pool through Jina's hosted
-rerank API (ADR-051, ADR-052, ADR-084).
-
-Quality-additive, never correctness-critical: any vendor failure leaves the
-fusion order in place and the query is answered normally (ADR-052). That
-degradation is what justifies the vendor call at all, the same footing as the
-dense leg's fallback to BM25 (ADR-075).
-"""
+"""Cross-encoder reranking of the fused pool through Jina's hosted rerank API."""
 
 from __future__ import annotations
 
@@ -33,10 +26,10 @@ API_URL = "https://api.jina.ai/v1/rerank"
 MODEL_ID = "jina-reranker-v3.5"
 
 # The pool evidence delivery reads (EVIDENCE_POOL), so the reranker decides the
-# whole of it, tail included (ADR-084).
+# whole of it, tail included.
 RERANK_DEPTH = 20
 
-# Equal to the registered p95 budget (ADR-084): on the query path a call slower
+# Equal to the registered p95 budget: on the query path a call slower
 # than the budget is abandoned for the fusion order rather than waited on.
 RERANK_TIMEOUT = 1.5
 
@@ -51,8 +44,7 @@ RERANK_CACHE_SIZE = 256
 
 
 class RerankError(RuntimeError):
-    """Every vendor failure, whatever its cause. `RerankRetriever` degrades on
-    exactly this type."""
+    """Every vendor failure, whatever its cause."""
 
 
 class Reranker(Protocol):
@@ -82,8 +74,6 @@ class JinaReranker:
         self._owns_client = http_client is None
         self._client = http_client or httpx2.Client(timeout=timeout)
         self.tokens_used = 0
-        # Duration of each successful request, backoff excluded: what the p95
-        # budget is measured over.
         self.latencies_ms: list[float] = []
 
     @classmethod
@@ -99,7 +89,7 @@ class JinaReranker:
         body = self._post(
             {
                 "model": MODEL_ID,
-                # User text crossing a trust boundary (rule 03). The documents
+                # User text crossing a trust boundary. The documents
                 # are public statute and go verbatim.
                 "query": redact(query),
                 "documents": [chunk.embed_text() for chunk in chunks],
@@ -193,12 +183,7 @@ def _retry_after(response: httpx2.Response) -> float | None:
 
 
 class CachedReranker:
-    """An in-process LRU over another reranker (ADR-052, ADR-084).
-
-    Keyed by the query as it is sent, normalised and redacted, and by the
-    candidate set rather than its order: the same question over the same pool
-    is the same request. A failure is never cached, so the next call retries.
-    """
+    """An in-process LRU over another reranker."""
 
     def __init__(self, inner: Reranker, *, maxsize: int = RERANK_CACHE_SIZE) -> None:
         if maxsize < 1:
@@ -208,7 +193,7 @@ class CachedReranker:
         self._entries: OrderedDict[tuple[str, frozenset[str]], dict[str, float]] = (
             OrderedDict()
         )
-        # R21 Part B: sub-query searches run on two threads and share this
+        # Sub-query searches run on two threads and share this
         # cache; the lock guards the OrderedDict, never the vendor call.
         self._lock = threading.Lock()
 
@@ -231,16 +216,6 @@ class CachedReranker:
 
 
 class RerankRetriever:
-    """Satisfies the Step 3.3 `Retriever` Protocol.
-
-    Reorders the first `depth` results of the primary ranking by relevance and
-    keeps the rest behind them in their own order. Sits inside the citation
-    shortcut, so an exact citation hit is never reranked (ADR-062).
-
-    Its scores are ordinal: a relevance score and a fusion score share no scale,
-    so they rank this retriever's own output and say nothing else (Step 3.3).
-    """
-
     def __init__(
         self, primary: Retriever, reranker: Reranker, *, depth: int = RERANK_DEPTH
     ) -> None:
@@ -260,7 +235,7 @@ class RerankRetriever:
         try:
             scores = self._reranker.score(query, [result.chunk for result in head])
         except RerankError as error:
-            # The query text is never logged: it is user input (rule 03).
+            # The query text is never logged: it is user input.
             logger.warning("rerank unavailable, keeping the fusion order: %s", error)
             return results[:k]
         order = sorted(

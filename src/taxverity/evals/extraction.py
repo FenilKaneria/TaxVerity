@@ -1,14 +1,4 @@
-"""Step 7.7 — the extraction eval: how well does 7.6's node read a turn?
-
-Two numbers rather than one, for the same reason ADR-060 reports retrieval
-strict and lenient: field-level precision and recall say whether the node
-*noticed* a fact, and value accuracy says whether it copied it correctly. A
-single rate hides which of the two failed, and they are repaired by different
-changes — the first by the prompt, the second by `normalise_value`.
-
-Nothing here calls a model. The script runs the node and stores what came back;
-this module judges a stored run, so a scoring change costs no tokens.
-"""
+"""The extraction eval: how well does 7.6's node read a turn?."""
 
 from __future__ import annotations
 
@@ -44,9 +34,8 @@ EXTRACTION_EVAL_VERSION = 2
 
 GOLD_FILENAME = "extraction_gold_v1.jsonl"
 # Written and frozen before the loss-sign fix touched the prompt or the parser,
-# so the re-measure is not scored on the turns the fix was aimed at (ADR-098).
+# so the re-measure is not scored on the turns the fix was aimed at.
 LOSS_HOLDOUT_FILENAME = "extraction_loss_holdout_v1.jsonl"
-# Frozen before Step 7.8's context guard, for the same reason (ADR-109).
 LOSS_HOLDOUT_V2_FILENAME = "extraction_loss_holdout_v2.jsonl"
 TURN_ID = re.compile(r"^t\d{3}$")
 
@@ -315,8 +304,6 @@ def judge_extraction(
     judgements: list[TurnJudgement] = []
     for label in labels:
         if label.turn_id not in run:
-            # Same reason ADR-060 refuses a missing run entry: an absent turn
-            # scores exactly like a turn the node got wrong, and it is not.
             raise KeyError(f"{label.turn_id} is not in the run")
         judgements.append(judge_turn(label, run[label.turn_id]))
 
@@ -345,8 +332,8 @@ def judge_extraction(
 
 
 def _count(result: ExtractionResult, issue: FactIssue) -> int:
-    """Attempts, not survivors: parse_facts drops a fabricated span, so the
-    surviving facts can never show one and the rejections are the only record."""
+    """Attempts, not survivors: parse_facts drops a fabricated span, so the surviving
+    facts can never show one and the rejections are the only record."""
     seen = list(result.rejections) + [
         rejection
         for rejection in result.repairable
@@ -380,11 +367,8 @@ def load_run(path: Path) -> dict[str, ExtractionResult]:
 
 
 def distinct_models(run: Mapping[str, ExtractionResult]) -> frozenset[tuple[str, str]]:
-    """Every (provider, model) pair a stored run's completions were actually
-    answered by. `ExtractionResult.completions` has always carried this
-    (extraction and, via the same store_run/load_run, loss-sign) — R18.3 is
-    that nothing asserted it, so a model swap could pass a floor silently
-    against the wrong model's numbers."""
+    """Every (provider, model) pair a stored run's completions were actually answered
+    by."""
     return frozenset(
         (c.provider, c.model) for result in run.values() for c in result.completions
     )

@@ -1,4 +1,4 @@
-"""Step 1.7, Part B — parse the 16 Schedules into StatutoryNode trees.
+"""Parse the 16 Schedules into StatutoryNode trees.
 
 Reuses substructure.build() for everything below a paragraph; only the
 paragraph-boundary scan itself (Schedule/Part headings, paragraph numbering,
@@ -57,7 +57,10 @@ def render(parsed: ParsedSchedules, elapsed: float, region_count: int) -> str:
             [
                 ("Schedules", len(parsed.schedules)),
                 ("Nodes total", len(nodes)),
-                ("— schedule_paragraph", sum(1 for n in nodes if n.type is NodeType.SCHEDULE_PARAGRAPH)),
+                (
+                    "— schedule_paragraph",
+                    sum(1 for n in nodes if n.type is NodeType.SCHEDULE_PARAGRAPH),
+                ),
                 *[
                     (f"— {t.value}", sum(1 for n in nodes if n.type is t))
                     for t in LADDER[1:]
@@ -95,7 +98,7 @@ def render(parsed: ParsedSchedules, elapsed: float, region_count: int) -> str:
         "A genuinely omits 28 — confirmed by direct search of the text, not a",
         "parsing artefact. The boundary rule tolerates a gap of one, never an",
         "arbitrary jump: a wrapped body line that happens to start a fresh line",
-        "with a digit (Schedule XV's \"20 or 21),\" continuation, x0=55.2) is",
+        'with a digit (Schedule XV\'s "20 or 21)," continuation, x0=55.2) is',
         "rejected by the same left-margin cutoff that saves it from being read",
         "as paragraph 20.",
         "",
@@ -104,11 +107,11 @@ def render(parsed: ParsedSchedules, elapsed: float, region_count: int) -> str:
         "PART sub-headings (Schedule XI: A/B/C; Schedule XII: A/B) reset",
         "paragraph numbering to 1, and share the SCHEDULE heading's bold caption",
         "font. Because numbering restarts per Part, a bare paragraph number is",
-        "not a unique citation within its Schedule — \"Schedule XI(1)\" would",
+        'not a unique citation within its Schedule — "Schedule XI(1)" would',
         "otherwise exist three times over. The Part letter is folded into the",
         "node's own marker (`A1`, `B1`, `C1`) to keep citations unique and",
         "round-trippable; parsing the Act's own citation string (\"Part A of",
-        "Schedule XI, paragraph 8\") into this form is left to the",
+        'Schedule XI, paragraph 8") into this form is left to the',
         "not-yet-started cross-reference step.",
         "",
         "## Footnote apparatus continues across the Schedule pages",
@@ -118,7 +121,7 @@ def render(parsed: ParsedSchedules, elapsed: float, region_count: int) -> str:
         "reusing `sections.footnote_start` unchanged. Giving it an honest",
         "`starts` dict (the genuine Schedule/Part/paragraph boundaries found on",
         "each page) is load-bearing: an early version of this parser passed an",
-        "empty dict, and `footnote_start`'s own \"still inside the apparatus\"",
+        'empty dict, and `footnote_start`\'s own "still inside the apparatus"',
         "continuation shortcut — which fires on any page merely *mentioning*",
         "amendment vocabulary once triggered — swallowed the whole of Schedule",
         "XII as a result. `scan_boundaries` is a side-effect-free replay of the",
@@ -188,13 +191,17 @@ def main() -> int:
     elapsed = time.perf_counter() - started
 
     REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(render(parsed, elapsed, len(regions)), encoding="utf-8", newline="\n")
+    REPORT.write_text(
+        render(parsed, elapsed, len(regions)), encoding="utf-8", newline="\n"
+    )
 
     nodes = sum(1 for schedule in parsed.schedules for _ in schedule.walk())
     print(f"schedules   {len(parsed.schedules)}")
     print(f"nodes       {nodes}")
     for t in LADDER[1:]:
-        print(f"  {t.value:<18}{sum(1 for s in parsed.schedules for n in s.walk() if n.type is t)}")
+        print(
+            f"  {t.value:<18}{sum(1 for s in parsed.schedules for n in s.walk() if n.type is t)}"
+        )
     print(f"table geo   {len(regions)} regions measured by pdfplumber")
     print(f"footnotes   {len(parsed.footnotes)}")
     print(f"anomalies   {len(parsed.anomalies)} in {len(parsed.unreliable)} paragraphs")

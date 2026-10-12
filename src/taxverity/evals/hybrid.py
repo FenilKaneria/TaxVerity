@@ -1,10 +1,5 @@
-"""Step 5.2 — the adoption rule for hybrid retrieval, registered in code before
-the measurement ran (ADR-010, ADR-081).
-
-ADR-010 asks for a win against both single retrievers, per slice. A strict rise
-on every slice is unreachable, because both incumbents already score 1.000 on
-the citation slice. So a win is an overall rise, with no slice falling.
-"""
+"""The adoption rule for hybrid retrieval, registered in code before the measurement
+ran."""
 
 from __future__ import annotations
 
@@ -16,8 +11,8 @@ from taxverity.evals.metrics import CreditMode, RunReport
 
 
 def judge_hybrid(candidate: RunReport, incumbents: Mapping[str, RunReport]) -> Verdict:
-    """Adopt only if, against every incumbent, lenient recall and lenient nDCG
-    both hold, at least one rises, and no slice loses lenient recall."""
+    """Adopt only if, against every incumbent, lenient recall and lenient nDCG both
+    hold, at least one rises, and no slice loses lenient recall."""
     if not incumbents:
         raise ValueError("a hybrid is judged against at least one incumbent")
     reasons: list[str] = []

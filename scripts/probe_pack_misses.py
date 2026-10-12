@@ -1,4 +1,4 @@
-"""R26 — why a gold citation never reached a generation-eval evidence pack.
+"""Why a gold citation never reached a generation-eval evidence pack.
 
 For every answer-gold item whose stored run packed none of a gold citation,
 searches the item's question through the production retriever (no classifier

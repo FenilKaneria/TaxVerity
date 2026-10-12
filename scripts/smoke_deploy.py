@@ -100,15 +100,20 @@ def main() -> None:
     ids = args.only if args.only else SMOKE_QUERY_IDS
     questions = [(qid, gold[qid].question) for qid in ids]
 
-    with psycopg.connect(
-        settings.database_url.get_secret_value(), autocommit=True
-    ) as conn, httpx2.Client(base_url=args.base_url, timeout=200.0) as client:
+    with (
+        psycopg.connect(
+            settings.database_url.get_secret_value(), autocommit=True
+        ) as conn,
+        httpx2.Client(base_url=args.base_url, timeout=200.0) as client,
+    ):
         health = client.get("/health")
         health.raise_for_status()
         logger.info("target reachable: %s", args.base_url)
 
         user_id = _register_and_verify(client, conn, args.email, args.password)
-        client.headers["Authorization"] = f"Bearer {_login(client, args.email, args.password)}"
+        client.headers["Authorization"] = (
+            f"Bearer {_login(client, args.email, args.password)}"
+        )
         logger.info("registered, verified and logged in as %s", args.email)
 
         thread = client.post("/v1/threads", json={"title": "17.8 smoke"})
@@ -120,10 +125,10 @@ def main() -> None:
             for i, (query_id, question) in enumerate(questions):
                 if i > 0:
                     # Groq's free tier holds ~1.7 evidence-pack queries a
-                    # minute (Step 7.1); firing these back-to-back throttles
+                    # minute; firing these back-to-back throttles
                     # every question after the first two into a full-timeout
                     # stall with nothing served. Re-login each time too — the
-                    # access JWT is short-lived (rule 04) and 15 paced
+                    # access JWT is short-lived and 15 paced
                     # questions can outlast it.
                     time.sleep(args.pause)
                     client.headers["Authorization"] = (
@@ -190,7 +195,9 @@ def main() -> None:
 def _write_report(records: list[dict[str, Any]], base_url: str) -> None:
     RESULT_PATH.parent.mkdir(parents=True, exist_ok=True)
     RESULT_PATH.write_text(
-        json.dumps({"base_url": base_url, "records": records}, indent=2, sort_keys=True),
+        json.dumps(
+            {"base_url": base_url, "records": records}, indent=2, sort_keys=True
+        ),
         encoding="utf-8",
     )
 
@@ -200,7 +207,11 @@ def _write_report(records: list[dict[str, Any]], base_url: str) -> None:
         if r["any_unverified_claim"] or not r["has_final"] or not r["has_disclaimer"]
     ]
     totals = [r["total_s"] for r in records]
-    first_claims = [r["time_to_first_claim_s"] for r in records if r["time_to_first_claim_s"] is not None]
+    first_claims = [
+        r["time_to_first_claim_s"]
+        for r in records
+        if r["time_to_first_claim_s"] is not None
+    ]
 
     def pct(values: list[float], p: float) -> float:
         if not values:

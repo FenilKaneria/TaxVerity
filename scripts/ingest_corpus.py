@@ -1,4 +1,4 @@
-"""Step 6.3 — load the chunk store and the vector store into Postgres."""
+"""Load the chunk store and the vector store into Postgres."""
 
 from __future__ import annotations
 

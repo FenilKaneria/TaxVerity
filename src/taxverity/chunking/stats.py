@@ -11,26 +11,12 @@ from taxverity.corpus.nodes import NodeType
 
 STATS_STAGE_VERSION = 1
 
-# A word/punctuation split, not a real subword tokenizer. No embedding model is
-# chosen until the Phase 4.7 bake-off, and each candidate has its own
-# vocabulary, so a real count taken now would be a count of the wrong model.
-# This proxy is a floor: BPE splits long words further, never fewer. See
-# SAFETY_FACTOR for how the floor is turned into a usable ceiling.
 TOKEN = re.compile(r"\w+|[^\w\s]")
 
-# Both Phase 4 candidates (jina-embeddings-v5-text-small, Qwen3-Embedding-0.6B)
-# carry a 32K context window.
 CONTEXT_TOKENS = 32_768
 
-# A deliberately pessimistic multiplier on the proxy. Measured over this
-# corpus the proxy averages 4.66 characters per token, close to the usual ~4
-# chars/token BPE rule of thumb, so 2x is well past any plausible real
-# tokenizer. It exists so the context check is an argument, not a hope.
 SAFETY_FACTOR = 2
 
-# Not a hard limit -- ADR-055 makes a large root chunk expected, and the
-# precise unit is the child. This is the threshold above which a chunk gets
-# named and explained in the report rather than left in an aggregate.
 LARGE_CHUNK_TOKENS = 2_048
 
 # Below this a chunk is too small to stand alone as retrieved evidence
@@ -46,8 +32,8 @@ def estimate_tokens(text: str) -> int:
 
 
 def percentile(values: Sequence[int], quantile: float) -> int:
-    """Nearest-rank on an already sorted sequence -- no interpolation, so every
-    reported figure is a value some real chunk actually has."""
+    """Nearest-rank on an already sorted sequence -- no interpolation, so every reported
+    figure is a value some real chunk actually has."""
     if not values:
         return 0
     index = min(len(values) - 1, int(quantile * len(values)))
@@ -135,15 +121,7 @@ def summarise(
     untrusted: Collection[str] = (),
     glossary_size: int = 0,
 ) -> ChunkStatistics:
-    """Everything the Step 2.3 report prints, computed in one pass per measure.
-
-    Token figures are over ``embed_text()`` -- the breadcrumb travels to the
-    embedding model with the text, so the context check has to include it.
-    Character figures are over ``text`` alone, which is what the store holds.
-    """
     tokens = [estimate_tokens(chunk.embed_text()) for chunk in chunks]
-    # Measured over the body alone: a chunk is too small to stand as evidence
-    # because of what it says, and the breadcrumb is provenance, not content.
     body_tokens = [estimate_tokens(chunk.text) for chunk in chunks]
     term_counts = Counter(term for chunk in chunks for term in chunk.defined_terms)
     large = sorted(

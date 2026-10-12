@@ -1,13 +1,4 @@
-"""Step 5.7 — why a gold label is missing from the delivered evidence.
-
-Each label the pack misses gets exactly one category, by the first rule that
-fits, in `FailureCategory` order (ADR-085). The rules read the gold labels, so
-this is an offline oracle: a query-time diagnoser (Phase 8.2) cannot use it.
-
-"Genuinely absent" is not a category. Every answerable label names a chunk
-(the gold-set suite pins it), so absence arises only for the negative slice,
-which carries no labels and is reported apart.
-"""
+"""Why a gold label is missing from the delivered evidence."""
 
 from __future__ import annotations
 
@@ -74,8 +65,8 @@ class FailureClassifier:
             raise UnresolvedCitationError(f"{citation} names no chunk") from None
 
     def resolve(self, citation: str) -> Chunk | None:
-        """Nearest existing ancestor: a reference into an untrusted, unsplit
-        subtree names no chunk (ADR-056). The evidence packer's walk."""
+        """Nearest existing ancestor: a reference into an untrusted, unsplit subtree
+        names no chunk."""
         path: NodePath | None = NodePath.parse(citation)
         while path is not None:
             chunk = self._by_path.get(path.render())
@@ -85,8 +76,8 @@ class FailureClassifier:
         return None
 
     def cites(self, citer: str, target: str) -> bool:
-        """Whether the citer's text refers to the target, any part of it or
-        anything containing it. One hop, outgoing edges only."""
+        """Whether the citer's text refers to the target, any part of it or anything
+        containing it."""
         for reference in self._chunk(citer).outgoing_refs:
             resolved = self.resolve(reference)
             if resolved is not None and _related(resolved.node_path, target):
@@ -100,8 +91,8 @@ class FailureClassifier:
         pool: Sequence[str],
         packed: Sequence[str],
     ) -> tuple[LabelFailure, ...]:
-        """One failure per required label that no packed citation credits
-        leniently, in label order."""
+        """One failure per required label that no packed citation credits leniently, in
+        label order."""
         if not required:
             raise ValueError(
                 f"{query_id} carries no label; negatives are not classified"
@@ -143,13 +134,10 @@ class FailureClassifier:
 
 
 class FailureCohorts(BaseModel):
-    """The Step 5.7 classification, frozen as the ruler later steps are judged
-    on. Step 5.8 measures its recovery on the vocabulary cohort (ADR-085)."""
-
     model_config = ConfigDict(frozen=True)
 
     stage_version: int
-    # Citations, not chunk ids, so the cohort outlives a corpus_version (ADR-059).
+    # Citations, not chunk ids, so the cohort outlives a corpus_version.
     cohorts: dict[FailureCategory, tuple[tuple[str, str], ...]]
 
 

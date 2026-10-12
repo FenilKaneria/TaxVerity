@@ -65,9 +65,6 @@ logger = get_logger(__name__)
 
 REPORT = Path("reports") / "gemini_streaming_spike.md"
 N_RUNS = 2
-# Gemini's hidden reasoning is billed against this cap (R18's live probe,
-# even with reasoning_effort="low") and Step 7.1's 2,048 (sized for Groq)
-# truncated every run here before a single NDJSON line completed.
 MAX_COMPLETION_TOKENS = 4_096
 
 
@@ -98,7 +95,12 @@ def probe(client: LLMClient, messages: list[Message], index: int) -> RunResult:
         for delta in stream:
             deltas.append(delta)
     except LLMError as error:
-        return RunResult(index=index, ok=False, error=str(error), elapsed=time.perf_counter() - started)
+        return RunResult(
+            index=index,
+            ok=False,
+            error=str(error),
+            elapsed=time.perf_counter() - started,
+        )
 
     mid_delta = [d for d in deltas if "\n" in d and not d.endswith("\n")]
 
@@ -167,7 +169,9 @@ def render(results: list[RunResult], citations: list[str]) -> str:
     ]
     for r in results:
         if not r.ok:
-            lines.append(f"| {r.index} | FAIL | - | - | - | - | - | {r.elapsed:.1f}s ({r.error}) |")
+            lines.append(
+                f"| {r.index} | FAIL | - | - | - | - | - | {r.elapsed:.1f}s ({r.error}) |"
+            )
             continue
         lines.append(
             f"| {r.index} | ok | {r.delta_count} | {r.deltas_containing_newline} | "
@@ -223,7 +227,9 @@ def main() -> int:
         Message(role="system", content=SYSTEM_PROMPT),
         Message(
             role="user",
-            content=render_context(SPIKE_QUERY, pack, UserFacts(facts=(), unmapped=()), None),
+            content=render_context(
+                SPIKE_QUERY, pack, UserFacts(facts=(), unmapped=()), None
+            ),
         ),
     ]
 
@@ -233,7 +239,11 @@ def main() -> int:
     client.close()
 
     REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(render(results, [u.citation for u in pack.units]), encoding="utf-8", newline="\n")
+    REPORT.write_text(
+        render(results, [u.citation for u in pack.units]),
+        encoding="utf-8",
+        newline="\n",
+    )
     ok = sum(1 for r in results if r.ok)
     mid = sum(1 for r in results if r.ok and r.newline_ever_mid_delta)
     print(f"{ok}/{len(results)} runs completed, {mid} showed a mid-delta newline")

@@ -1,12 +1,4 @@
-"""Step 11.4e — the guest chat trial.
-
-An unauthenticated visitor may send `GUEST_TURN_LIMIT` chat turns before the
-product asks them to log in or sign up. A guest has no thread, no message
-history and no fact state — each turn is answered on its own, and only the
-turn count is kept, in `guest_turns`, keyed by a random id the API carries in
-an httpOnly cookie (Phase 14). The IP counter is the second, coarser limit for
-a cleared cookie; it is not the primary control, so its cap is looser.
-"""
+"""The guest chat trial."""
 
 from __future__ import annotations
 
@@ -28,9 +20,8 @@ class GuestLimitReached(Exception):
 
 
 def record_guest_turn(conn: psycopg.Connection, guest_id: UUID, ip: str) -> None:
-    """Raises `GuestLimitReached` and records nothing if either cap is already
-    met; otherwise records the turn. Locked per guest id so two concurrent
-    turns from one guest cannot both slip past the limit."""
+    """Raises `GuestLimitReached` and records nothing if either cap is already met;
+    otherwise records the turn."""
     if not conn.autocommit:
         raise ValueError("record_guest_turn needs an autocommit connection")
     with conn.transaction():

@@ -1,22 +1,4 @@
-"""R22 Part B — in-section tables, rendered one row per line for the model.
-
-A chunk stores a table the way the PDF's text layer reads it: one cell
-fragment per line ("Sl.", "No.", "Person", ..., "30th", "November."). A
-reader of that text cannot tell which row a due date belongs to, and a live
-answer gave a regular individual s.263's 30 November date, which applies
-only "where the provisions of section 172 apply". Number grounding passed it,
-because "30" and "November" are in the cited passage.
-
-`scripts/build_table_rows.py` measures each table's grid with pdfplumber
-offline and keeps a table only if every body cell is found, in order, in the
-chunk text. That check proves the flattened text already lists the cells row
-by row, so the row form below only makes the row boundaries visible; it never
-moves a figure between rows. Tables that fail the check are not in the file
-and stay as flat text, as before.
-
-This changes only what the model reads (`generate.render_context`). Chunk
-text, chunk ids and the verifier's grounding are untouched.
-"""
+"""In-section tables, rendered one row per line for the model."""
 
 from __future__ import annotations
 
@@ -66,17 +48,15 @@ def owner_of(chunk: Chunk) -> str | None:
 
 
 def cell_pattern(cell: str) -> str:
-    """A cell's words with any whitespace between them, filling whole lines:
-    the PDF wraps a cell over several lines, and the chunk text keeps those
-    breaks. Whole lines, so a short cell ("A", "1.") can only match a line of
-    its own, never a letter inside a word."""
+    """A cell's words with any whitespace between them, filling whole lines: the PDF
+    wraps a cell over several lines, and the chunk text keeps those breaks."""
     words = r"\s*".join(re.escape(token) for token in cell.split())
     return rf"(?m)^[ \t]*{words}[ \t]*$"
 
 
 def locate(text: str, cells: Sequence[str]) -> tuple[int, int] | None:
-    """The span from the `TABLE` line before the first cell to the end of the
-    last cell, when every non-empty cell is found in order; else None."""
+    """The span from the `TABLE` line before the first cell to the end of the last cell,
+    when every non-empty cell is found in order; else None."""
     position = 0
     first: int | None = None
     for cell in cells:
@@ -123,8 +103,7 @@ def load_table_rows(path: Path = TABLE_ROWS) -> tuple[TableRows, ...]:
 
 
 def with_table_rows(chunk: Chunk, tables: Sequence[TableRows] | None = None) -> str:
-    """The chunk's text with each known table in row form. A table whose cells
-    no longer match the text (a re-ingested corpus) is left flat."""
+    """The chunk's text with each known table in row form."""
     owner = owner_of(chunk)
     text = chunk.text
     if owner is None or TABLE_LINE.search(text) is None:

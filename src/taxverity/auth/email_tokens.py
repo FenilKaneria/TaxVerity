@@ -1,10 +1,4 @@
-"""Step 11.4d — single-use tokens for email verification and password reset.
-
-Same shape as `auth.tokens`'s refresh tokens: 256 random bits, only the sha256
-stored, and consumed exactly once. A token that fails for any reason — wrong
-purpose, expired, already used, or simply unknown — raises the same
-`InvalidToken` a caller cannot use to tell those apart.
-"""
+"""Single-use tokens for email verification and password reset."""
 
 from __future__ import annotations
 
@@ -44,9 +38,8 @@ def issue_email_token(conn: psycopg.Connection, user_id: UUID, purpose: Purpose)
 
 
 def consume_email_token(conn: psycopg.Connection, token: str, purpose: Purpose) -> UUID:
-    """Locks and marks the token used in one transaction, so two concurrent
-    redemptions of one link cannot both succeed. Raises `InvalidToken` unless
-    the token exists, matches `purpose`, is unused and unexpired."""
+    """Locks and marks the token used in one transaction, so two concurrent redemptions
+    of one link cannot both succeed."""
     if not conn.autocommit:
         raise ValueError("consume_email_token needs an autocommit connection")
     with conn.transaction():

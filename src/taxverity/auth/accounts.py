@@ -1,24 +1,5 @@
-"""Step 11.2/11.4 — registration, login and the email-verification and
-password-reset flows, with DB-backed rate limiting.
-
-Login fails with one error whatever went wrong: no account, wrong password, or
-an account that has not yet verified its address. An unknown address is
-verified against a dummy hash so it takes as long as a wrong password.
-Attempts are counted per address and per IP in `login_attempts`, because
-Lambda runs many instances and a counter in memory would reset with each one.
-
-Registration must not tell a caller whether an address is already registered
-(rule 03's account-enumeration concern) — `register()` always returns `None`
-and always sends mail, so a careless caller cannot brand a response by
-branching on a return value the function never gives it. A new address gets a
-verification link; an address already in use gets a "you already have an
-account, forgot your password?" message instead. Both paths do the same
-password-hashing work, so timing does not distinguish them either.
-
-Password reset and resend-verification follow the same shape: always silent,
-always the same return, mail sent only when there is actually an account to
-mail.
-"""
+"""Registration, login and the email-verification and password-reset flows, with DB-
+backed rate limiting."""
 
 from __future__ import annotations
 
@@ -70,8 +51,7 @@ class InvalidEmail(ValueError):
 
 
 class LoginFailed(Exception):
-    """Wrong address, wrong password, or an unverified account. Deliberately
-    says nothing more."""
+    """Wrong address, wrong password, or an unverified account."""
 
     def __init__(self) -> None:
         super().__init__("invalid email or password")
@@ -104,10 +84,7 @@ def register(
     mailer: Mailer,
     base_url: str,
 ) -> None:
-    """Always returns `None`. A new address is created unverified and sent a
-    verification link; an address already in use is sent a reset-your-password
-    message instead, and nothing new is created. Either way the caller learns
-    nothing about which happened."""
+    """Always returns `None`."""
     _require_autocommit(conn)
     address = normalise_email(email)
     # Hashed on both branches so a duplicate address costs the same time as a
@@ -172,8 +149,8 @@ def resend_verification(
 
 
 def verify_email(conn: psycopg.Connection, token: str) -> None:
-    """Raises `InvalidToken` (expired, already used, or unknown) rather than
-    saying which — the same generic failure as any other bad token."""
+    """Raises `InvalidToken` (expired, already used, or unknown) rather than saying
+    which — the same generic failure as any other bad token."""
     _require_autocommit(conn)
     user_id = consume_email_token(conn, token, "verify")
     conn.execute(
@@ -185,8 +162,7 @@ def verify_email(conn: psycopg.Connection, token: str) -> None:
 def request_password_reset(
     conn: psycopg.Connection, email: str, ip: str, mailer: Mailer, base_url: str
 ) -> None:
-    """Always silent. Mail goes out only for a verified account that actually
-    exists; an unknown or unverified address gets the same nothing."""
+    """Always silent."""
     _require_autocommit(conn)
     try:
         address = normalise_email(email)
@@ -208,9 +184,9 @@ def request_password_reset(
 
 
 def reset_password(conn: psycopg.Connection, token: str, new_password: str) -> None:
-    """Consumes the reset token, sets the new password, and revokes every
-    refresh-token family the account holds — a reset ends every existing
-    session, not only the one that requested it."""
+    """Consumes the reset token, sets the new password, and revokes every refresh-token
+    family the account holds — a reset ends every existing session, not only the one
+    that requested it."""
     _require_autocommit(conn)
     password_hash = hash_password(new_password)
     user_id = consume_email_token(conn, token, "reset")

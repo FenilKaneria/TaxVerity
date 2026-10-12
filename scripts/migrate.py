@@ -1,4 +1,4 @@
-"""Step 6.2 — apply pending schema migrations to TAXVERITY_DATABASE_URL."""
+"""Apply pending schema migrations to TAXVERITY_DATABASE_URL."""
 
 from __future__ import annotations
 

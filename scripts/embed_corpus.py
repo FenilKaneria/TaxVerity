@@ -33,10 +33,6 @@ logger = get_logger(__name__)
 
 VECTORS_KEY = "jina-api"
 
-# Requests are packed by characters, not a fixed count. ~60k characters is ~15k
-# tokens at this corpus's measured ~4.1 characters per token, which keeps each
-# request inside the timeout, and lets section 2 (59k characters) travel as a
-# request of its own.
 MAX_BATCH = 64
 BUDGET_CHARS = 60_000
 # Under the free tier's 100K tokens per minute, so the job paces itself instead
@@ -67,7 +63,7 @@ def _encode_all(embedder: JinaAPIEmbedder, texts: list[str], tpm: int) -> np.nda
     spent_before = embedder.tokens_used
     for done, batch in enumerate(batches, start=1):
         # DOCUMENT is a literal here and the only document-side call site in the
-        # system (ADR-069). It is never taken from an argument.
+        # system. It is never taken from an argument.
         vectors = embedder.embed(batch, EmbedKind.DOCUMENT)
         out.append(np.asarray(vectors, dtype=np.float32))
         # Paced on the tokens the API actually billed, not on an estimate.

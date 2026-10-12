@@ -1,38 +1,4 @@
-"""Step 12.3 — the evidence gate, simplified (ADR-110). Updated for R19 Phase
-B's marker-based citation (ADR-120) and R20 Step 20.7's `APPLICATION`/
-`UNKNOWN` claim types.
-
-The plan originally called for a score threshold calibrated on the negative
-slice. Steps 3.6, 4.6 and 5.6 already measured that no score — lexical,
-cosine, or reranked — separates a negative question from an answerable one, so
-no calibration is run; that path was not built by decision, not left undone.
-
-The gate instead is the verifier outcome itself: an empty evidence pack, or a
-generated answer that served zero claims actually carrying a resolved
-citation and grounding something about the Act, means nothing traceable to
-the Act was found, and the fixed "insufficient evidence" response is served
-instead of whatever text (if any) was generated. `content` and `application`
-both count — an `application` line applies a cited, verified rule to the
-person's own facts, which is exactly as much a grounded statement about the
-Act as a plain `content` line, just phrased for the person rather than the
-statute. A `computation` claim never substitutes for this — it restates the
-calculator's trace, not a statutory answer — and neither does a `no_basis`
-claim, which by construction cites nothing, nor an `unknown` claim, which by
-construction declines to conclude anything, nor a connective `content` line
-with no marker (rule 04's advisor pivot allows one, per verifier.py's
-`STATUTORY_VOCAB` check, but it grounds nothing on its own). A question with
-a computation but no cited content or application still gates.
-
-Phase 13's graph runs the corrective retry (rule 02, ADR-110's minimal loop)
-before calling this: it re-packs and re-generates once on a zero-grounded-claim
-first pass. This function only judges the result that is finally in hand, and
-does not know or care whether a retry already happened.
-
-R22 Part C (ADR-128): a `guidance` line (practical process help, not from the
-Act) never counts either. When the gate replaces an answer that still has
-guidance lines, `release()` serves those lines alone under a second fixed
-template that says they are not from the Act.
-"""
+"""The evidence gate, simplified."""
 
 from __future__ import annotations
 
@@ -43,15 +9,13 @@ from taxverity.retrieval.evidence import EvidencePack
 
 EVIDENCE_GATE_STAGE_VERSION = 5
 
-# Fixed template, not generated (same discipline as the safety classifier's
-# templates, rule 03).
 INSUFFICIENT_EVIDENCE_MESSAGE = (
     "I couldn't find anything in the Income-tax Act, 2025 that answers this — "
     "I don't have a grounded basis for an answer here."
 )
 
 
-# R22 Part C (ADR-128): fixed, never generated. Leads a gated answer whose
+# Fixed, never generated. Leads a gated answer whose
 # only served lines are general guidance.
 GUIDANCE_ONLY_MESSAGE = (
     "The Act doesn't directly cover this. General guidance below is not from the Act."
@@ -62,11 +26,9 @@ GROUNDED_CLAIM_TYPES = (ClaimType.CONTENT, ClaimType.APPLICATION)
 
 
 def served_grounded_claims(events: Sequence[ClaimEvent | WithheldEvent]) -> int:
-    """A `content` or `application` claim counts only once it actually
-    carries a resolved citation — the merged statute/advice voice (ADR-120)
-    also covers a connective line with none, which restates nothing about
-    the Act. `computation`, `no_basis` and `unknown` never count (see this
-    module's docstring)."""
+    """A `content` or `application` claim counts only once it actually carries a
+    resolved citation — the merged statute/advice voice also covers a connective line
+    with none, which restates nothing about the Act."""
     return sum(
         1
         for event in events
@@ -79,11 +41,7 @@ def served_grounded_claims(events: Sequence[ClaimEvent | WithheldEvent]) -> int:
 def gate(
     pack: EvidencePack, events: Sequence[ClaimEvent | WithheldEvent]
 ) -> str | None:
-    """The fixed insufficient-evidence response, or None to serve the answer.
-
-    None means the caller's already-generated claim events stand as they are.
-    A returned string replaces the whole answer.
-    """
+    """The fixed insufficient-evidence response, or None to serve the answer."""
     if not pack.units:
         return INSUFFICIENT_EVIDENCE_MESSAGE
     if served_grounded_claims(events) == 0:
@@ -102,10 +60,8 @@ def guidance_lines(events: Sequence[ClaimEvent | WithheldEvent]) -> list[ClaimEv
 def release(
     pack: EvidencePack, events: Sequence[ClaimEvent | WithheldEvent]
 ) -> tuple[str | None, list[ClaimEvent | WithheldEvent]]:
-    """R22 Part C: the fixed text that leads the answer (None for a served
-    answer) and the events that may reach the person. A gated answer
-    releases only its guidance lines, under `GUIDANCE_ONLY_MESSAGE`, or
-    nothing at all under the insufficient-evidence message."""
+    """The fixed text that leads the answer (None for a served answer) and the events
+    that may reach the person."""
     text = gate(pack, events)
     if text is None:
         return None, list(events)

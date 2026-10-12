@@ -1,15 +1,3 @@
-"""Step 7.3 — an on-disk cache over the Step 7.2 client.
-
-Its reason is affordability, not latency. Step 7.1 measured about 1.7
-evidence-pack queries a minute on the free tier, so re-running an eval after a
-prompt edit costs tens of minutes and the whole quota. A cached run costs
-nothing and returns the same answers, which is also what makes an eval number
-comparable across runs at all.
-
-It is an offline tool. Nothing on a request path reads it: a served answer must
-come from the model that is running now, not from whatever answered last week.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -36,7 +24,7 @@ LLM_CACHE_VERSION = 1
 
 
 class CachedLLMClient:
-    """Read-through, write-through. A failure is never stored."""
+    """Read-through, write-through."""
 
     def __init__(self, inner: LLMClient, directory: Path) -> None:
         self._inner = inner
@@ -84,8 +72,8 @@ class CachedLLMClient:
         max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
         temperature: float | None = None,
     ) -> Iterator[str]:
-        """A stored stream replays its text line by line; a new one is stored
-        only once it has finished, so an interrupted stream is never a hit."""
+        """A stored stream replays its text line by line; a new one is stored only once
+        it has finished, so an interrupted stream is never a hit."""
         request = self._request(
             messages,
             max_completion_tokens=max_completion_tokens,
@@ -162,7 +150,7 @@ def _digest(request: Mapping[str, Any]) -> str:
 
 
 def _read(path: Path, request: Mapping[str, Any]) -> Completion | None:
-    """Anything unreadable is a miss. A cache must never break a run."""
+    """Anything unreadable is a miss."""
     try:
         entry = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

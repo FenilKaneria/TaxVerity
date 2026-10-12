@@ -1,21 +1,5 @@
 "use client";
 
-// Closes the ADR-112 guest-trial gap: a visitor who has not signed in gets
-// GUEST_TURN_LIMIT (5) chat turns over `/v1/guest/turns` before being asked
-// to log in or sign up — rule 04's guest trial. Deliberately thinner than
-// the authenticated thread page: a guest turn carries no thread, no
-// evidence panel, no computation panel, no facts panel (rule 04 — "stateless
-// by design"), so there is no persisted history to show, only the current
-// session's own turns.
-//
-// Restyled to share the New Chat landing hero before the first question
-// (ChatLanding) and the shared stream primitives after it (useTurnStream,
-// TurnStream, QuestionComposer) — this file now owns only the guest-specific
-// bits: the login/signup overlay that appears once the limit is hit (a
-// modal Dialog, not a persistent "N left" banner — the count is quiet until
-// it actually runs out) and the landing<->active background switch that
-// app/(app)/layout.tsx handles for authenticated threads (this page sits
-// outside that layout, so it carries its own `data-mode`).
 
 import { LogIn } from "lucide-react";
 import Link from "next/link";

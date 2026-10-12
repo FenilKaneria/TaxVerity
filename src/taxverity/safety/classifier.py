@@ -1,16 +1,4 @@
-"""Step 12.2 — the intent classifier (ESSENTIAL, RIGOROUS).
-
-Every turn is classified into one of four categories, per `docs/SAFETY_POLICY.md`
-and rule 03, before retrieval runs. This is a strict-schema `complete()` call at
-temperature 0, not a keyword pre-filter — Step 3.6/4.6/5.6 already measured that
-no lexical or vector score separates negatives, and a keyword filter over
-lawful-planning vocabulary ("rent to my mother", "backdate") would over-refuse
-the exact questions rule 03 protects.
-
-`adjacent`, `out_of_scope` and `prohibited` map to the fixed templates in
-`docs/SAFETY_POLICY.md`, copied verbatim below. Only `in_scope` reaches
-retrieval and generation; the other three are never composed by the model.
-"""
+"""The intent classifier (ESSENTIAL, RIGOROUS)."""
 
 from __future__ import annotations
 
@@ -37,17 +25,10 @@ from taxverity.observability import get_logger
 logger = get_logger(__name__)
 
 CLASSIFIER_STAGE_VERSION = 12
-# R23: how much of the last answer a follow-up's classification sees -
+# How much of the last answer a follow-up's classification sees -
 # enough to name the topic it refers to, as the removed contextualizer did.
 PREVIOUS_ANSWER_CHARS = 600
 
-# Reasoning cannot be disabled and is billed against this cap regardless
-# (Step 7.1). R20 Step 20.2 raised this from 200: adding `sub_queries`
-# (an array field, sometimes 2-3 sentences) pushed a live Groq call past
-# 200 on at least one real question, truncating the JSON mid-generation and
-# failing both the strict schema and its json_object fallback (measured,
-# not assumed — see the R20 20.2 benchmark notes).
-# Raised again from 350 for `tax_request`, one more short string field.
 CLASSIFIER_MAX_COMPLETION_TOKENS = 450
 CLASSIFIER_TEMPERATURE = 0.0
 
@@ -66,14 +47,6 @@ class ScopeCategory(StrEnum):
 
 
 class Intent(StrEnum):
-    """R20 Step 20.3: what kind of in_scope question this is, so the
-    forthcoming `reason`/`decide` nodes (20.5-20.6) know whether to run the
-    reasoning call at all — a plain explanation question skips it (rule 01,
-    standing decision 3). Not safety-critical: an unclassifiable value
-    degrades to EXPLANATION (skip reasoning) rather than raising, since a
-    wrong intent misses an opportunity to reason, it never serves anything
-    ungrounded."""
-
     EXPLANATION = "explanation"
     ELIGIBILITY = "eligibility"
     CALCULATION = "calculation"
@@ -85,11 +58,7 @@ class Intent(StrEnum):
 
 
 class ClassificationError(RuntimeError):
-    """The completion did not name one of the four categories.
-
-    Never guessed past — a safety classifier that defaults silently on a
-    malformed answer is exactly the kind of weakened gate rule 01 forbids.
-    """
+    """The completion did not name one of the four categories."""
 
 
 CLASSIFICATION_JSON_SCHEMA: dict[str, Any] = {
@@ -99,15 +68,8 @@ CLASSIFICATION_JSON_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": [c.value for c in ScopeCategory],
         },
-        # R19 Phase B (ADR-120): the question restated in the Act's own
-        # vocabulary, used for retrieval instead of the person's raw wording.
         "search_query": {"type": "string"},
-        # R20 Step 20.2: separate retrieval questions for a question that
-        # bundles distinct legal issues or conditions. Empty for a plain
-        # single-issue question — never an extra pass where one suffices.
         "sub_queries": {"type": "array", "items": {"type": "string"}},
-        # R20 Step 20.3: what kind of in_scope question this is, so the
-        # reasoning pipeline (20.5-20.6) knows whether to run at all.
         "intent": {
             "type": "string",
             "enum": [i.value for i in Intent],
@@ -132,14 +94,8 @@ STRICT_FORMAT: dict[str, Any] = {
     },
 }
 
-# Step 7.1's measured fallback mode. Nothing is enforced at the wire under it,
-# so _parse() polices the shape either way, exactly as extract.py's does.
 OBJECT_FORMAT: dict[str, Any] = {"type": "json_object"}
 
-# Fixed response templates, copied verbatim from docs/SAFETY_POLICY.md. Kept
-# here, not composed by the model, per rule 03: "Redirect and refusal texts
-# are fixed templates, not generated." `IN_SCOPE` has no entry — it reaches
-# retrieval and generation instead of a canned response.
 FIXED_RESPONSES: dict[ScopeCategory, str] = {
     ScopeCategory.ADJACENT: (
         "That's outside the Income-tax Act, 2025, which is what I cover — it "
@@ -159,15 +115,6 @@ FIXED_RESPONSES: dict[ScopeCategory, str] = {
     ),
 }
 
-# R19 Phase C: a deterministic short-circuit for canonical small talk, per
-# rule 01 ("prefer a deterministic check where one is possible"). ADR-117's
-# 34-case re-measure never exercised the exact combined phrasing "Hello what
-# can you do?", and Groq's model classified it out_of_scope on a live check —
-# the model prompt already names this example, but a live model call cannot
-# be trusted to honour its own instructions every time. Deliberately narrow:
-# every pattern requires the WHOLE message (after light punctuation/whitespace
-# normalisation) to match one exact small-talk shape, so a real tax question
-# cannot collide with it just for containing a greeting word.
 _GREETING = r"(?:hi|hello|hey|hiya|yo|greetings)"
 _THANKS = r"(?:thanks?|thank you|thx|ty)"
 _CAPABILITY = (
@@ -203,7 +150,7 @@ def _looks_conversational(question: str) -> bool:
 # The policy excerpt: condensed from docs/SAFETY_POLICY.md, not re-derived.
 # Rule 03's boundary is restated in full (must refuse / must not refuse) since
 # recall on the refuse side and precision on the allow side are both required,
-# equally weighted (ADR-023).
+# equally weighted.
 SYSTEM_PROMPT = """\
 You classify one person's message into exactly one category. You do not \
 answer it.
@@ -303,14 +250,8 @@ Return only the category, search_query, sub_queries, intent and tax_request, as 
 @dataclass(frozen=True)
 class ClassificationResult:
     category: ScopeCategory
-    # R19 Phase B (ADR-120): the question restated in the Act's own
-    # vocabulary, used for retrieval in place of the person's raw wording.
     search_query: str
-    # R20 Step 20.2: separate retrieval questions for a multi-issue question.
-    # Empty for a plain single-issue one.
     sub_queries: tuple[str, ...]
-    # R20 Step 20.3: what kind of in_scope question this is (EXPLANATION for
-    # every other category, and the safe degrade on a malformed value).
     intent: Intent
     completion: Completion
     # The contained tax task ("" when none) — see CLASSIFICATION_JSON_SCHEMA.
@@ -337,8 +278,6 @@ class IntentClassifier:
         self._client = client
         self._system_prompt = system_prompt
         self._max_completion_tokens = max_completion_tokens
-        # A provider that refuses the schema refuses it every time (Step 7.6's
-        # finding), so the refusal is paid once per process, not once per turn.
         self.schema_refused = False
 
     @classmethod
@@ -352,10 +291,6 @@ class IntentClassifier:
         fallback: Provider | None = None,
         **kwargs: Any,
     ) -> IntentClassifier:
-        """Same composition as Step 7.6's `FactExtractor`: tracing outside the
-        cache (ADR-095). `primary`/`fallback` (R18) default to
-        `LLMClient`'s own class defaults (Groq 120b / Gemini) — pass them to
-        run this node against a different pair, e.g. Groq's 20b model."""
         client: Any = LLMClient.from_settings(
             settings, primary=primary, fallback=fallback
         )
@@ -372,11 +307,9 @@ class IntentClassifier:
         prior_turns: Sequence[str] = (),
         previous_answer: str = "",
     ) -> ClassificationResult:
-        """R23: `prior_turns`/`previous_answer`, given only for a follow-up
-        (the graph's deterministic check), let this one call resolve what a
-        follow-up refers to; the separate contextualize call is gone. The
-        latest message is always classified as written, so an instruction
-        inside it reaches the classifier instead of being rewritten away."""
+        """`prior_turns`/`previous_answer`, given only for a follow-up (the graph's
+        deterministic check), let this one call resolve what a follow-up refers to; the
+        separate contextualize call is gone."""
         if not question.strip():
             raise ValueError("question must be non-empty")
         if _looks_conversational(question):
@@ -390,7 +323,7 @@ class IntentClassifier:
         completion = self._complete(
             [
                 Message(role="system", content=self._system_prompt),
-                # Delimited, never concatenated as instructions (rule 03).
+                # Delimited, never concatenated as instructions.
                 Message(
                     role="user",
                     content=_context(prior_turns, previous_answer)
@@ -451,11 +384,7 @@ def _context(prior_turns: Sequence[str], previous_answer: str) -> str:
 def _route(
     category: ScopeCategory, search_query: str, tax_request: str, question: str
 ) -> tuple[ScopeCategory, str]:
-    """A contained tax task outranks a `conversational` label — and nothing
-    else. Only that one category is ever promoted: prohibited, adjacent and
-    out_of_scope keep their fixed templates whatever `tax_request` says, so
-    this can never turn a refusal into an answer, and a wrong promotion still
-    meets the verifier gate like any other in_scope turn."""
+    """A contained tax task outranks a `conversational` label — and nothing else."""
     if category is not ScopeCategory.CONVERSATIONAL or not tax_request:
         return category, search_query
     logger.info("conversational label carried a tax request; routing in_scope")
@@ -472,10 +401,6 @@ def _parse(
         category = ScopeCategory(payload["category"])
     except (ValueError, TypeError, KeyError) as error:
         raise ClassificationError(f"not a valid category: {text!r}") from error
-    # A missing or blank search_query (the fallback json_object mode enforces
-    # nothing at the wire, Step 7.1's finding) degrades to the raw question
-    # rather than failing the whole classification over a field only
-    # retrieval consumes.
     search_query = payload.get("search_query")
     if not isinstance(search_query, str) or not search_query.strip():
         search_query = question
@@ -490,10 +415,6 @@ def _parse(
             for item in raw_sub_queries
             if isinstance(item, str) and item.strip()
         )
-    # Same degrade-don't-fail treatment: intent only decides whether the
-    # forthcoming `reason` node runs (rule 01, standing decision 3), it is
-    # never a grounding gate, so a missing/invalid value defaults to
-    # EXPLANATION (skip reasoning) rather than raising ClassificationError.
     try:
         intent = Intent(payload.get("intent"))
     except ValueError:

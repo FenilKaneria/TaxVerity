@@ -1,6 +1,3 @@
-"""Step 3.2 — the ruler: recall@k, MRR and nDCG@k over the Step 3.1 gold set,
-scored strictly and leniently, broken down per slice."""
-
 from __future__ import annotations
 
 import math
@@ -20,17 +17,14 @@ METRICS_STAGE_VERSION = 1
 
 
 class CreditMode(StrEnum):
-    """STRICT credits only the labelled unit itself. LENIENT also credits an
-    ancestor, because ADR-055 gives a chunk its whole subtree: a retriever
-    returning ``22`` for a ``22(2)`` question is imprecise, not wrong."""
+    """STRICT credits only the labelled unit itself."""
 
     STRICT = "strict"
     LENIENT = "lenient"
 
 
 class UnresolvedCitationError(LookupError):
-    """A gold label naming no chunk. It would score as a retrieval miss while
-    actually being a broken label — the one failure this module must not hide."""
+    """A gold label naming no chunk."""
 
 
 def normalise_citation(citation: str) -> str:
@@ -38,8 +32,7 @@ def normalise_citation(citation: str) -> str:
 
 
 def credits(retrieved: str, required: str, mode: CreditMode) -> bool:
-    """A retrieved citation earns credit for a required one. Never a descendant:
-    ``22(2)``'s text does not contain ``22``'s."""
+    """A retrieved citation earns credit for a required one."""
     got = NodePath.parse(retrieved).components
     want = NodePath.parse(required).components
     if got == want:
@@ -50,8 +43,7 @@ def credits(retrieved: str, required: str, mode: CreditMode) -> bool:
 
 
 class CitationIndex:
-    """Citation -> chunk id, built at measurement time. ADR-059 stores citations
-    in the gold set precisely so the ids may change under it."""
+    """Citation -> chunk id, built at measurement time."""
 
     def __init__(self, chunks: Iterable[Chunk]) -> None:
         self._by_path = {
@@ -97,9 +89,6 @@ class RunReport(BaseModel):
     scored: tuple[QueryScore, ...]
     overall: dict[CreditMode, Scores]
     per_slice: dict[QuerySlice, dict[CreditMode, Scores]]
-    # Negatives carry no label, so recall, MRR and nDCG are all undefined for
-    # them. Measuring them needs a score threshold, which no component owns
-    # until Phase 12; Step 3.6 reports their score separation instead.
     negatives: int
 
 
@@ -182,8 +171,7 @@ def score_run(
     k: int,
     index: CitationIndex,
 ) -> RunReport:
-    """Score one retriever over the whole gold set. `runs` maps query_id to the
-    citations it returned, best first."""
+    """Score one retriever over the whole gold set."""
     answerable = [q for q in queries if q.slice is not QuerySlice.NEGATIVE]
     missing = {q.query_id for q in answerable} - set(runs)
     if missing:

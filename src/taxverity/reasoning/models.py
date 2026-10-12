@@ -1,18 +1,4 @@
-"""R20 Step 20.5 — what the `reason` LLM call returns, before validation.
-
-Plain pydantic, `extra="forbid"` throughout — the same discipline
-`safety/classifier.py` and `facts.py` already use for a model's strict-schema
-output: an unexpected field is a parse failure, not silently ignored data.
-
-**This module's shapes are data, not truth (PLAN R20's "Reasoning
-validation" section).** Nothing here is served to a person directly — a
-`LegalRule` or `AnswerPlan` only ever reaches `reasoning/validate.py`'s
-deterministic checks, and only what survives those checks ever reaches
-`generate` (20.7). A `markers` field is a list of 1-based positions into the
-`EvidencePack` the reasoning call was shown — the same numbering
-`generation/claims.py`'s `[n]` markers already use, so a marker here and a
-citation marker in the eventual answer name the same passage.
-"""
+"""What the `reason` LLM call returns, before validation."""
 
 from __future__ import annotations
 
@@ -41,10 +27,7 @@ class ConclusionKind(StrEnum):
 
 class Condition(BaseModel):
     """One condition, limit or exception a `LegalRule` sets — the unit
-    `ConditionCheck`/`MissingFact` refer to by `id`. `markers` may be empty,
-    in which case validation grounds it against the parent rule's own
-    markers (a condition drawn from the same passage as its rule needs no
-    separate citation)."""
+    `ConditionCheck`/`MissingFact` refer to by `id`."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -73,11 +56,6 @@ class ConditionCheck(BaseModel):
 
     condition_id: str = Field(min_length=1)
     status: CheckStatus
-    # A `FactField` value or a situation fact's name, whichever the check was
-    # decided from. Required by validation whenever status is `satisfied` or
-    # `not_satisfied` (PLAN R20's own rule); `validate.py` downgrades the
-    # check to `unknown` rather than dropping it when this is missing or
-    # names no known fact.
     fact_refs: tuple[str, ...] = ()
     note: str = ""
 

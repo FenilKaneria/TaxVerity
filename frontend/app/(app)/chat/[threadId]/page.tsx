@@ -37,9 +37,6 @@ function ThreadView({ threadId }: { threadId: string }) {
   const [computation, setComputation] = useState<ComputationSummary | null>(null);
   const [question, setQuestion] = useState("");
   const [railOpen, setRailOpen] = useState(false);
-  // The citation a user just clicked — both a live claim's own {path, quote}
-  // and a persisted message's {path, quote} (graph/nodes.py's finalize()
-  // stores both now) satisfy this directly, no lookup needed.
   const [selectedCitation, setSelectedCitation] = useState<ClickedCitation | null>(null);
 
   const turn = useThreadTurn(threadId, {

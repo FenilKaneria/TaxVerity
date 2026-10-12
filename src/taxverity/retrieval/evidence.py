@@ -1,27 +1,5 @@
-"""Steps 5.3 and 5.4 — what the generator is handed: the fused ranking turned
-into distinct evidence within a token budget (ADR-082), plus the provisions
-that evidence refers to, one hop out (ADR-083).
-
-ADR-055 already gives a chunk its whole subtree, so a hit is delivered as
-itself, not swapped for its section. Delivery handles the two problems that
-remain. A hit whose ancestor is also a hit is the same text twice. A clause read
-without the lines above it often says nothing on its own ("thirty per cent of
-the annual value").
-
-Expansion handles a third: a clause that says "as determined under section 21"
-is incomplete without section 21, and nothing in the ranking has to know that.
-It is built and measured, and off by default: its registered rule rejected it,
-because referenced text displaced labels from the pool's tail (ADR-083).
-
-Step 5.8 adds definitions: the section 2 clause for a specific term the
-question uses, placed after every retrieved hit so it only fills what the
-budget leaves. Also off by default (ADR-086).
-
-R27 adds excerpts: a hit bigger than the whole budget could never be packed,
-so section 393 (the TDS table, unsplit under ADR-056) was retrieved first and
-never read. Such a hit is now delivered as the runs of its own lines that
-share words with the question, after every hit that fits has been placed.
-"""
+"""What the generator is handed: the fused ranking turned into distinct evidence within
+a token budget, plus the provisions that evidence refers to, one hop out."""
 
 from __future__ import annotations
 
@@ -40,11 +18,6 @@ from taxverity.retrieval.bm25 import tokenize
 
 EVIDENCE_STAGE_VERSION = 4
 
-# Groq's free tier allows openai/gpt-oss-120b 8,000 tokens a minute (checked
-# 2026-09-11; Step 7.1 re-verifies). Evidence gets about half, leaving the rest
-# for the prompt, the user's facts and the answer. The count is the Step 2.3
-# proxy, which runs 1.145x short of Jina's billed tokens over the corpus, so
-# 4,000 here is about 4,600 real tokens.
 EVIDENCE_BUDGET = 4_000
 
 # How deep delivery reads the ranking. Deduplication collapses a top 10 to about
@@ -52,27 +25,14 @@ EVIDENCE_BUDGET = 4_000
 # 5.6's reranker is budgeted for.
 EVIDENCE_POOL = 20
 
-# The k the hybrid ranking was adopted at (ADR-081). Hits above it are packed
+# The k the hybrid ranking was adopted at. Hits above it are packed
 # before any referenced text, hits below it after, so expansion can never
 # displace evidence the adopted ranking itself delivered.
 EXPANSION_HEAD = 10
 
-# R20 Step 20.2 measured a flat ancestor-promotion size-ratio guard (r009's
-# finding) and REJECTED it (ADR-122): any ratio tight enough to block r009's
-# real ~2.03x root/hit disparity (section 19 over 19(1)) also blocks several
-# legitimate multi-child promotions in the gold v2 crossref slice (q020,
-# q021, q062-q068) whose own incremental ratios during the walk run as low
-# as ~2.0x-5x. No single threshold separates the two. Left unguarded; a
-# pool-aware (not order-dependent) design is future work, not this pass.
 
 # An excerpt never takes more than this share of the budget.
 EXCERPT_SHARE = 0.5
-# Only an oversize hit ranked this high (or named by the person, which the
-# citation shortcut ranks first) is excerpted, with EXCERPT_RESERVE of the
-# budget held back for it; the excerpt is placed after the whole ranking.
-# Measured on gold v2: an excerpt placed in its own rank's turn cost s.194
-# its place (answer-gold pack coverage 0.908 -> 0.888), and one for a hit
-# ranked 7th or 12th was 1,000 to 1,500 tokens beside the point.
 EXCERPT_HEAD = 5
 EXCERPT_RESERVE = 1 / 3
 EXCERPT_WINDOW = 150
@@ -101,14 +61,8 @@ def windows(text: str, size: int = EXCERPT_WINDOW) -> list[str]:
 
 
 def excerpt(text: str, query: str, room: int) -> str | None:
-    """The opening run, then the runs sharing the most (and rarest) words with
-    the query, in document order, within `room` tokens. None when no later
-    run shares a telling word with the query: the opening lines alone answer
-    nothing.
-
-    A word found in more than half the runs ("the", "of", "resident" in a
-    section about residents) tells no run from another and is not counted.
-    """
+    """The opening run, then the runs sharing the most (and rarest) words with the
+    query, in document order, within `room` tokens."""
     runs = windows(text)
     terms = set(tokenize(query))
     bags = [set(tokenize(run)) & terms for run in runs]
@@ -172,7 +126,7 @@ class EvidenceUnit(BaseModel):
     role: EvidenceRole
     # Why a referenced unit is present: the retrieved unit whose text cites it.
     cited_by: str | None = None
-    # R27: set when the chunk is bigger than the whole budget. The model reads
+    # Set when the chunk is bigger than the whole budget. The model reads
     # this, and the verifier grounds against this, never the rest of the chunk.
     excerpt: str | None = None
 
@@ -227,7 +181,7 @@ class EvidencePacker:
                 raise ValueError(
                     f"{chunk.node_path}: a lead-in needs character offsets"
                 )
-            # Offsets index the root's text (ADR-055), so a parent's own lines
+            # Offsets index the root's text, so a parent's own lines
             # end where its first child begins.
             start = chunk.char_start - parent.char_start
             self._own_end[parent.chunk_id] = min(
@@ -251,11 +205,7 @@ class EvidencePacker:
         return self._lineage[chunk.chunk_id]
 
     def _resolve(self, citation: str) -> Chunk | None:
-        """The chunk a reference names, else its nearest ancestor that is one.
-
-        ADR-056 prunes an untrusted subtree to its root, so a reference into
-        section 393 names no chunk. The same walk as the citation shortcut's.
-        """
+        """The chunk a reference names, else its nearest ancestor that is one."""
         path: NodePath | None = NodePath.parse(citation)
         while path is not None:
             chunk = self._by_path.get(path.render())
@@ -265,9 +215,7 @@ class EvidencePacker:
         return None
 
     def _targets(self, citer: Chunk) -> list[Chunk]:
-        """What the citing chunk's text refers to, in document order. A target
-        that is the citer or an ancestor of it is dropped: the citer already
-        carries it, or its lead-in does."""
+        """What the citing chunk's text refers to, in document order."""
         targets: dict[str, Chunk] = {}
         for citation in citer.outgoing_refs:
             target = self._resolve(citation)
@@ -325,14 +273,7 @@ class EvidencePacker:
         *,
         limit: int | None = None,
     ) -> list[EvidenceUnit]:
-        """One candidate against the pack so far.
-
-        Already carried by a packed unit, itself or an ancestor: nothing
-        changes. An ancestor of packed units: it replaces them, costs only the
-        difference, and stays retrieved if any of them was, with their best
-        rank. Too big for what is left: nothing changes. `limit` is a budget
-        below the packer's own, while room is held back for an excerpt.
-        """
+        """One candidate against the pack so far."""
         lineage = self._lineage_of(chunk)
         if any(unit.chunk.chunk_id in lineage for unit in units):
             return units
@@ -361,10 +302,8 @@ class EvidencePacker:
         return kept
 
     def _oversize(self, results: Sequence[ScoredChunk]) -> list[tuple[int, Chunk]]:
-        """Hits in the top EXCERPT_HEAD bigger than the whole budget, with
-        nothing beneath them in the ranking, and their ranks. A hit with a
-        ranked descendant is left alone: the ranking has already found the
-        part of it that matters."""
+        """Hits in the top EXCERPT_HEAD bigger than the whole budget, with nothing
+        beneath them in the ranking, and their ranks."""
         ranked = [result.chunk for result in results]
         return [
             (rank, chunk)
@@ -386,31 +325,7 @@ class EvidencePacker:
         definitions: Sequence[Chunk] = (),
         query: str | None = None,
     ) -> EvidencePack:
-        """Walk the ranking best first.
-
-        Without `expand`, the Step 5.3 walk: one pass. With it, three passes
-        over one budget (ADR-083, rejected, so not the default):
-
-        1. Hits ranked 1 to EXPANSION_HEAD.
-        2. What those units' text refers to, one hop, taken in the order of the
-           unit citing it. A referenced unit's own references are not followed.
-        3. The rest of the ranking.
-
-        `fill_refs` (ADR-131) is the production alternative: after the whole
-        ranking, what each retrieved unit refers to, one hop, in rank order,
-        only where budget is left. It never costs a hit its place.
-
-        `definitions` are placed last of all, so they never displace a hit
-        (ADR-086, off by default). A hit that does not fit is passed over and
-        the walk goes on, so a giant root at rank 1 does not crowd out
-        everything below it.
-
-        With `query` (R27), a hit bigger than the whole budget is delivered
-        as an excerpt against that query, after the whole ranking and before
-        any reference fill, with EXCERPT_RESERVE of the budget held back for
-        it. Only a hit in the top EXCERPT_HEAD is excerpted. Without `query`,
-        such a hit is passed over as before.
-        """
+        """Walk the ranking best first."""
         for chunk in (*(result.chunk for result in results), *definitions):
             if chunk.chunk_id not in self._by_id:
                 raise ValueError(f"{chunk.node_path} is not in the packer's chunk set")
@@ -443,7 +358,7 @@ class EvidencePacker:
         for rank, chunk in oversize:
             units = self._excerpted(units, chunk, rank, query or "")
         if fill_refs and not expand:
-            # ADR-131: unlike `expand`, this runs after every hit is placed,
+            # Unlike `expand`, this runs after every hit is placed,
             # so a reference only takes budget no hit could use.
             for citer in list(units):
                 if citer.role is not EvidenceRole.RETRIEVED:

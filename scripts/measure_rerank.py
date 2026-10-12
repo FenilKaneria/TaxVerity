@@ -73,7 +73,7 @@ ARTIFACT = "rerank.json"
 VECTORS_KEY = "jina-api"
 
 # The free tier allows 100k tokens a minute; stay under it with margin. The
-# proxy runs 1.145x short of Jina's count (Step 4.4), rounded up for safety.
+# proxy runs 1.145x short of Jina's count, rounded up for safety.
 TOKENS_PER_MINUTE = 80_000
 PROXY_FACTOR = 1.2
 # Wide enough to see the true latency distribution: the guard is on p95, and a
@@ -90,7 +90,9 @@ class Paced:
         self._window: deque[tuple[float, int]] = deque()
 
     def score(self, query: str, chunks: Sequence[Chunk]) -> dict[str, float]:
-        estimate = int(PROXY_FACTOR * sum(estimate_tokens(c.embed_text()) for c in chunks))
+        estimate = int(
+            PROXY_FACTOR * sum(estimate_tokens(c.embed_text()) for c in chunks)
+        )
         while True:
             now = time.monotonic()
             while self._window and now - self._window[0][0] > 60:
@@ -134,7 +136,10 @@ def quantiles(samples: Sequence[float]) -> tuple[float, float, float]:
 
 
 def score_live(
-    settings: Settings, fusion: Retriever, gold: Sequence[GoldQuery], corpus_version: str
+    settings: Settings,
+    fusion: Retriever,
+    gold: Sequence[GoldQuery],
+    corpus_version: str,
 ) -> RerankScores:
     live = JinaReranker.from_settings(
         settings, timeout=MEASUREMENT_TIMEOUT, max_attempts=MEASUREMENT_ATTEMPTS
@@ -143,10 +148,15 @@ def score_live(
     scores: dict[str, dict[str, float]] = {}
     with live:
         for position, query in enumerate(gold, start=1):
-            pool = [result.chunk for result in fusion.search(query.question, RERANK_DEPTH)]
+            pool = [
+                result.chunk for result in fusion.search(query.question, RERANK_DEPTH)
+            ]
             scores[query.question] = paced.score(query.question, pool)
             logger.info(
-                "scored %d/%d, %d tokens billed so far", position, len(gold), live.tokens_used
+                "scored %d/%d, %d tokens billed so far",
+                position,
+                len(gold),
+                live.tokens_used,
             )
     return RerankScores(
         model_id=MODEL_ID,
@@ -162,14 +172,21 @@ def packed(retriever: Retriever, gold, index, packer, *, expand: bool) -> RunRep
     runs = {
         q.query_id: [
             unit.citation
-            for unit in packer.pack(retriever.search(q.question, EVIDENCE_POOL), expand=expand).units
+            for unit in packer.pack(
+                retriever.search(q.question, EVIDENCE_POOL), expand=expand
+            ).units
         ]
         for q in gold
     }
     return score_run(gold, runs, EVIDENCE_POOL, index)
 
 
-def render(report: RerankReport, base: RetrieverBaseline, after: RetrieverBaseline, elapsed: float) -> str:
+def render(
+    report: RerankReport,
+    base: RetrieverBaseline,
+    after: RetrieverBaseline,
+    elapsed: float,
+) -> str:
     verdict = report.verdict
     lenient, strict = CreditMode.LENIENT, CreditMode.STRICT
     lines = [
@@ -306,15 +323,23 @@ def main() -> int:
     questions = [q.question for q in gold]
     with embedder:
         try:
-            dense = DenseRetriever.from_store(store, chunks, embedder, corpus_version=corpus_version)
+            dense = DenseRetriever.from_store(
+                store, chunks, embedder, corpus_version=corpus_version
+            )
             cached = load_query_vectors(
-                store / QUERY_VECTORS_FILENAME, model=embedder.info(), questions=questions
+                store / QUERY_VECTORS_FILENAME,
+                model=embedder.info(),
+                questions=questions,
             )
         except (RuntimeError, DenseRetrievalError, StaleVectorStoreError) as error:
-            print(f"error: {error} (run scripts/measure_hybrid.py first)", file=sys.stderr)
+            print(
+                f"error: {error} (run scripts/measure_hybrid.py first)", file=sys.stderr
+            )
             return 1
 
-    fusion = FusionRetriever([CachedQueryRetriever(dense, cached.vectors), BM25Retriever(chunks)])
+    fusion = FusionRetriever(
+        [CachedQueryRetriever(dense, cached.vectors), BM25Retriever(chunks)]
+    )
     try:
         stored = load_rerank_scores(
             scores_path,
@@ -332,7 +357,9 @@ def main() -> int:
     index = CitationIndex(chunks)
     shortcut = CitationRetriever(chunks)
     base = ShortcutRetriever(shortcut, fusion)
-    reranked = ShortcutRetriever(shortcut, RerankRetriever(fusion, StoredReranker(stored.scores)))
+    reranked = ShortcutRetriever(
+        shortcut, RerankRetriever(fusion, StoredReranker(stored.scores))
+    )
     before = measure("hybrid+citation_shortcut", base, gold, index, ordinal_scores=True)
     after = measure("reranked", reranked, gold, index, ordinal_scores=True)
     latency = quantiles(stored.latencies_ms)
@@ -341,7 +368,9 @@ def main() -> int:
     packed_reranked = packed(reranked, gold, index, packer, expand=False)
     expanded_reranked = packed(reranked, gold, index, packer, expand=True)
 
-    tops = {question: max(pool.values()) for question, pool in stored.scores.items() if pool}
+    tops = {
+        question: max(pool.values()) for question, pool in stored.scores.items() if pool
+    }
     answerable = [tops[q.question] for q in gold if q.slice is not QuerySlice.NEGATIVE]
     negative = [tops[q.question] for q in gold if q.slice is QuerySlice.NEGATIVE]
 
@@ -352,7 +381,9 @@ def main() -> int:
         depth=RERANK_DEPTH,
         fusion=before.reports,
         reranked=after.reports,
-        verdict=judge_rerank(after.reports[GUARD_K], before.reports[GUARD_K], latency[1]),
+        verdict=judge_rerank(
+            after.reports[GUARD_K], before.reports[GUARD_K], latency[1]
+        ),
         latency_ms=latency,
         tokens_billed=stored.tokens_billed,
         requests=len(stored.latencies_ms),
@@ -362,7 +393,9 @@ def main() -> int:
         expanded_reranked=expanded_reranked,
         top_score_answerable=(min(answerable), max(answerable)),
         top_score_negative=(min(negative), max(negative)),
-        negatives_above_weakest_answerable=sum(1 for s in negative if s > min(answerable)),
+        negatives_above_weakest_answerable=sum(
+            1 for s in negative if s > min(answerable)
+        ),
     )
 
     artifact_dir = settings.evals_dir / "reports" / corpus_version
@@ -381,14 +414,22 @@ def main() -> int:
 
     elapsed = time.perf_counter() - started
     REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text(render(report, before, after, elapsed), encoding="utf-8", newline="")
+    REPORT.write_text(
+        render(report, before, after, elapsed), encoding="utf-8", newline=""
+    )
 
     for label, run in (("fusion", before), ("reranked", after)):
         overall = run.reports[GUARD_K].overall[CreditMode.LENIENT]
-        print(f"{label}: lenient nDCG@{GUARD_K} {overall.ndcg:.3f}, recall@{GUARD_K} {overall.recall:.3f}")
-    print(f"rerank latency p50/p95/max: {latency[0]:.0f}/{latency[1]:.0f}/{latency[2]:.0f} ms")
+        print(
+            f"{label}: lenient nDCG@{GUARD_K} {overall.ndcg:.3f}, recall@{GUARD_K} {overall.recall:.3f}"
+        )
+    print(
+        f"rerank latency p50/p95/max: {latency[0]:.0f}/{latency[1]:.0f}/{latency[2]:.0f} ms"
+    )
     verdict = report.verdict
-    print(f"verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}")
+    print(
+        f"verdict: {'ADOPTED' if verdict.adopted else 'REJECTED'} {list(verdict.reasons)}"
+    )
     print(f"wrote {artifact}")
     print(f"wrote {REPORT}")
     return 0

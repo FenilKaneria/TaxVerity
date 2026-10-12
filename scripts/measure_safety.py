@@ -43,7 +43,7 @@ from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 logger = get_logger(__name__)
 
 
-# R23 (ADR-129): --model -> (primary, fallback). None = the class default.
+# --model -> (primary, fallback). None = the class default.
 MODELS: dict[str, tuple[Provider | None, Provider]] = {
     "120b": (None, GEMINI),
     "20b": (GROQ_20B, GEMINI),
@@ -62,9 +62,6 @@ DATASETS = {
     ),
 }
 
-# Step 7.1 measured 8,000 tokens a minute on the free tier. A classification is
-# small (~250 tokens for the system prompt plus reasoning), but the pause stays
-# conservative rather than relying on the client's 429 retry to do the pacing.
 DEFAULT_PAUSE = 4.0
 
 

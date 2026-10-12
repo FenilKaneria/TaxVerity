@@ -64,7 +64,7 @@ logger = get_logger(__name__)
 
 REPORT = Path("reports") / "deepeval_sample.md"
 DEFAULT_LIMIT = 5
-# A judgement is a few thousand tokens against 8,000 a minute (Step 7.1).
+# A judgement is a few thousand tokens against 8,000 a minute.
 DEFAULT_PAUSE = 30.0
 JUDGE_MAX_COMPLETION_TOKENS = 4_096
 

@@ -1,5 +1,6 @@
-"""Step 1.8 — extract the cross-reference edge table and the s.2 definitions
-glossary from the parsed section and Schedule trees."""
+"""Extract the cross-reference edge table and the s.2 definitions
+glossary from the parsed section and Schedule trees.
+"""
 
 from __future__ import annotations
 
@@ -35,7 +36,9 @@ def render(result: CrossReferenceIndex, elapsed: float) -> str:
     # rather than truncating to the text after the last newline, which would
     # collapse distinct names ("Foreign Exchange Management\nAct" and
     # "Representation of the People\nAct") into one misleading "Act" bucket.
-    by_act = Counter(re.sub(r"\s+", " ", ext.act_name).strip() for ext in result.external)
+    by_act = Counter(
+        re.sub(r"\s+", " ", ext.act_name).strip() for ext in result.external
+    )
     dangling = result.dangling
 
     lines = [
@@ -55,7 +58,10 @@ def render(result: CrossReferenceIndex, elapsed: float) -> str:
                 ("— resolved", len(result.references) - len(dangling)),
                 ("— dangling (residue, below)", len(dangling)),
                 ("**Resolution rate**", f"**{result.resolution_rate:.2%}**"),
-                ("External-Act mentions (excluded from the rate)", len(result.external)),
+                (
+                    "External-Act mentions (excluded from the rate)",
+                    len(result.external),
+                ),
                 ("Glossary terms (section 2)", len(result.glossary)),
                 ("Extraction time", f"{elapsed:.2f}s"),
             ]
@@ -101,13 +107,13 @@ def render(result: CrossReferenceIndex, elapsed: float) -> str:
         "number of explained categories, none of them a silent extraction bug:",
         "",
         "1. **A trailing Act name shared across an `or`/`,`-joined list that",
-        "   the regex cannot see past.** `\"section 12A, 12AA or 12AB or section",
-        "   10(23C) of the Income-tax Act, 1961\"` — the Act name confirms the",
+        '   the regex cannot see past.** `"section 12A, 12AA or 12AB or section',
+        '   10(23C) of the Income-tax Act, 1961"` — the Act name confirms the',
         "   *last* mention only; earlier ones in the same list belong to it too,",
         "   but recovering that needs sentence-level attribution this",
         "   node-local regex does not attempt.",
         "2. **An elliptical cross-reference that omits an already-established",
-        "   sub-section number.** `\"section 70(zd)\"` means `70(1)(zd)` given the",
+        '   sub-section number.** `"section 70(zd)"` means `70(1)(zd)` given the',
         "   surrounding sentence, but that context lives outside the citing",
         "   node's own text.",
         "3. **A citation whose depth does not match this corpus's own,",
@@ -116,7 +122,7 @@ def render(result: CrossReferenceIndex, elapsed: float) -> str:
         "   drafting/numbering question to verify against the source PDF, not",
         "   a parser gap.",
         "4. **A nested list whose continuation item varies more than the",
-        "   trailing bracket** (e.g. `\"(15A), (15)(iiia)\"`), which the",
+        '   trailing bracket** (e.g. `"(15A), (15)(iiia)"`), which the',
         "   single-bracket continuation rule does not attempt to generalise to.",
         "",
         "| From | Surface text | Attempted target |",
@@ -142,7 +148,9 @@ def main() -> int:
     pages = list(read_pages_jsonl(source))
 
     act = parse_sections(pages)
-    section_regions = find_table_regions(settings.resolve_corpus_pdf(), candidate_table_pages(act))
+    section_regions = find_table_regions(
+        settings.resolve_corpus_pdf(), candidate_table_pages(act)
+    )
     sub = parse_substructure(act, table_regions=section_regions)
 
     schedule_regions = find_table_regions(
@@ -157,7 +165,9 @@ def main() -> int:
     REPORT.write_text(render(result, elapsed), encoding="utf-8", newline="\n")
 
     print(f"references  {len(result.references)}")
-    print(f"resolved    {len(result.references) - len(result.dangling)} ({result.resolution_rate:.2%})")
+    print(
+        f"resolved    {len(result.references) - len(result.dangling)} ({result.resolution_rate:.2%})"
+    )
     print(f"dangling    {len(result.dangling)}")
     print(f"external    {len(result.external)}")
     print(f"glossary    {len(result.glossary)}")

@@ -1,4 +1,4 @@
-"""Step 2.4 — build the chunk store from the extracted corpus."""
+"""Build the chunk store from the extracted corpus."""
 
 from __future__ import annotations
 

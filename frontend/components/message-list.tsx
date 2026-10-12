@@ -1,22 +1,8 @@
 import { LogoMark } from "@/components/brand/logo";
 import type { ClickedCitation } from "@/components/citation-dialog";
-import { TracePanel } from "@/components/trace-panel";
-import { WithheldNote } from "@/components/withheld-note";
 import { MarkdownAnswer } from "@/lib/markdown";
 import type { Message } from "@/lib/threads";
 
-// Step 16.3, restyled. A persisted message carries its citations as
-// {path, quote} pairs (graph/nodes.py's finalize()), so the popup
-// (citation-dialog.tsx) opens straight from what's already on the message —
-// no dependency on the live turn's own transcript state. A message
-// persisted before that change has `quote: null`; the dialog still opens,
-// just without a quote to show.
-//
-// No longer its own scroll container — components/conversation.tsx owns
-// scrolling for history + the live transcript together. User messages are
-// right-aligned tinted bubbles; assistant messages are full-width with a
-// small seal mark in the gutter, echoing turn-stream.tsx's live rendering
-// so a persisted turn and a live one read the same way.
 export function MessageList({
   messages,
   onCiteClick,
@@ -50,8 +36,6 @@ export function MessageList({
                   {message.content}
                 </p>
               )}
-              <WithheldNote reasons={message.withheld.map((w) => w.reason)} />
-              <TracePanel trace={message.trace} />
             </div>
           </li>
         ),

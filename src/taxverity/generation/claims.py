@@ -1,29 +1,4 @@
-"""R19 Phase B (ADR-120) — what the generator emits, and how a stream becomes
-it.
-
-The model writes plain markdown, one releasable unit per line (a "### "
-section label, a "- " bullet, a "1. " numbered step, or a plain sentence —
-R22 Part B), so each line can be verified and released the moment it is
-complete — same streaming contract as before
-(one claim = roughly one line), just a different line grammar. `iter_lines()`
-and `LineBuffer` are unchanged from the NDJSON design; only what a line
-*means* changed.
-
-A citation is no longer a model-supplied path-and-quote pair. The evidence
-pack numbers its units `[1]..[n]` (see `generate.render_context`), and the
-model cites by writing that number inline, e.g. "...deductible [2]." — a
-small integer is far harder for a model to get subtly wrong than a section
-path plus a verbatim quote, and it is what actually lets a sentence be
-released as ordinary prose instead of one JSON object per claim. The
-verifier (see `verifier.py`) resolves `[n]` to the pack unit at that
-position; `Claim.citations` is filled in by the verifier from what it
-resolved, never trusted from the model.
-
-A line restating a figure from the calculator's trace (never from a
-passage) carries the literal marker `[calc]` instead of a number, so the
-verifier can tell "cite the evidence" and "restate the computation" apart
-without a JSON `type` field.
-"""
+"""What the generator emits, and how a stream becomes it."""
 
 from __future__ import annotations
 
@@ -38,30 +13,23 @@ CLAIMS_STAGE_VERSION = 7
 
 # "The Act does not ...", "The Act is silent on ...", "Nothing in the Act
 # ...": the one claim type carrying no citation, recognisable only by its own
-# opening words (rule 03) — kept here, not in verifier.py, since classifying
+# opening words — kept here, not in verifier.py, since classifying
 # a line by its text is this module's job.
 NO_BASIS_OPENERS = ("The Act does not", "The Act is silent on", "Nothing in the Act")
 
-# R20 Step 20.7: a line the `reason` pipeline couldn't yet decide — distinct
-# from NO_BASIS (nothing in the Act answers it at all). Must name, by citing
-# its `[n]`, the specific condition the analysis marked `unknown`.
 UNKNOWN_OPENERS = ("This can't yet be determined", "This cannot yet be determined")
 
 _HEADING = re.compile(r"^#{1,6}\s+\S")
 CALC_MARKER = "[calc]"
-# R20 Step 20.7: an APPLICATION line applies a cited rule to the person's own
-# stated/inferred facts, so its numbers may come from either — this literal
-# marker is what tells the verifier a line is doing that, the same way
-# CALC_MARKER tells it a line restates the computation.
 FACT_MARKER = "[fact]"
-# R21 (ADR-127): an EXAMPLE line illustrates a cited rule with hypothetical
+# An EXAMPLE line illustrates a cited rule with hypothetical
 # figures. The marker says "illustration", and the fixed openers make the
 # hypothetical framing visible to the reader, not only to the verifier.
 EXAMPLE_MARKER = "[eg]"
 EXAMPLE_OPENERS = (
     "For example", "For instance", "Suppose", "Say ", "Say,", "Imagine", "E.g.", "e.g.",
 )  # fmt: skip
-# R22 Part C (ADR-128): a GUIDANCE line is practical process help the Act
+# A GUIDANCE line is practical process help the Act
 # doesn't contain (where to file, what to keep). It cites nothing and the
 # verifier bars it from stating law; see `verifier._verify_guidance`.
 GUIDE_MARKER = "[guide]"
@@ -79,7 +47,7 @@ class ClaimType(StrEnum):
     # evidence, so both are this one kind. Must cite at least one of the
     # evidence pack's `[n]` markers (verifier.py, `NO_CITATION`) — no
     # allowance for an uncited "connective" line, found to be a real
-    # injection-resistance gap while this phase was built (ADR-120).
+    # injection-resistance gap while this phase was built.
     CONTENT = "content"
     # A restatement of the calculator's trace, marked `[calc]` instead of a
     # numeric citation. Its numbers must come from the computation, not a
@@ -99,13 +67,13 @@ class ClaimType(StrEnum):
     # the `[n]` of the specific condition the reasoning analysis marked
     # `unknown` (verifier.py).
     UNKNOWN = "unknown"
-    # R21 (ADR-127): "Suppose your loss is ₹3,00,000 … [2][eg]". Illustrates
+    # "Suppose your loss is ₹3,00,000 … [2][eg]". Illustrates
     # a cited rule; hypothetical inputs need no source, but a rate, limit,
     # threshold or section number must still ground in the cited passage, and
     # any equation it shows must add up (verifier.py). Never counts towards
     # the evidence gate on its own.
     EXAMPLE = "example"
-    # R22 Part C (ADR-128): "Keep the e-verification acknowledgement [guide]".
+    # "Keep the e-verification acknowledgement [guide]".
     # General process guidance, not from the Act: no citation, no figure, no
     # provision, no tax-treatment word (verifier.py). Never grounded, never
     # satisfies the evidence gate, and rendered in a box labelled as such.
@@ -113,8 +81,8 @@ class ClaimType(StrEnum):
 
 
 class Citation(BaseModel):
-    """Resolved by the verifier from a `[n]` marker — never trusted from the
-    model, which supplies only the bare integer inline in the claim's text."""
+    """Resolved by the verifier from a `[n]` marker — never trusted from the model,
+    which supplies only the bare integer inline in the claim's text."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -136,12 +104,12 @@ class Claim(BaseModel):
 
 
 class MalformedClaim(ValueError):
-    """A line with no usable content once markers are stripped, or one that
-    is nothing but a marker. Verification treats it as a failed claim."""
+    """A line with no usable content once markers are stripped, or one that is nothing
+    but a marker."""
 
 
 class ClaimEvent(BaseModel):
-    """A released claim. `verified` can only be True: rule 04's invariant is a type."""
+    """A released claim."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -159,12 +127,6 @@ class WithheldEvent(BaseModel):
     reason: str
 
 
-# Step 12.6 (rule 03): a constant, never model-generated, carried in every
-# `final` event the streaming contract (rule 04) defines - Phase 13's graph is
-# what assembles that event, but the text lives here so it has one source of
-# truth from the moment any caller needs it, verbatim from
-# `docs/SAFETY_POLICY.md`'s own Disclaimer section. The frontend (Phase 16)
-# renders it non-dismissible.
 DISCLAIMER = (
     "This is general information about the Income-tax Act, 2025, not "
     "professional tax advice. Confirm anything material with a qualified "
@@ -173,33 +135,33 @@ DISCLAIMER = (
 
 
 _BULLET = re.compile(r"^[-*•]\s+")
-# R22 Part B: a numbered step, "1. " or "1) ". The digits are list syntax,
+# A numbered step, "1. " or "1) ". The digits are list syntax,
 # never a figure the line states; the frontend numbers the list itself.
 _LIST_NUMBER = re.compile(r"^\d{1,2}[.)]\s+")
 
 
 def strip_list_number(text: str) -> str:
-    """The line without a leading step number, so the verifier never reads
-    the "2" of "2. You can deduct ₹2,00,000 [1]" as a stated figure."""
+    """The line without a leading step number, so the verifier never reads the "2" of
+    "2."""
     return _LIST_NUMBER.sub("", text.strip())
 
 
 def line_body(text: str) -> str:
-    """The line without its bullet or step number, so a fixed opener is
-    recognised however the model listed it."""
+    """The line without its bullet or step number, so a fixed opener is recognised
+    however the model listed it."""
     return _BULLET.sub("", strip_list_number(text))
 
 
 def classify_line(text: str) -> ClaimType:
     if _HEADING.match(text):
         return ClaimType.HEADING
-    # R22 Part C: checked before every opener, so a line marked [guide] is
+    # Checked before every opener, so a line marked [guide] is
     # always verified as guidance — its stricter checks then catch any law
     # it states, whatever words it opens with.
     if GUIDE_MARKER in text:
         return ClaimType.GUIDANCE
     body = line_body(text)
-    # R21: "The Act does not allow X [3]" cites the passage that says so — a
+    # "The Act does not allow X [3]" cites the passage that says so — a
     # grounded statement, verified as content. Only an uncited opener line is
     # the Act's silence.
     if body.startswith(NO_BASIS_OPENERS) and not MARKER.search(text):
@@ -232,8 +194,8 @@ def strip_non_citation_markers(text: str) -> str:
 
 
 def strip_all_markers(text: str) -> str:
-    """Plain prose of a served line, for re-use as context on a follow-up —
-    its `[n]` numbers belonged to that turn's pack and mean nothing now."""
+    """Plain prose of a served line, for re-use as context on a follow-up — its `[n]`
+    numbers belonged to that turn's pack and mean nothing now."""
     return re.sub(
         r"\s+([.,;:])", r"\1", MARKER.sub("", strip_non_citation_markers(text))
     ).strip()
@@ -251,14 +213,12 @@ class LineBuffer:
         return [line for line in (_clean(raw) for raw in complete) if line]
 
     def flush(self) -> list[str]:
-        # The last line of a stream has no trailing newline (Step 7.1).
+        # The last line of a stream has no trailing newline.
         line, self._partial = _clean(self._partial), ""
         return [line] if line else []
 
 
 def split_lines(text: str) -> list[str]:
-    """Same cleaning `iter_lines` applies to a stream, over one whole
-    completion at once — R20 Step 20.7's `generate` is non-streamed."""
     buffer = LineBuffer()
     return buffer.feed(text) + buffer.flush()
 

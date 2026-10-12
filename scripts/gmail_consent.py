@@ -43,15 +43,19 @@ def main() -> None:
     client_id = input("Gmail OAuth client id: ").strip()
     client_secret = input("Gmail OAuth client secret: ").strip()
 
-    auth_url = AUTH_URL + "?" + urllib.parse.urlencode(
-        {
-            "client_id": client_id,
-            "redirect_uri": REDIRECT_URI,
-            "response_type": "code",
-            "scope": SCOPE,
-            "access_type": "offline",
-            "prompt": "consent",
-        }
+    auth_url = (
+        AUTH_URL
+        + "?"
+        + urllib.parse.urlencode(
+            {
+                "client_id": client_id,
+                "redirect_uri": REDIRECT_URI,
+                "response_type": "code",
+                "scope": SCOPE,
+                "access_type": "offline",
+                "prompt": "consent",
+            }
+        )
     )
     print(f"Opening browser for consent. If it does not open, visit:\n{auth_url}\n")
     webbrowser.open(auth_url)

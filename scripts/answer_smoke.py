@@ -108,13 +108,13 @@ from taxverity.safety.classifier import IntentClassifier, ScopeCategory
 logger = get_logger(__name__)
 
 REPORT = Path("reports") / "answer_smoke.md"
-# One answer is roughly 5-7k tokens against 8,000 a minute (Step 7.1).
+# One answer is roughly 5-7k tokens against 8,000 a minute.
 DEFAULT_PAUSE = 50.0
 
 
 class Offline:
-    """The served embedding identity with no way to embed: every question here
-    has a stored vector, so reaching the network would be a bug."""
+    """The served embedding identity with no way to embed: every question here has a
+    stored vector, so reaching the network would be a bug."""
 
     def __init__(self, info) -> None:
         self._info = info
@@ -129,10 +129,7 @@ class Offline:
 def build_retrieval(
     settings: Settings, questions: list[str]
 ) -> tuple[list[Chunk], Retriever]:
-    """Production's composition (ADR-086) over stored vectors and rerank scores.
-
-    The dense failure fallback is left out: nothing here can fail over the network.
-    """
+    """Production's composition over stored vectors and rerank scores."""
     corpus_version = read_corpus_version(settings.interim_dir / "corpus_manifest.json")
     chunks, _ = load_chunks(settings.interim_dir, corpus_version=corpus_version)
     store = settings.vectors_dir / "jina-api"
@@ -172,17 +169,13 @@ def build_retrieval(
 
 
 def build_followup_retrieval(settings: Settings, chunks: list[Chunk]) -> Retriever:
-    """Production's composition (ADR-086), fully live. A follow-up's rewritten
-    query only exists once the LLM has produced it, so — unlike the fixed gold
-    questions above — there is nothing to pre-embed or pre-rerank ahead of
-    time. Rerank and dense failures still degrade in-process exactly as they
-    do in production (RerankRetriever, FallbackRetriever); nothing here needs
-    to catch them a second time.
-    """
+    """Production's composition, fully live."""
     corpus_version = read_corpus_version(settings.interim_dir / "corpus_manifest.json")
     store = settings.vectors_dir / "jina-api"
     vectors, ids, manifest = load_vector_store(store, corpus_version=corpus_version)
-    dense = DenseRetriever(chunks, vectors, ids, manifest, JinaAPIEmbedder.from_settings(settings))
+    dense = DenseRetriever(
+        chunks, vectors, ids, manifest, JinaAPIEmbedder.from_settings(settings)
+    )
     bm25 = BM25Retriever(chunks)
     fusion = FallbackRetriever(FusionRetriever([dense, bm25]), bm25)
     bridge = TermBridge(load_bridge_map(), chunks)
@@ -323,7 +316,10 @@ def render(run: AnswerRun, summary: SmokeSummary) -> str:
             f"### {record.query_id} ({record.slice.value}) — {record.question}",
             "",
         ]
-        if record.category is not None and record.category != ScopeCategory.IN_SCOPE.value:
+        if (
+            record.category is not None
+            and record.category != ScopeCategory.IN_SCOPE.value
+        ):
             lines += [
                 f"Classified `{record.category}` — routed to the fixed template, "
                 f"never reached retrieval or generation. {record.seconds:.1f}s.",
@@ -365,9 +361,6 @@ def run_live(
         LangfuseTracer.from_settings(settings),
     )
     generator = AnswerGenerator(llm, {chunk.node_path: chunk for chunk in chunks})
-    # R19 Phase D: same client, one more small call per question — mirrors
-    # `graph/build.py`'s `_scope_branch`, which is what actually keeps a
-    # non-`in_scope` question from ever reaching the generator in production.
     classifier = IntentClassifier(llm)
 
     records = []
@@ -385,7 +378,9 @@ def run_live(
             evidence = evidence_texts(pack)
             try:
                 for event in generator.generate(query.question, pack):
-                    (claims if isinstance(event, ClaimEvent) else withheld).append(event)
+                    (claims if isinstance(event, ClaimEvent) else withheld).append(
+                        event
+                    )
             except LLMError as failure:
                 error = str(failure)
                 logger.warning("%s: provider failed: %s", query_id, failure)
@@ -442,7 +437,9 @@ def main() -> int:
 
     if args.stored:
         run = load_answer_run(path)
-        followup_run = load_followup_run(followup_path) if followup_path.exists() else None
+        followup_run = (
+            load_followup_run(followup_path) if followup_path.exists() else None
+        )
     else:
         try:
             run, followup_run = run_live(
@@ -469,7 +466,9 @@ def main() -> int:
     print(f"served on negative: {', '.join(summary.served_on_negative) or 'none'}")
     if followup_run is not None:
         hits = sum(1 for record in followup_run.records if record.hit)
-        print(f"follow-up cases: {hits}/{len(followup_run.records)} hit expected citation")
+        print(
+            f"follow-up cases: {hits}/{len(followup_run.records)} hit expected citation"
+        )
     print(f"provider errors: {summary.errors}")
     print(f"tokens {run.tokens:,}")
     print(f"wrote {path}")

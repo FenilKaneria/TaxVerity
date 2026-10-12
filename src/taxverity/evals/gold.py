@@ -1,5 +1,5 @@
-"""Step 3.1 — the retrieval gold set: hand-labelled questions with the
-citations a correct retriever must return."""
+"""The retrieval gold set: hand-labelled questions with the citations a correct
+retriever must return."""
 
 from __future__ import annotations
 
@@ -15,9 +15,6 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-# v1 is frozen: the Step 3.6 baseline artifact was measured against exactly
-# those 30 queries, and mutating the file in place would silently invalidate
-# that record. v2 is the working set from Step 3.7 onwards (ADR-064).
 GOLD_V1_FILENAME = "retrieval_gold_v1.jsonl"
 GOLD_V2_FILENAME = "retrieval_gold_v2.jsonl"
 QUERY_ID = re.compile(r"^q\d{3}$")
@@ -36,9 +33,6 @@ class GoldQuery(BaseModel):
     query_id: str
     slice: QuerySlice
     question: str
-    # Citations, not chunk ids. A chunk id is bound to corpus_version and would
-    # invalidate the whole hand-labelled set on any re-extraction; a citation
-    # survives anything that does not change the Act's own structure. ADR-059.
     required: tuple[str, ...]
     notes: str
 

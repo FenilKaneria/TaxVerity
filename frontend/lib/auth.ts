@@ -1,8 +1,3 @@
-// Step 16.2. Typed calls over the /v1/auth/* surface (src/taxverity/api/auth_routes.py).
-// Every call here goes through apiJson, so the refresh cookie is attached
-// (credentialsFor scopes it to /v1/auth) and no Authorization header is
-// sent — none of these routes accept or need a bearer token.
-
 import { apiJson } from "./api";
 import { clearAuth, setAccessToken } from "./auth-store";
 

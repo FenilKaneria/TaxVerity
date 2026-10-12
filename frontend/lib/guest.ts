@@ -1,10 +1,3 @@
-// Closes the frontend half of the ADR-112 guest-trial gap: `apiFetch` (not
-// `authorizedFetch` — no bearer token exists for a visitor who hasn't signed
-// in), same `fetch`+`ReadableStream` pattern as lib/turns.ts's streamTurn().
-// `credentials: "include"` reaches `/v1/guest/*` via lib/api.ts's
-// `credentialsFor()`, which is what lets the httpOnly guest cookie the
-// backend mints round-trip back on the next call.
-
 import { apiFetch } from "./api";
 import { ApiError, parseError } from "./errors";
 import { SSEDecoder, type TurnEvent } from "./sse";

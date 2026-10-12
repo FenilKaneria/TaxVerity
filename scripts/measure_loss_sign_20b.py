@@ -64,7 +64,9 @@ def run_set(
 def render(v1: ExtractionScore, v2: ExtractionScore, elapsed: float) -> str:
     v1_bad = [t for t in v1.turns if unclean(t)]
     v2_bad = [t for t in v2.turns if unclean(t)]
-    any_wrong_sign = any(t.value_wrong for t in v1.turns) or any(t.value_wrong for t in v2.turns)
+    any_wrong_sign = any(t.value_wrong for t in v1.turns) or any(
+        t.value_wrong for t in v2.turns
+    )
     lines = [
         "# R18 gate 3 (part) — loss-sign held-out turns against Groq 20b",
         "",
@@ -88,12 +90,16 @@ def render(v1: ExtractionScore, v2: ExtractionScore, elapsed: float) -> str:
     if not v1_bad:
         lines.append("All clean.")
     for t in v1_bad:
-        lines.append(f"- **{t.turn_id}**: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}")
+        lines.append(
+            f"- **{t.turn_id}**: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}"
+        )
     lines += ["", "## v2 (12 turns)", ""]
     if not v2_bad:
         lines.append("All clean.")
     for t in v2_bad:
-        lines.append(f"- **{t.turn_id}**: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}")
+        lines.append(
+            f"- **{t.turn_id}**: wrong {t.value_wrong}, missed {t.missed}, invented {t.spurious}"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -115,8 +121,12 @@ def main() -> int:
 
     started = time.perf_counter()
     try:
-        v1 = run_set(holdout, extractor, DEFAULT_PAUSE, runs / "loss_holdout_run_v1_20b.json")
-        v2 = run_set(holdout_v2, extractor, DEFAULT_PAUSE, runs / "loss_holdout_run_v2_20b.json")
+        v1 = run_set(
+            holdout, extractor, DEFAULT_PAUSE, runs / "loss_holdout_run_v1_20b.json"
+        )
+        v2 = run_set(
+            holdout_v2, extractor, DEFAULT_PAUSE, runs / "loss_holdout_run_v2_20b.json"
+        )
     except LLMError as error:
         print(f"the provider failed mid-run: {error}")
         return 1
@@ -124,7 +134,9 @@ def main() -> int:
 
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(render(v1, v2, elapsed), encoding="utf-8", newline="")
-    print(f"v1 clean {v1.clean_turns}/{len(v1.turns)}, v2 clean {v2.clean_turns}/{len(v2.turns)}")
+    print(
+        f"v1 clean {v1.clean_turns}/{len(v1.turns)}, v2 clean {v2.clean_turns}/{len(v2.turns)}"
+    )
     print(f"wrote {REPORT}")
     return 0
 

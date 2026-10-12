@@ -39,8 +39,6 @@ logger = get_logger(__name__)
 REPORT = Path("reports") / "lexical_comparison.md"
 ARTIFACT = "lexical_comparison.json"
 
-# Step 3.4's untuned Okapi defaults, the ladder's starting point. Fixed here
-# rather than read from bm25.py, whose defaults are now the ladder's winner.
 DEFAULTS: Params = (1.5, 0.75)
 K1_GRID = (0.9, 1.2, 1.5, 1.8, 2.1)
 B_GRID = (0.3, 0.5, 0.75, 0.9)
@@ -50,7 +48,7 @@ LATENCY_REPEATS = 3
 GROUPED_NUMBER = re.compile(r"\d[\d,]*\d")
 AMOUNT = re.compile(r"\d{1,3}(?:,\d{2})*,\d{3}|\d{1,3}(?:,\d{3})+")
 
-# --- rejected rungs (ADR-077) -------------------------------------------------
+# --- rejected rungs -------------------------------------------------
 # Kept in this script, not in src/, so the recorded result stays reproducible
 # without shipping code production never runs.
 
@@ -71,8 +69,8 @@ ORIGINAL_WEIGHT = 0.5
 
 
 class FeedbackRetriever:
-    """RM3 pseudo-relevance feedback: the first pass's top chunks lend their
-    vocabulary to a second pass."""
+    """RM3 pseudo-relevance feedback: the first pass's top chunks lend their vocabulary
+    to a second pass."""
 
     def __init__(self, bm25: BM25Retriever) -> None:
         self._bm25 = bm25
@@ -90,19 +88,21 @@ class FeedbackRetriever:
             length = sum(frequencies.values())
             share = result.score / total
             for token, frequency in frequencies.items():
-                relevance[token] = relevance.get(token, 0.0) + share * frequency / length
+                relevance[token] = (
+                    relevance.get(token, 0.0) + share * frequency / length
+                )
 
-        # Ranked by P(w|R) x idf: ADR-061 keeps no stop list, and by relevance
-        # mass alone the top expansion terms are "the" and "of".
         expansion = sorted(
-            relevance, key=lambda token: (-relevance[token] * self._bm25.idf(token), token)
+            relevance,
+            key=lambda token: (-relevance[token] * self._bm25.idf(token), token),
         )[:FB_TERMS]
 
         weights = dict.fromkeys(original, ORIGINAL_WEIGHT / len(original))
         mass = sum(relevance[token] for token in expansion)
         for token in expansion:
             weights[token] = (
-                weights.get(token, 0.0) + (1 - ORIGINAL_WEIGHT) * relevance[token] / mass
+                weights.get(token, 0.0)
+                + (1 - ORIGINAL_WEIGHT) * relevance[token] / mass
             )
         return weights
 
@@ -214,7 +214,11 @@ def rung(
     composed = ShortcutRetriever(shortcut, primary)
     bare = measure(f"{name}: {config}", primary, gold, index)
     with_shortcut = measure(
-        f"{name}: {config} + citation shortcut", composed, gold, index, ordinal_scores=True
+        f"{name}: {config} + citation shortcut",
+        composed,
+        gold,
+        index,
+        ordinal_scores=True,
     )
     p50, p95 = latency_ms(composed, gold)
     verdict = (
@@ -380,11 +384,15 @@ def render(report: LadderReport, elapsed: float) -> str:
     for r in rungs:
         if r.against is None:
             continue
-        before = {o.query_id: o.lenient_recall for o in by_name[r.against].shortcut.outcomes}
+        before = {
+            o.query_id: o.lenient_recall for o in by_name[r.against].shortcut.outcomes
+        }
         after = {o.query_id: o.lenient_recall for o in r.shortcut.outcomes}
         gained = [q for q in after if after[q] > before[q]]
         lost = [q for q in after if after[q] < before[q]]
-        lines.append(f"| {r.rung} | {', '.join(gained) or '—'} | {', '.join(lost) or '—'} |")
+        lines.append(
+            f"| {r.rung} | {', '.join(gained) or '—'} | {', '.join(lost) or '—'} |"
+        )
 
     lines += [
         "",
@@ -428,8 +436,12 @@ def render(report: LadderReport, elapsed: float) -> str:
         "|---|---|---|",
     ]
     for r in rungs:
-        answerable = sorted(o.top_score for o in r.bare.outcomes if o.top_score is not None)
-        negative = sorted(n.top_score for n in r.bare.negatives if n.top_score is not None)
+        answerable = sorted(
+            o.top_score for o in r.bare.outcomes if o.top_score is not None
+        )
+        negative = sorted(
+            n.top_score for n in r.bare.negatives if n.top_score is not None
+        )
         lines.append(f"| {r.rung} | {spread(answerable)} | {spread(negative)} |")
     return "\n".join(lines) + "\n"
 
@@ -554,8 +566,10 @@ def main() -> int:
 
     for r in report.rungs:
         overall = r.shortcut.primary.overall[CreditMode.LENIENT]
-        verdict = "baseline" if r.verdict is None else (
-            "adopted" if r.verdict.adopted else "rejected"
+        verdict = (
+            "baseline"
+            if r.verdict is None
+            else ("adopted" if r.verdict.adopted else "rejected")
         )
         print(
             f"{r.rung} {r.config}: lenient recall@{PRIMARY_K} {overall.recall:.3f}, "

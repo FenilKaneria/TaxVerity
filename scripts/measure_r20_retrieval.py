@@ -77,17 +77,25 @@ def classify_miss(
         return FailureCause(unit, "recall", "not in fusion's top 100 at all")
     in_pool = any(credits(c, unit, mode) for c in ranked_100[:pool_k])
     if not in_pool:
-        return FailureCause(unit, "ranking", f"in top 100 but outside the top {pool_k} pool")
+        return FailureCause(
+            unit, "ranking", f"in top 100 but outside the top {pool_k} pool"
+        )
     in_pack = any(credits(c, unit, mode) for c in pack_citations)
     if not in_pack:
-        return FailureCause(unit, "budget", "in the pool but cut by the evidence-pack token budget")
-    return FailureCause(unit, "context", "in the delivered pack under a lenient match, but not exact")
+        return FailureCause(
+            unit, "budget", "in the pool but cut by the evidence-pack token budget"
+        )
+    return FailureCause(
+        unit, "context", "in the delivered pack under a lenient match, but not exact"
+    )
 
 
 def main() -> None:
     configure_logging()
     settings = Settings()
-    gold = load_r20_gold_set(REPO_ROOT / "evals" / "datasets" / "retrieval_gold_r20.jsonl")
+    gold = load_r20_gold_set(
+        REPO_ROOT / "evals" / "datasets" / "retrieval_gold_r20.jsonl"
+    )
     answerable = [q for q in gold if q.slice is not R20Slice.NEGATIVE]
     negatives = [q for q in gold if q.slice is R20Slice.NEGATIVE]
 
@@ -107,7 +115,9 @@ def main() -> None:
     fusion = FallbackRetriever(FusionRetriever([dense, bm25]), bm25)
     bridge = TermBridge(load_bridge_map(), chunks)
     reranker = CachedReranker(JinaReranker.from_settings(settings))
-    ranked_retriever = BridgedRetriever(bridge, RerankRetriever(fusion, reranker, depth=EVIDENCE_POOL))
+    ranked_retriever = BridgedRetriever(
+        bridge, RerankRetriever(fusion, reranker, depth=EVIDENCE_POOL)
+    )
     retriever = ShortcutRetriever(CitationRetriever(chunks), ranked_retriever)
     packer = EvidencePacker(chunks, budget=PRODUCTION_BUDGET)
 
@@ -131,7 +141,12 @@ def main() -> None:
         for unit in missing:
             causes.append(
                 classify_miss(
-                    unit, citations, EVIDENCE_POOL, set(pack_citations), index, CreditMode.LENIENT
+                    unit,
+                    citations,
+                    EVIDENCE_POOL,
+                    set(pack_citations),
+                    index,
+                    CreditMode.LENIENT,
                 )
             )
         logger.info(
@@ -139,7 +154,11 @@ def main() -> None:
             query.query_id,
             len(query.rule_units) - len(missing),
             len(query.rule_units),
-            sum(1 for u in query.rule_units if any(credits(c, u, CreditMode.LENIENT) for c in citations)),
+            sum(
+                1
+                for u in query.rule_units
+                if any(credits(c, u, CreditMode.LENIENT) for c in citations)
+            ),
         )
 
     # Recall@k / Precision@k / MRR / Coverage@k, on the ranked list at k=10
@@ -152,11 +171,6 @@ def main() -> None:
         for q in answerable
     ]
 
-    # Negative-question regression check (R19 Phase D's q029 finding): does
-    # anything in the pack cite a rule unit at all (it should not, since
-    # these are out-of-corpus questions with no rule_units to find, but a
-    # tangential hit like section 39's "customs duty" is exactly what a
-    # relevance-blind retriever can surface).
     negative_pack_sizes = {}
     for query in negatives:
         results = retriever.search(query.question, RANK_DEPTH)
@@ -210,7 +224,7 @@ def _time_stages(question, dense, bm25, reranker, packer):
     fused = reciprocal_rank_fusion([dense_results, bm25_results])[:RANK_DEPTH]
     times["fusion"] = (time.perf_counter() - t0) * 1000
 
-    head = fused[: EVIDENCE_POOL]
+    head = fused[:EVIDENCE_POOL]
     t0 = time.perf_counter()
     try:
         scores = reranker.score(question, [r.chunk for r in head])
@@ -233,13 +247,26 @@ def _time_stages(question, dense, bm25, reranker, packer):
     return times
 
 
-def _write_report(*, gold_count, report_ranked_10, report_ranked_20, pack_scores, causes, negative_pack_sizes, latency):
+def _write_report(
+    *,
+    gold_count,
+    report_ranked_10,
+    report_ranked_20,
+    pack_scores,
+    causes,
+    negative_pack_sizes,
+    latency,
+):
     lines = ["# R20 retrieval-quality and latency diagnosis (Step 20.1)", ""]
-    lines.append(f"Measured against the real Supabase corpus/production retriever composition, {gold_count} R20 gold questions.")
+    lines.append(
+        f"Measured against the real Supabase corpus/production retriever composition, {gold_count} R20 gold questions."
+    )
     lines.append("")
     lines.append("## Recall@k / Coverage@k on the ranked list")
     lines.append("")
-    lines.append("| k | mean governing recall | mean precision | mean rule coverage | coverage_complete rate |")
+    lines.append(
+        "| k | mean governing recall | mean precision | mean rule coverage | coverage_complete rate |"
+    )
     lines.append("|---|---|---|---|---|")
     for r in (report_ranked_10, report_ranked_20):
         lines.append(
@@ -247,11 +274,17 @@ def _write_report(*, gold_count, report_ranked_10, report_ranked_20, pack_scores
             f"{r.mean_rule_coverage:.3f} | {r.coverage_complete_rate:.3f} |"
         )
     lines.append("")
-    lines.append("## Coverage on the delivered evidence pack (what the model actually sees)")
+    lines.append(
+        "## Coverage on the delivered evidence pack (what the model actually sees)"
+    )
     lines.append("")
     mean_cov = sum(s.rule_coverage for s in pack_scores) / len(pack_scores)
-    complete_rate = sum(1 for s in pack_scores if s.coverage_complete) / len(pack_scores)
-    lines.append(f"Mean rule coverage: **{mean_cov:.3f}**. Coverage-complete rate: **{complete_rate:.3f}**.")
+    complete_rate = sum(1 for s in pack_scores if s.coverage_complete) / len(
+        pack_scores
+    )
+    lines.append(
+        f"Mean rule coverage: **{mean_cov:.3f}**. Coverage-complete rate: **{complete_rate:.3f}**."
+    )
     lines.append("")
     lines.append("| query | slice | pack size | coverage | complete | missing units |")
     lines.append("|---|---|---|---|---|---|")
@@ -276,15 +309,21 @@ def _write_report(*, gold_count, report_ranked_10, report_ranked_20, pack_scores
     lines.append("## Negative-question regression check")
     lines.append("")
     for qid, size in negative_pack_sizes.items():
-        lines.append(f"- {qid}: pack size {size} (0 expected; a non-zero pack is a false-positive relevance risk, same shape as the R19 Phase D q029 finding)")
+        lines.append(
+            f"- {qid}: pack size {size} (0 expected; a non-zero pack is a false-positive relevance risk, same shape as the R19 Phase D q029 finding)"
+        )
     lines.append("")
     lines.append("## Latency, per sub-stage (ms)")
     lines.append("")
     lines.append("| stage | simple | complex |")
     lines.append("|---|---|---|")
     for stage in ("embed", "pgvector", "bm25", "fusion", "rerank", "pack", "total"):
-        lines.append(f"| {stage} | {latency['simple'][stage]:.1f} | {latency['complex'][stage]:.1f} |")
-    lines.append(f"| pack_units | {latency['simple']['pack_units']} | {latency['complex']['pack_units']} |")
+        lines.append(
+            f"| {stage} | {latency['simple'][stage]:.1f} | {latency['complex'][stage]:.1f} |"
+        )
+    lines.append(
+        f"| pack_units | {latency['simple']['pack_units']} | {latency['complex']['pack_units']} |"
+    )
     lines.append("")
 
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -1,15 +1,3 @@
-// Step 16.2. A module-level singleton, not React state: it must survive
-// React StrictMode's double-mount in dev, and be reachable from lib/api.ts
-// (a streaming fetch is not a component).
-//
-// The single-flight guard on refreshAccessToken() is a correctness
-// requirement, not an optimisation. The backend rotates the refresh token on
-// every use (auth/tokens.py) and treats a second use of an already-rotated
-// token as a replay — reuse detection then revokes the whole token family,
-// signing the user out of every device. Two concurrent refreshes would do
-// exactly that to a legitimate user, so at most one refresh may ever be in
-// flight.
-
 import { API_BASE } from "./config";
 
 export type AuthStatus = "unknown" | "authenticated" | "anonymous";

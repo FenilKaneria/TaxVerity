@@ -1,10 +1,4 @@
-"""Step 4.4 — a local Embedder: a sentence-transformers model on torch.
-
-Since R15 this is the offline fidelity *reference* for the served model, not a
-serving path — embeddings are served by the Jina hosted API (ADR-075). Imports
-torch and sentence_transformers only inside `__init__`, so the module stays
-cheap to import and free of the `embed` extra at load time.
-"""
+"""A local Embedder: a sentence-transformers model on torch."""
 
 from __future__ import annotations
 
@@ -16,11 +10,6 @@ from taxverity.observability import get_logger
 
 logger = get_logger(__name__)
 
-# Device (cuda vs cpu) is deliberately not folded in: the batch job builds
-# vectors on the GPU and production queries on CPU by design, and fp32 torch
-# differs by ~1e-6 between the two — noise for cosine retrieval. The runtime
-# that does change the numbers is a quantised one (ONNX, int8), and that flips
-# this string. See ADR-072.
 RUNTIME = "torch"
 
 _PROBE_TEXT = "probe"
@@ -85,9 +74,6 @@ class SentenceTransformerEmbedder:
             convert_to_numpy=True,
             show_progress_bar=False,
         )
-        # Re-normalise in float64. The models carry a normalising layer but run
-        # it in bf16, leaving the norm off unit by ~5e-4 — enough that a stored
-        # dot product is not quite the cosine Step 4.5 will treat it as.
         vectors = np.asarray(vectors, dtype=np.float64)
         vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
         return vectors.tolist()
