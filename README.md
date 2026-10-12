@@ -88,7 +88,19 @@ rankings; exact scan p95 ~51 ms is inside budget). Expansion was later
 re-admitted in a narrower form: after every hit is packed, leftover evidence
 budget is filled with the provisions those hits refer to, so it never costs a
 hit its place (evidence-pack coverage of gold citations 0.867 → 0.898 at a
-3,000-token budget).
+3,000-token budget). With the raw question later searched alongside the
+classifier's rewrite and one more bridge entry, the same set measures 0.929.
+
+**Sections too long to pack.** Section 393 (the TDS table) is one 9,573-token
+provision, larger than the whole evidence budget, so it could rank first and
+still never reach the model. A provision like that, when it ranks in the top
+five, is now delivered as an excerpt: its opening lines plus the lines that
+match the question, verbatim. The verifier grounds a figure only in the lines
+actually shown, and withholds any line that denies a duty while citing an
+excerpt, since unseen text is not evidence of absence. On an outside set of
+124 statute-lookup questions from another project, evidence-pack coverage
+went 0.762 → 0.935, and 0.208 → 1.000 on its 24 table questions, with no gold
+citation lost on either of our own sets (0.922 and 0.929 unchanged).
 
 **Generation** — 81 items through the full graph (49 answerable, 16 negative,
 8 calculation, 8 safety). Every served line was judged against only the

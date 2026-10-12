@@ -16,10 +16,17 @@ because referenced text displaced labels from the pool's tail (ADR-083).
 Step 5.8 adds definitions: the section 2 clause for a specific term the
 question uses, placed after every retrieved hit so it only fills what the
 budget leaves. Also off by default (ADR-086).
+
+R27 adds excerpts: a hit bigger than the whole budget could never be packed,
+so section 393 (the TDS table, unsplit under ADR-056) was retrieved first and
+never read. Such a hit is now delivered as the runs of its own lines that
+share words with the question, after every hit that fits has been placed.
 """
 
 from __future__ import annotations
 
+import math
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from enum import StrEnum
 
@@ -29,8 +36,9 @@ from taxverity.chunking.models import Chunk
 from taxverity.chunking.stats import estimate_tokens
 from taxverity.corpus.nodes import NodePath
 from taxverity.retrieval.base import ScoredChunk
+from taxverity.retrieval.bm25 import tokenize
 
-EVIDENCE_STAGE_VERSION = 3
+EVIDENCE_STAGE_VERSION = 4
 
 # Groq's free tier allows openai/gpt-oss-120b 8,000 tokens a minute (checked
 # 2026-09-11; Step 7.1 re-verifies). Evidence gets about half, leaving the rest
@@ -56,6 +64,82 @@ EXPANSION_HEAD = 10
 # q021, q062-q068) whose own incremental ratios during the walk run as low
 # as ~2.0x-5x. No single threshold separates the two. Left unguarded; a
 # pool-aware (not order-dependent) design is future work, not this pass.
+
+# An excerpt never takes more than this share of the budget.
+EXCERPT_SHARE = 0.5
+# Only an oversize hit ranked this high (or named by the person, which the
+# citation shortcut ranks first) is excerpted, with EXCERPT_RESERVE of the
+# budget held back for it; the excerpt is placed after the whole ranking.
+# Measured on gold v2: an excerpt placed in its own rank's turn cost s.194
+# its place (answer-gold pack coverage 0.908 -> 0.888), and one for a hit
+# ranked 7th or 12th was 1,000 to 1,500 tokens beside the point.
+EXCERPT_HEAD = 5
+EXCERPT_RESERVE = 1 / 3
+EXCERPT_WINDOW = 150
+# Less room than this is not worth a partial reading of a section: it is the
+# opening run and one more.
+EXCERPT_MINIMUM = 300
+# Marks lines left out. It is the only text in an excerpt that is not the
+# chunk's own, and it carries no word or figure a claim could ground in.
+ELISION = "[...]"
+
+
+def windows(text: str, size: int = EXCERPT_WINDOW) -> list[str]:
+    """Whole lines, in order, grouped into runs of about `size` tokens."""
+    runs: list[str] = []
+    current: list[str] = []
+    held = 0
+    for line in text.split("\n"):
+        current.append(line)
+        held += estimate_tokens(line)
+        if held >= size:
+            runs.append("\n".join(current))
+            current, held = [], 0
+    if current:
+        runs.append("\n".join(current))
+    return runs
+
+
+def excerpt(text: str, query: str, room: int) -> str | None:
+    """The opening run, then the runs sharing the most (and rarest) words with
+    the query, in document order, within `room` tokens. None when no later
+    run shares a telling word with the query: the opening lines alone answer
+    nothing.
+
+    A word found in more than half the runs ("the", "of", "resident" in a
+    section about residents) tells no run from another and is not counted.
+    """
+    runs = windows(text)
+    terms = set(tokenize(query))
+    bags = [set(tokenize(run)) & terms for run in runs]
+    spread = Counter(term for bag in bags for term in bag)
+    bags = [{term for term in bag if spread[term] * 2 <= len(runs)} for bag in bags]
+
+    def score(index: int) -> float:
+        return sum(math.log(1 + len(runs) / spread[term]) for term in bags[index])
+
+    # Each run is charged one elision mark: at most one precedes each chosen
+    # run, and the opening run's pays for the mark that may close the excerpt.
+    mark = estimate_tokens(ELISION)
+    chosen = {0}
+    spent = estimate_tokens(runs[0]) + mark
+    for index in sorted(range(1, len(runs)), key=lambda i: (-score(i), i)):
+        if not bags[index]:
+            break
+        cost = estimate_tokens(runs[index]) + mark
+        if spent + cost <= room:
+            chosen.add(index)
+            spent += cost
+    if len(chosen) == 1 or spent > room:
+        return None
+    parts: list[str] = []
+    for index in sorted(chosen):
+        if parts and index - 1 not in chosen:
+            parts.append(ELISION)
+        parts.append(runs[index])
+    if len(runs) - 1 not in chosen:
+        parts.append(ELISION)
+    return "\n".join(parts)
 
 
 class EvidenceRole(StrEnum):
@@ -88,6 +172,9 @@ class EvidenceUnit(BaseModel):
     role: EvidenceRole
     # Why a referenced unit is present: the retrieved unit whose text cites it.
     cited_by: str | None = None
+    # R27: set when the chunk is bigger than the whole budget. The model reads
+    # this, and the verifier grounds against this, never the rest of the chunk.
+    excerpt: str | None = None
 
     @model_validator(mode="after")
     def only_a_referenced_unit_is_cited_by_another(self) -> EvidenceUnit:
@@ -98,6 +185,11 @@ class EvidenceUnit(BaseModel):
     @property
     def citation(self) -> str:
         return self.chunk.node_path
+
+    @property
+    def text(self) -> str:
+        """What this unit delivers: the excerpt, or the whole chunk."""
+        return self.chunk.text if self.excerpt is None else self.excerpt
 
 
 class EvidencePack(BaseModel):
@@ -184,14 +276,19 @@ class EvidencePacker:
         return list(targets.values())
 
     def _unit(
-        self, chunk: Chunk, rank: int, role: EvidenceRole, cited_by: str | None
+        self,
+        chunk: Chunk,
+        rank: int,
+        role: EvidenceRole,
+        cited_by: str | None,
+        excerpt: str | None = None,
     ) -> EvidenceUnit:
         context = []
         for ancestor in self._ancestors(chunk):
             own = ancestor.text[: self._own_end[ancestor.chunk_id]].rstrip("\n")
             if own.strip():
                 context.append(ContextLine(citation=ancestor.node_path, text=own))
-        tokens = estimate_tokens(chunk.text) + sum(
+        tokens = estimate_tokens(chunk.text if excerpt is None else excerpt) + sum(
             estimate_tokens(line.text) for line in context
         )
         return EvidenceUnit(
@@ -201,7 +298,22 @@ class EvidencePacker:
             tokens=tokens,
             role=role,
             cited_by=cited_by,
+            excerpt=excerpt,
         )
+
+    def _excerpted(
+        self, units: list[EvidenceUnit], chunk: Chunk, rank: int, query: str
+    ) -> list[EvidenceUnit]:
+        """An oversize hit as an excerpt, when enough budget is left for one."""
+        left = self._budget - sum(unit.tokens for unit in units)
+        lead_in = self._unit(chunk, rank, EvidenceRole.RETRIEVED, None, "").tokens
+        room = min(left, int(self._budget * EXCERPT_SHARE)) - lead_in
+        if room < EXCERPT_MINIMUM:
+            return units
+        text = excerpt(chunk.text, query, room)
+        if text is None:
+            return units
+        return [*units, self._unit(chunk, rank, EvidenceRole.RETRIEVED, None, text)]
 
     def _place(
         self,
@@ -210,13 +322,16 @@ class EvidencePacker:
         rank: int,
         role: EvidenceRole,
         cited_by: str | None = None,
+        *,
+        limit: int | None = None,
     ) -> list[EvidenceUnit]:
         """One candidate against the pack so far.
 
         Already carried by a packed unit, itself or an ancestor: nothing
         changes. An ancestor of packed units: it replaces them, costs only the
         difference, and stays retrieved if any of them was, with their best
-        rank. Too big for what is left: nothing changes.
+        rank. Too big for what is left: nothing changes. `limit` is a budget
+        below the packer's own, while room is held back for an excerpt.
         """
         lineage = self._lineage_of(chunk)
         if any(unit.chunk.chunk_id in lineage for unit in units):
@@ -234,7 +349,8 @@ class EvidencePacker:
         else:
             unit = self._unit(chunk, rank, role, cited_by)
         kept = [u for u in units if u not in absorbed]
-        if sum(u.tokens for u in kept) + unit.tokens > self._budget:
+        budget = self._budget if limit is None else limit
+        if sum(u.tokens for u in kept) + unit.tokens > budget:
             return units
         if not absorbed:
             return [*units, unit]
@@ -244,6 +360,23 @@ class EvidencePacker:
         kept.insert(first, unit)
         return kept
 
+    def _oversize(self, results: Sequence[ScoredChunk]) -> list[tuple[int, Chunk]]:
+        """Hits in the top EXCERPT_HEAD bigger than the whole budget, with
+        nothing beneath them in the ranking, and their ranks. A hit with a
+        ranked descendant is left alone: the ranking has already found the
+        part of it that matters."""
+        ranked = [result.chunk for result in results]
+        return [
+            (rank, chunk)
+            for rank, chunk in enumerate(ranked[:EXCERPT_HEAD], start=1)
+            if estimate_tokens(chunk.text) > self._budget
+            and not any(
+                other.chunk_id != chunk.chunk_id
+                and chunk.chunk_id in self._lineage_of(other)
+                for other in ranked
+            )
+        ]
+
     def pack(
         self,
         results: Sequence[ScoredChunk],
@@ -251,6 +384,7 @@ class EvidencePacker:
         expand: bool = False,
         fill_refs: bool = False,
         definitions: Sequence[Chunk] = (),
+        query: str | None = None,
     ) -> EvidencePack:
         """Walk the ranking best first.
 
@@ -270,14 +404,27 @@ class EvidencePacker:
         (ADR-086, off by default). A hit that does not fit is passed over and
         the walk goes on, so a giant root at rank 1 does not crowd out
         everything below it.
+
+        With `query` (R27), a hit bigger than the whole budget is delivered
+        as an excerpt against that query, after the whole ranking and before
+        any reference fill, with EXCERPT_RESERVE of the budget held back for
+        it. Only a hit in the top EXCERPT_HEAD is excerpted. Without `query`,
+        such a hit is passed over as before.
         """
         for chunk in (*(result.chunk for result in results), *definitions):
             if chunk.chunk_id not in self._by_id:
                 raise ValueError(f"{chunk.node_path} is not in the packer's chunk set")
         head = EXPANSION_HEAD if expand else len(results)
+        oversize = self._oversize(results) if query and query.strip() else []
+        limit = None
+        if oversize:
+            limit = self._budget - int(self._budget * EXCERPT_RESERVE)
+
         units: list[EvidenceUnit] = []
         for rank, result in enumerate(results[:head], start=1):
-            units = self._place(units, result.chunk, rank, EvidenceRole.RETRIEVED)
+            units = self._place(
+                units, result.chunk, rank, EvidenceRole.RETRIEVED, limit=limit
+            )
         if expand:
             for citer in list(units):
                 for target in self._targets(citer.chunk):
@@ -287,9 +434,14 @@ class EvidencePacker:
                         citer.rank,
                         EvidenceRole.REFERENCED,
                         citer.citation,
+                        limit=limit,
                     )
         for rank, result in enumerate(results[head:], start=head + 1):
-            units = self._place(units, result.chunk, rank, EvidenceRole.RETRIEVED)
+            units = self._place(
+                units, result.chunk, rank, EvidenceRole.RETRIEVED, limit=limit
+            )
+        for rank, chunk in oversize:
+            units = self._excerpted(units, chunk, rank, query or "")
         if fill_refs and not expand:
             # ADR-131: unlike `expand`, this runs after every hit is placed,
             # so a reference only takes budget no hit could use.

@@ -38,6 +38,7 @@
     {"statutory": "maximum marginal rate", "source": "2(70)", "lay": ["highest slab", "top slab", "highest rate"]},
     {"statutory": "rates in force", "source": "2(90)", "lay": ["slab"]},
     {"statutory": "exercises the option", "source": "202", "lay": ["new regime", "new tax regime", "default regime", "default tax regime", "old regime", "old tax regime"]},
+    {"statutory": "expenditure incurred wholly and exclusively in connection with such transfer", "source": "72", "lay": ["capital gain worked out", "capital gain calculated", "capital gain computed", "calculate capital gain", "calculate my capital gain", "calculate the capital gain", "compute capital gain", "work out capital gain", "work out my capital gain", "work out the capital gain", "calculation of capital gain", "computation of capital gain"]},
     {"statutory": "person of Indian origin", "source": "2(78)", "lay": ["pio", "oci"]},
     {"statutory": "Appellate Tribunal", "source": "2(8)", "lay": ["itat"]},
     {"statutory": "Central Board of Direct Taxes", "source": "2(18)", "lay": ["cbdt"]},

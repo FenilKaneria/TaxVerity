@@ -408,7 +408,14 @@ def _retrieve(
         results = pinned_first(deps.calc_pins, results)
     # ADR-131: a first pass fills leftover budget with what its hits refer
     # to; the retry's `expand` already brings references, ahead of the tail.
-    pack = deps.packer.pack(results, expand=expand, fill_refs=not expand)
+    # R27: the question's own words and the rewrite both choose what an
+    # oversize hit is excerpted to.
+    pack = deps.packer.pack(
+        results,
+        expand=expand,
+        fill_refs=not expand,
+        query=f"{state['query']} {base_query}",
+    )
     emit(
         StageEvent(
             stage="evidence", chunks=tuple(unit.citation for unit in pack.units)

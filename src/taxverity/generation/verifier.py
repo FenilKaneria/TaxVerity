@@ -120,6 +120,17 @@ _NEGATIVE_MODAL = re.compile(
     r"not entitled|not permitted|no deduction|not deductible)\b",
     re.IGNORECASE,
 )
+# R27: a denial or a claim of silence. Deliberately wide: it is applied only
+# to a line citing an excerpt, where a wrong "no TDS applies" was served
+# live because the row that imposes it was outside the excerpt.
+_DENIAL = re.compile(
+    r"\b(?:do|does|did|is|are|was|were|need|shall|will|would|can|could|may|must|"
+    r"should|has|have)(?: not|n[\u2019\']t)\b|\bcannot\b|\bneither\b|\bnever\b|"
+    r"\bno (?:tds|tcs|tax|deduction|collection|obligation|requirement|provision|"
+    r"such|need|liability)\b|\bnot (?:required|liable|applicable|covered|"
+    r"mentioned|stated|imposed|deductible|taxable)\b",
+    re.IGNORECASE,
+)
 _AFFIRMATIVE_MODAL = re.compile(
     r"\b(you (?:can|may|are entitled|should|must)|is allowed|is deductible|"
     r"is permitted|shall be)\b",
@@ -285,6 +296,10 @@ class Violation(StrEnum):
     # R22 Part B: a step on a website, portal or app ("log in to the
     # e-filing portal [1]") attributed to a passage that never mentions one.
     OFF_ACT_PROCEDURE = "off_act_procedure"
+    # R27 (ADR-132): a line denying something, or calling the Act silent,
+    # while citing a passage delivered as an excerpt. The model read part
+    # of the section; what it did not see is not evidence of absence.
+    PARTIAL_PASSAGE_DENIAL = "partial_passage_denial"
     # R22 Part C (ADR-128): GUIDANCE-line checks.
     MALFORMED_GUIDANCE = "malformed_guidance"
     GUIDANCE_STATES_LAW = "guidance_states_law"
@@ -368,7 +383,7 @@ class Verifier:
         return any(
             _STATED_AMOUNT.search(text)
             for unit in units
-            for text in (unit.chunk.text, *(c.text for c in unit.context))
+            for text in (unit.text, *(c.text for c in unit.context))
         )
 
     def verify(self, claim: Claim) -> Verdict:
@@ -580,6 +595,13 @@ class Verifier:
                     "describes a website or portal step no cited passage mentions",
                 )
             )
+        if _denies_from_a_partial_passage(claim.text, cited_units):
+            findings.append(
+                Finding(
+                    Violation.PARTIAL_PASSAGE_DENIAL,
+                    "says what the Act does not require, citing a passage shown only in part",
+                )
+            )
         if cited_units and _asserts_the_opposite_of_its_source(claim.text, cited_units):
             findings.append(
                 Finding(
@@ -684,6 +706,13 @@ class Verifier:
                     "describes a website or portal step no cited passage mentions",
                 )
             )
+        if _denies_from_a_partial_passage(claim.text, cited_units):
+            findings.append(
+                Finding(
+                    Violation.PARTIAL_PASSAGE_DENIAL,
+                    "says what the Act does not require, citing a passage shown only in part",
+                )
+            )
         if cited_units and _asserts_the_opposite_of_its_source(claim.text, cited_units):
             findings.append(
                 Finding(
@@ -742,6 +771,13 @@ class Verifier:
                 Finding(
                     Violation.OFF_ACT_PROCEDURE,
                     "describes a website or portal step no cited passage mentions",
+                )
+            )
+        if _denies_from_a_partial_passage(claim.text, cited_units):
+            findings.append(
+                Finding(
+                    Violation.PARTIAL_PASSAGE_DENIAL,
+                    "says what the Act does not require, citing a passage shown only in part",
                 )
             )
         if cited_units and _asserts_the_opposite_of_its_source(claim.text, cited_units):
@@ -970,7 +1006,7 @@ def _unsupported_finding(unsupported: list[Decimal]) -> Finding:
 
 
 def _excerpt(unit: EvidenceUnit, limit: int = 600) -> str:
-    text = unit.chunk.text
+    text = unit.text
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
 
@@ -980,26 +1016,33 @@ def ground_numbers(unit: EvidenceUnit) -> frozenset[Decimal]:
     deterministic reasoning validator reuses this unchanged — a legal
     number the model reports in a rule, condition or limit must be
     grounded exactly the way a claim's own number already is."""
-    numbers = numbers_in(unit.chunk.text) | numbers_in(unit.citation)
+    numbers = numbers_in(unit.text) | numbers_in(unit.citation)
     for line in unit.context:
         numbers |= numbers_in(line.text)
     # R21 Part B: the Act prints a zero rate as "Nil" (section 202(1)'s first
     # slab), so a passage saying "Nil" grounds 0 — and only such a passage.
-    if _NIL.search(unit.chunk.text) or any(
-        _NIL.search(line.text) for line in unit.context
-    ):
+    if _NIL.search(unit.text) or any(_NIL.search(line.text) for line in unit.context):
         numbers |= {Decimal(0)}
     return numbers
 
 
 def _names_an_unsourced_online_step(text: str, units: list[EvidenceUnit]) -> bool:
     sources = " ".join(
-        [unit.chunk.text for unit in units]
+        [unit.text for unit in units]
         + [line.text for unit in units for line in unit.context]
     ).lower()
     return any(
         re.search(rf"\b{re.escape(found.group(0).lower())}", sources) is None
         for found in _ONLINE_PROCEDURE.finditer(normalise(text))
+    )
+
+
+def _denies_from_a_partial_passage(text: str, units: list[EvidenceUnit]) -> bool:
+    """A denial resting on an excerpt (R27). The shown lines can ground a
+    figure; they cannot ground the absence of a rule, because the rest of
+    the section was not read."""
+    return any(unit.excerpt is not None for unit in units) and bool(
+        _DENIAL.search(normalise(text))
     )
 
 
@@ -1010,7 +1053,7 @@ def _asserts_the_opposite_of_its_source(text: str, units: list[EvidenceUnit]) ->
     if not _affirms(text):
         return False
     for unit in units:
-        source = unit.chunk.text
+        source = unit.text
         if _NEGATIVE_MODAL.search(source) and not _AFFIRMATIVE_MODAL.search(source):
             return True
     return False

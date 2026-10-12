@@ -53,7 +53,7 @@ from taxverity.retrieval.tables import with_table_rows
 logger = get_logger(__name__)
 
 GENERATION_STAGE_VERSION = 12
-GENERATION_PROMPT_VERSION = 14
+GENERATION_PROMPT_VERSION = 15
 
 # Reasoning is billed against the cap and cannot be disabled (Step 7.1).
 GENERATION_MAX_COMPLETION_TOKENS = 2_048
@@ -103,6 +103,8 @@ Citations:
 - Every line must stand on its own: never write a line that only introduces a list (ending with ":"), and never split one step or one example across several lines.
 - People say "new regime" or "default regime" for tax at the rates that apply "unless the person exercises the option" to leave them, and "old regime" for having exercised that option. Read their words that way, and where a passage gives one figure under those default rates (for example "where income-tax is computed under" that section) and another "in any other case", give the default-regime figure to someone on the new or default regime.
 - A passage written as "TABLE" rows ("column: value | ...") gives each figure for its own row only. Use a row's figure only for the person or case that row names, under that row's conditions. If you do not know which row fits the person, give each possible row's case with its figure; never pick one for them. When you restate a row, keep everything it says about who it covers and when; never shorten it.
+- When a passage sets one limit for a group of its clauses (for example "(a) and (c)") and another for a different group ("(b) and (d)"), each limit covers only its own group. Say in everyday words what each group covers, and never merge two groups under one limit.
+- When a passage applies a rule to something another passage describes ("referred to in ...") and that other passage is among those given, state what it describes in full, with every alternative it lists, citing both.
 
 Examples:
 - Add one worked example whenever the rule you state has an amount, rate, limit, threshold or period, so the person sees it applied: put it under "### Example", right after the direct answer and before any conditions. Write 2 example lines only when the person asks for examples or a simpler explanation, or the rule has two cases with different figures.
@@ -854,14 +856,27 @@ def render_context(
     units = []
     for number, unit in enumerate(pack.units, start=1):
         block = [f"[{number}] {unit.chunk.citation_label}"]
+        if unit.excerpt is not None:
+            block[0] += EXCERPT_NOTE
         for line in unit.context:
             block.append(f"[lead-in of {line.citation}]\n{line.text}")
         # R22 Part B: a measured table reads one row per line, so a date or
         # rate stays with the row (and condition) it belongs to.
-        block.append(with_table_rows(unit.chunk))
+        block.append(
+            with_table_rows(unit.chunk) if unit.excerpt is None else unit.excerpt
+        )
         units.append("\n".join(block))
     parts.append("<evidence>\n" + "\n\n".join(units) + "\n</evidence>")
     return "\n\n".join(parts)
+
+
+# R27: fixed text beside an excerpt's label. The verifier enforces it
+# (`partial_passage_denial`); this only saves a repair.
+EXCERPT_NOTE = (
+    " (only the parts of this long section that match the question are shown;"
+    " [...] marks parts left out. Use it for what it shows. Never say it does"
+    " not cover or require something.)"
+)
 
 
 def render_analysis(analysis: ValidatedAnalysis) -> str:

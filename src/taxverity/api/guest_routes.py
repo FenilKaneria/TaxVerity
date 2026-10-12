@@ -208,7 +208,13 @@ def create_guest_turn_route(
                 )
                 if getattr(result, "intent", None) is Intent.CALCULATION:
                     results = pinned_first(deps.calc_pins, results)
-                pack = timed("pack", deps.packer.pack, results, fill_refs=True)
+                pack = timed(
+                    "pack",
+                    deps.packer.pack,
+                    results,
+                    fill_refs=True,
+                    query=f"{body.question} {search_query}",
+                )
                 yield _sse(
                     StageEvent(
                         stage="evidence",
