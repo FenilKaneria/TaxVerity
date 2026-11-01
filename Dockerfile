@@ -11,7 +11,7 @@
 # the `embed` optional extra (torch, sentence-transformers) — that extra
 # exists only for the offline local fidelity reference, never for serving.
 
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.7 /uv /uvx /bin/
 
